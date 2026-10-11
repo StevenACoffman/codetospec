@@ -222,7 +222,10 @@ func (c *Checker) checkRule(ctx context.Context, rule graph.Node) (Verdict, llm.
 	userPrompt := fmt.Sprintf(userPromptFormat,
 		rule.ID, rule.Title, requirementOf(rule.Body), criteria, excerpt)
 	msgs := []llm.Message{
-		{Role: "system", Content: strings.ReplaceAll(systemPrompt, "<LANG>", mapper.LangName(c.Lang))},
+		{
+			Role:    "system",
+			Content: strings.ReplaceAll(systemPrompt, "<LANG>", mapper.LangName(c.Lang)),
+		},
 		{Role: "user", Content: userPrompt},
 	}
 
@@ -230,11 +233,17 @@ func (c *Checker) checkRule(ctx context.Context, rule graph.Node) (Verdict, llm.
 	payload, err := llm.ChatJSON(ctx, c.LLM, msgs, 2, func(u llm.Usage) { usage.Add(u) },
 		func(reply string) (verdictPayload, error) {
 			var p verdictPayload
-			if unmarshalErr := json.Unmarshal([]byte(llm.StripFences(reply)), &p); unmarshalErr != nil {
-				return p, fmt.Errorf("invalid JSON: %v", unmarshalErr)
+			if unmarshalErr := json.Unmarshal(
+				[]byte(llm.StripFences(reply)),
+				&p,
+			); unmarshalErr != nil {
+				return p, fmt.Errorf("invalid JSON: %w", unmarshalErr)
 			}
 			if !verdicts[p.Verdict] {
-				return p, fmt.Errorf("verdict %q is not one of supported|partial|unsupported", p.Verdict)
+				return p, fmt.Errorf(
+					"verdict %q is not one of supported|partial|unsupported",
+					p.Verdict,
+				)
 			}
 			if strings.TrimSpace(p.Reason) == "" {
 				return p, errors.New("reason must not be empty")
@@ -250,7 +259,7 @@ func (c *Checker) checkRule(ctx context.Context, rule graph.Node) (Verdict, llm.
 	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
 		return Verdict{}, usage, err
 	default:
-		slog.Warn("crosscheck failed", "rule", rule.ID, "err", err)
+		slog.WarnContext(ctx, "crosscheck failed", "rule", rule.ID, "err", err)
 		v.Failed = true
 		v.Error = err.Error()
 	}
@@ -260,7 +269,8 @@ func (c *Checker) checkRule(ctx context.Context, rule graph.Node) (Verdict, llm.
 	if c.Repair && (v.Verdict == VerdictUnsupported || v.Verdict == VerdictPartial) {
 		newCitations, repairUsage, repairErr := c.repairRule(ctx, rule, v.Reason)
 		usage.Add(repairUsage)
-		if errors.Is(repairErr, context.Canceled) || errors.Is(repairErr, context.DeadlineExceeded) {
+		if errors.Is(repairErr, context.Canceled) ||
+			errors.Is(repairErr, context.DeadlineExceeded) {
 			return Verdict{}, usage, repairErr
 		}
 		if len(newCitations) > 0 {
@@ -283,7 +293,11 @@ func (c *Checker) checkRule(ctx context.Context, rule graph.Node) (Verdict, llm.
 // that implements the rule, then validates the proposed citations
 // deterministically: each must sit in a file the rule already cited and
 // overlap a real symbol body. Without precise symbols it does nothing.
-func (c *Checker) repairRule(ctx context.Context, rule graph.Node, reason string) ([]extract.Ref, llm.Usage, error) {
+func (c *Checker) repairRule(
+	ctx context.Context,
+	rule graph.Node,
+	reason string,
+) ([]extract.Ref, llm.Usage, error) {
 	if c.SymbolsFor == nil {
 		return nil, llm.Usage{}, nil
 	}
@@ -303,7 +317,10 @@ func (c *Checker) repairRule(ctx context.Context, rule graph.Node, reason string
 	userPrompt := fmt.Sprintf(repairUserPromptFormat,
 		rule.ID, rule.Title, requirementOf(rule.Body), reason, catalog)
 	msgs := []llm.Message{
-		{Role: "system", Content: strings.ReplaceAll(repairSystemPrompt, "<LANG>", mapper.LangName(c.Lang))},
+		{
+			Role:    "system",
+			Content: strings.ReplaceAll(repairSystemPrompt, "<LANG>", mapper.LangName(c.Lang)),
+		},
 		{Role: "user", Content: userPrompt},
 	}
 
@@ -311,8 +328,11 @@ func (c *Checker) repairRule(ctx context.Context, rule graph.Node, reason string
 	payload, err := llm.ChatJSON(ctx, c.LLM, msgs, 1, func(u llm.Usage) { usage.Add(u) },
 		func(reply string) (repairPayload, error) {
 			var p repairPayload
-			if unmarshalErr := json.Unmarshal([]byte(llm.StripFences(reply)), &p); unmarshalErr != nil {
-				return p, fmt.Errorf("invalid JSON: %v", unmarshalErr)
+			if unmarshalErr := json.Unmarshal(
+				[]byte(llm.StripFences(reply)),
+				&p,
+			); unmarshalErr != nil {
+				return p, fmt.Errorf("invalid JSON: %w", unmarshalErr)
 			}
 			return p, nil
 		})
@@ -332,7 +352,10 @@ func (c *Checker) repairRule(ctx context.Context, rule graph.Node, reason string
 
 // validateRepairCitations keeps only citations that land in an allowed file
 // and overlap a real symbol body — the mechanical grounding guarantee.
-func validateRepairCitations(citations []extract.Ref, symbolsByPath map[string][]mapper.SymbolContext) []extract.Ref {
+func validateRepairCitations(
+	citations []extract.Ref,
+	symbolsByPath map[string][]mapper.SymbolContext,
+) []extract.Ref {
 	var valid []extract.Ref
 	seen := make(map[string]bool)
 	for _, c := range citations {
@@ -483,7 +506,9 @@ func Count(verdictsByRule map[string]Verdict) Tally {
 }
 
 func inputHash(rule graph.Node, excerpt string) string {
-	sum := sha256.Sum256(fmt.Appendf(nil, "%s\n%s\n%s\n%s", rule.ID, rule.Title, rule.Body, excerpt))
+	sum := sha256.Sum256(
+		fmt.Appendf(nil, "%s\n%s\n%s\n%s", rule.ID, rule.Title, rule.Body, excerpt),
+	)
 	return hex.EncodeToString(sum[:])[:16]
 }
 
@@ -509,7 +534,7 @@ func acceptanceCriteria(body string) []string {
 		}
 		if inList {
 			trimmed := strings.TrimSpace(line)
-			if trimmed == "" || !(trimmed[0] >= '0' && trimmed[0] <= '9') {
+			if trimmed == "" || (trimmed[0] < '0' || trimmed[0] > '9') {
 				break
 			}
 			criteria = append(criteria, trimmed)

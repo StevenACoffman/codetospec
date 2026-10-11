@@ -14,7 +14,13 @@ func TestChunkFileOneChunkPerDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	chunks := ChunkFile("app/Services/Billing/ProrataCalculator.php", "php", content, info, noopDomain)
+	chunks := ChunkFile(
+		"app/Services/Billing/ProrataCalculator.php",
+		"php",
+		content,
+		info,
+		noopDomain,
+	)
 	if len(chunks) != 1 {
 		t.Fatalf("chunks = %d, want 1 (one top-level class)", len(chunks))
 	}
@@ -60,8 +66,12 @@ func TestChunkFileLargeClassSplitsPerMethod(t *testing.T) {
 	for _, c := range chunks {
 		// The class header is now separate CONTEXT (numbered from its real
 		// start), not folded into the numbered body.
-		if !strings.HasPrefix(c.Context, "class Big") || !strings.Contains(c.Context, "public $prop = 1;") {
-			t.Errorf("method chunk context should be the class header, got %q", firstLine(c.Context))
+		if !strings.HasPrefix(c.Context, "class Big") ||
+			!strings.Contains(c.Context, "public $prop = 1;") {
+			t.Errorf(
+				"method chunk context should be the class header, got %q",
+				firstLine(c.Context),
+			)
 		}
 		if c.ContextStart != 3 {
 			t.Errorf("context starts at %d, want 3 (the class declaration line)", c.ContextStart)
@@ -90,10 +100,18 @@ func TestChunkFileFallbackWindows(t *testing.T) {
 	wantBounds := [][2]int{{1, 250}, {231, 480}, {461, 600}}
 	for i, want := range wantBounds {
 		if chunks[i].StartLine != want[0] || chunks[i].EndLine != want[1] {
-			t.Errorf("chunk[%d] = %d-%d, want %d-%d", i, chunks[i].StartLine, chunks[i].EndLine, want[0], want[1])
+			t.Errorf(
+				"chunk[%d] = %d-%d, want %d-%d",
+				i,
+				chunks[i].StartLine,
+				chunks[i].EndLine,
+				want[0],
+				want[1],
+			)
 		}
 	}
-	if !strings.HasSuffix(chunks[0].Content, "line 250") || !strings.HasPrefix(chunks[1].Content, "line 231") {
+	if !strings.HasSuffix(chunks[0].Content, "line 250") ||
+		!strings.HasPrefix(chunks[1].Content, "line 231") {
 		t.Error("fallback chunks should overlap by 20 lines")
 	}
 }

@@ -4,9 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"codetospec/internal/llm"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func drive(t *testing.T, m Model, msgs ...tea.Msg) Model {
@@ -31,10 +30,19 @@ func TestModelViewReflectsProgress(t *testing.T) {
 		FactsMerged{Total: 12, ByKind: map[string]int{"symbol": 8, "module": 4}},
 		Chunked{Chunks: 38},
 		PhaseChanged{Phase: "map"},
-		MapUnit{Path: "app/billing.php", Lines: "10-80", Domain: "billing", Rules: 2, Done: 1, Total: 38,
-			Usage: llm.Usage{PromptTokens: 4000, CompletionTokens: 500}},
-		MapUnit{Path: "index.php", Lines: "1-90", Domain: "core", Rules: 1, Done: 2, Total: 38,
-			Usage: llm.Usage{PromptTokens: 3000, CompletionTokens: 400}},
+		MapUnit{
+			Path:   "app/billing.php",
+			Lines:  "10-80",
+			Domain: "billing",
+			Rules:  2,
+			Done:   1,
+			Total:  38,
+			Usage:  llm.Usage{PromptTokens: 4000, CompletionTokens: 500},
+		},
+		MapUnit{
+			Path: "index.php", Lines: "1-90", Domain: "core", Rules: 1, Done: 2, Total: 38,
+			Usage: llm.Usage{PromptTokens: 3000, CompletionTokens: 400},
+		},
 		LogLine{Message: "extractor failed name=php"},
 	)
 

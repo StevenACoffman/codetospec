@@ -8,7 +8,9 @@ import (
 
 func readFixture(t *testing.T, rel string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "fixture", filepath.FromSlash(rel)))
+	data, err := os.ReadFile(
+		filepath.Join("..", "..", "testdata", "fixture", filepath.FromSlash(rel)),
+	)
 	if err != nil {
 		t.Fatalf("read fixture %s: %v", rel, err)
 	}

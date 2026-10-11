@@ -5,6 +5,7 @@ package render
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,11 +13,10 @@ import (
 	"strconv"
 	"strings"
 
-	"gopkg.in/yaml.v3"
-
 	"codetospec/internal/consistency"
 	"codetospec/internal/extract"
 	"codetospec/internal/graph"
+	"gopkg.in/yaml.v3"
 )
 
 // Meta is run-level information rendered into README.md.
@@ -61,10 +61,18 @@ func Write(outDir string, nodes []graph.Node, meta Meta) error {
 	if err := writeGraphJSON(outDir, nodes); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(outDir, "README.md"), []byte(readme(nodes, meta)), 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(outDir, "README.md"),
+		[]byte(readme(nodes, meta)),
+		0o644,
+	); err != nil {
 		return fmt.Errorf("write README.md: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(outDir, "llms.txt"), []byte(llmsTxt(nodes)), 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(outDir, "llms.txt"),
+		[]byte(llmsTxt(nodes)),
+		0o644,
+	); err != nil {
 		return fmt.Errorf("write llms.txt: %w", err)
 	}
 	return nil
@@ -200,7 +208,11 @@ func writeGraphJSON(outDir string, nodes []graph.Node) error {
 	if err != nil {
 		return fmt.Errorf("encode graph.json: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(outDir, "graph.json"), append(data, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(outDir, "graph.json"),
+		append(data, '\n'),
+		0o644,
+	); err != nil {
 		return fmt.Errorf("write graph.json: %w", err)
 	}
 	return nil
@@ -236,7 +248,9 @@ func readme(nodes []graph.Node, meta Meta) string {
 	counts := countByType(nodes)
 	var b strings.Builder
 	b.WriteString("# Spécification générée\n\n")
-	b.WriteString("Graphe de connaissances des règles métier, extrait du code source par codetospec.\n\n")
+	b.WriteString(
+		"Graphe de connaissances des règles métier, extrait du code source par codetospec.\n\n",
+	)
 	fmt.Fprintf(&b, "- Domaines : %d\n", counts["domain"])
 	fmt.Fprintf(&b, "- Entités : %d\n", counts["entity"])
 	fmt.Fprintf(&b, "- Endpoints : %d\n", counts["endpoint"])
@@ -249,7 +263,12 @@ func readme(nodes []graph.Node, meta Meta) string {
 	}
 	byOrigin := countByExtra(nodes, "origin")
 	if byOrigin["explicit"]+byOrigin["implicit"] > 0 {
-		fmt.Fprintf(&b, "  - explicites : %d · implicites : %d\n", byOrigin["explicit"], byOrigin["implicit"])
+		fmt.Fprintf(
+			&b,
+			"  - explicites : %d · implicites : %d\n",
+			byOrigin["explicit"],
+			byOrigin["implicit"],
+		)
 	}
 
 	b.WriteString("\n## Couverture\n\n")
@@ -264,7 +283,11 @@ func readme(nodes []graph.Node, meta Meta) string {
 	if len(meta.FilesNoGrammar) > 0 {
 		files := append([]string(nil), meta.FilesNoGrammar...)
 		sort.Strings(files)
-		fmt.Fprintf(&b, "- Fichiers sans grammaire (fallback lignes) : %s\n", strings.Join(files, ", "))
+		fmt.Fprintf(
+			&b,
+			"- Fichiers sans grammaire (fallback lignes) : %s\n",
+			strings.Join(files, ", "),
+		)
 	}
 	if len(meta.ExtractorsFailed) > 0 {
 		names := append([]string(nil), meta.ExtractorsFailed...)
@@ -272,8 +295,13 @@ func readme(nodes []graph.Node, meta Meta) string {
 		fmt.Fprintf(&b, "- Extracteurs en échec : %s\n", strings.Join(names, ", "))
 	}
 	if meta.Crosschecked {
-		fmt.Fprintf(&b, "- Contre-vérification adversariale : %d supported, %d partial, %d unsupported",
-			meta.CrosscheckSupported, meta.CrosscheckPartial, meta.CrosscheckUnsupported)
+		fmt.Fprintf(
+			&b,
+			"- Contre-vérification adversariale : %d supported, %d partial, %d unsupported",
+			meta.CrosscheckSupported,
+			meta.CrosscheckPartial,
+			meta.CrosscheckUnsupported,
+		)
 		if meta.CrosscheckRepaired > 0 {
 			fmt.Fprintf(&b, ", %d réparés", meta.CrosscheckRepaired)
 		}
@@ -292,9 +320,14 @@ func readme(nodes []graph.Node, meta Meta) string {
 				cross++
 			}
 		}
-		b.WriteString("\n## Doublons candidats\n\n")
-		fmt.Fprintf(&b, "%d paires de règles à l'exigence quasi identique (à réconcilier) — %d intra-domaine, %d cross-domaine :\n\n",
-			len(meta.DuplicatePairs), intra, cross)
+		b.WriteString("\n## Doublons candidates\n\n")
+		fmt.Fprintf(
+			&b,
+			"%d paires de règles à l'exigence quasi identique (à réconcilier) — %d intra-domaine, %d cross-domaine :\n\n",
+			len(meta.DuplicatePairs),
+			intra,
+			cross,
+		)
 		shown := meta.DuplicatePairs
 		if len(shown) > 20 {
 			shown = shown[:20]
@@ -321,7 +354,12 @@ func readme(nodes []graph.Node, meta Meta) string {
 		from := mermaidID(strings.TrimPrefix(n.ID, "domain."))
 		for _, e := range n.Edges {
 			if e.Type == "depends_on" {
-				fmt.Fprintf(&b, "  %s --> %s\n", from, mermaidID(strings.TrimPrefix(e.To, "domain.")))
+				fmt.Fprintf(
+					&b,
+					"  %s --> %s\n",
+					from,
+					mermaidID(strings.TrimPrefix(e.To, "domain.")),
+				)
 			}
 		}
 	}
@@ -347,9 +385,15 @@ func llmsTxt(nodes []graph.Node) string {
 	var b strings.Builder
 	b.WriteString("# codetospec knowledge graph\n\n")
 	b.WriteString("> Spécification des règles métier extraite automatiquement du code source.\n")
-	b.WriteString("> Chaque nœud est un fichier markdown avec un frontmatter YAML portant des edges typés.\n\n")
-	b.WriteString("Navigation : commencer par nodes/domains/, puis suivre les edges du frontmatter\n")
-	b.WriteString("(belongs_to, touches, exposed_by, depends_on). graph.json contient le graphe complet\n")
+	b.WriteString(
+		"> Chaque nœud est un fichier markdown avec un frontmatter YAML portant des edges typés.\n\n",
+	)
+	b.WriteString(
+		"Navigation : commencer par nodes/domains/, puis suivre les edges du frontmatter\n",
+	)
+	b.WriteString(
+		"(belongs_to, touches, exposed_by, depends_on). graph.json contient le graphe complet\n",
+	)
 	b.WriteString("au format machine ; les citations `path:lines` pointent dans le dépôt source.\n")
 	for _, nodeType := range []string{"domain", "entity", "endpoint", "rule"} {
 		var lines []string
@@ -396,11 +440,11 @@ func ParseNode(content string) (graph.Node, error) {
 	var n graph.Node
 	rest, ok := strings.CutPrefix(content, "---\n")
 	if !ok {
-		return n, fmt.Errorf("missing frontmatter opening")
+		return n, errors.New("missing frontmatter opening")
 	}
 	front, body, ok := strings.Cut(rest, "\n---\n")
 	if !ok {
-		return n, fmt.Errorf("missing frontmatter closing")
+		return n, errors.New("missing frontmatter closing")
 	}
 	var doc frontmatterDoc
 	if err := yaml.Unmarshal([]byte(front), &doc); err != nil {

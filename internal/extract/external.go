@@ -56,7 +56,14 @@ func RunExtractor(ctx context.Context, cfg ExtractorConfig, src string) ([]Fact,
 
 	err := cmd.Run()
 	if stderr.Len() > 0 {
-		slog.Debug("extractor stderr", "name", cfg.Name, "output", strings.TrimSpace(stderr.String()))
+		slog.DebugContext(
+			ctx,
+			"extractor stderr",
+			"name",
+			cfg.Name,
+			"output",
+			strings.TrimSpace(stderr.String()),
+		)
 	}
 	if runCtx.Err() == context.DeadlineExceeded {
 		return nil, fmt.Errorf("extractor %s timed out after %s", cfg.Name, timeout)

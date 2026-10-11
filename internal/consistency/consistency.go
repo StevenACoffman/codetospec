@@ -49,7 +49,10 @@ func FindDuplicates(nodes []graph.Node, threshold float64) []DuplicatePair {
 		for j := i + 1; j < len(rules); j++ {
 			sim := jaccard(rules[i].words, rules[j].words)
 			if sim >= threshold {
-				pairs = append(pairs, DuplicatePair{A: rules[i].id, B: rules[j].id, Similarity: sim})
+				pairs = append(
+					pairs,
+					DuplicatePair{A: rules[i].id, B: rules[j].id, Similarity: sim},
+				)
 			}
 		}
 	}

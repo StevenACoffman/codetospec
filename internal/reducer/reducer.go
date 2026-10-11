@@ -162,18 +162,27 @@ const DefaultBatchSize = 30
 // reduceDomain reduces one domain, reusing a cached output when present.
 // Domains larger than the batch size are reduced in batches and merged
 // deterministically.
-func (r *Reducer) reduceDomain(ctx context.Context, domain string, rules []mapper.Rule) (Output, llm.Usage, error) {
+func (r *Reducer) reduceDomain(
+	ctx context.Context,
+	domain string,
+	rules []mapper.Rule,
+) (Output, llm.Usage, error) {
 	outPath := filepath.Join(r.OutDir, domain+".json")
 	hash := candidatesHash(rules)
 	if data, err := os.ReadFile(outPath); err == nil {
 		var cached Output
 		switch unmarshalErr := json.Unmarshal(data, &cached); {
 		case unmarshalErr != nil:
-			slog.Warn("corrupt reduce cache, re-reducing", "path", outPath)
+			slog.WarnContext(ctx, "corrupt reduce cache, re-reducing", "path", outPath)
 		case cached.CandidatesHash == hash:
 			return cached, llm.Usage{}, nil // candidates unchanged
 		default:
-			slog.Info("reduce cache stale (candidates changed), re-reducing", "domain", domain)
+			slog.InfoContext(
+				ctx,
+				"reduce cache stale (candidates changed), re-reducing",
+				"domain",
+				domain,
+			)
 		}
 	}
 
@@ -214,7 +223,12 @@ func (r *Reducer) reduceDomain(ctx context.Context, domain string, rules []mappe
 // maxRepairs correction rounds. In the adaptive path maxRepairs is 0: a
 // truncated batch cannot be fixed by resending at the same size — halving is
 // the recovery — so retries there would only waste calls.
-func (r *Reducer) reduceBatch(ctx context.Context, domain string, rules []mapper.Rule, maxRepairs int) (reducePayload, llm.Usage, error) {
+func (r *Reducer) reduceBatch(
+	ctx context.Context,
+	domain string,
+	rules []mapper.Rule,
+	maxRepairs int,
+) (reducePayload, llm.Usage, error) {
 	candidateJSON, err := json.Marshal(rules)
 	if err != nil {
 		return reducePayload{}, llm.Usage{}, fmt.Errorf("encode candidates: %w", err)
@@ -222,7 +236,10 @@ func (r *Reducer) reduceBatch(ctx context.Context, domain string, rules []mapper
 	userPrompt := fmt.Sprintf(userPromptFormat,
 		domain, mustJSON(r.Entities), mustJSON(r.Endpoints), string(candidateJSON))
 	msgs := []llm.Message{
-		{Role: "system", Content: strings.ReplaceAll(systemPrompt, "<LANG>", mapper.LangName(r.Lang))},
+		{
+			Role:    "system",
+			Content: strings.ReplaceAll(systemPrompt, "<LANG>", mapper.LangName(r.Lang)),
+		},
 		{Role: "user", Content: userPrompt},
 	}
 	allowedCitations := citationSet(rules)
@@ -244,14 +261,25 @@ const reduceFloor = 5
 // slugs renumbered on collision). A batch that truncates its JSON is split
 // in half and retried down to reduceFloor, so growth in output size can
 // never lose a whole batch (let alone a domain).
-func (r *Reducer) reduceInBatches(ctx context.Context, domain string, rules []mapper.Rule, batchSize int) (Output, llm.Usage, error) {
+func (r *Reducer) reduceInBatches(
+	ctx context.Context,
+	domain string,
+	rules []mapper.Rule,
+	batchSize int,
+) (Output, llm.Usage, error) {
 	var usage llm.Usage
 	var merged []Rule
 	summary := ""
 	dropped := 0
 	for i := 0; i < len(rules); i += batchSize {
 		end := min(i+batchSize, len(rules))
-		batchRules, batchSummary, err := r.reduceBatchAdaptive(ctx, domain, rules[i:end], &usage, &dropped)
+		batchRules, batchSummary, err := r.reduceBatchAdaptive(
+			ctx,
+			domain,
+			rules[i:end],
+			&usage,
+			&dropped,
+		)
 		if err != nil {
 			return Output{}, usage, err // cancellation only
 		}
@@ -260,7 +288,7 @@ func (r *Reducer) reduceInBatches(ctx context.Context, domain string, rules []ma
 		}
 		merged = append(merged, batchRules...)
 	}
-	slog.Info("reduced large domain in batches", "domain", domain,
+	slog.InfoContext(ctx, "reduced large domain in batches", "domain", domain,
 		"candidates", len(rules), "rules", len(merged), "dropped_candidates", dropped)
 
 	out := Output{Domain: domain}
@@ -278,7 +306,13 @@ func (r *Reducer) reduceInBatches(ctx context.Context, domain string, rules []ma
 // until batches succeed or shrink to reduceFloor. Returns cancellation
 // errors; persistent small-batch failures are counted in *dropped, not
 // returned.
-func (r *Reducer) reduceBatchAdaptive(ctx context.Context, domain string, rules []mapper.Rule, usage *llm.Usage, dropped *int) ([]Rule, string, error) {
+func (r *Reducer) reduceBatchAdaptive(
+	ctx context.Context,
+	domain string,
+	rules []mapper.Rule,
+	usage *llm.Usage,
+	dropped *int,
+) ([]Rule, string, error) {
 	// Fail fast while we can still halve; allow real correction rounds only
 	// at the floor, where halving is no longer an option.
 	maxRepairs := 0
@@ -310,7 +344,16 @@ func (r *Reducer) reduceBatchAdaptive(ctx context.Context, domain string, rules 
 		return append(left, right...), summary, nil
 	}
 	*dropped += len(rules)
-	slog.Warn("dropping unprocessable reduce batch", "domain", domain, "candidates", len(rules), "err", err)
+	slog.WarnContext(
+		ctx,
+		"dropping unprocessable reduce batch",
+		"domain",
+		domain,
+		"candidates",
+		len(rules),
+		"err",
+		err,
+	)
 	return nil, "", nil
 }
 
@@ -372,10 +415,14 @@ func unionRefs(a, b []extract.Ref) []extract.Ref {
 // map-level checks plus slug uniqueness and verbatim citations. Slugs are
 // repaired mechanically (slugify, truncate to 5 words, numeric suffix on
 // duplicates) instead of burning LLM correction rounds on formatting.
-func validateReduceReply(reply string, allowedEntities, allowedEndpoints []string, allowedCitations map[string]bool) (reducePayload, error) {
+func validateReduceReply(
+	reply string,
+	allowedEntities, allowedEndpoints []string,
+	allowedCitations map[string]bool,
+) (reducePayload, error) {
 	var payload reducePayload
 	if err := json.Unmarshal([]byte(llm.StripFences(reply)), &payload); err != nil {
-		return payload, fmt.Errorf("invalid JSON: %v", err)
+		return payload, fmt.Errorf("invalid JSON: %w", err)
 	}
 	slugs := make(map[string]bool)
 	for i := range payload.Rules {
@@ -393,33 +440,62 @@ func validateReduceReply(reply string, allowedEntities, allowedEndpoints []strin
 	}
 	for i, rule := range payload.Rules {
 		if !mapper.EARSKinds[rule.EarsKind] {
-			return payload, fmt.Errorf("rules[%d].ears_kind %q is not one of ubiquitous|event|state|unwanted|optional", i, rule.EarsKind)
+			return payload, fmt.Errorf(
+				"rules[%d].ears_kind %q is not one of ubiquitous|event|state|unwanted|optional",
+				i,
+				rule.EarsKind,
+			)
 		}
 		if len(rule.Citations) == 0 {
 			return payload, fmt.Errorf("rules[%d] has no citation", i)
 		}
 		for _, c := range rule.Citations {
 			if _, _, err := extract.ParseLines(c.Lines); err != nil {
-				return payload, fmt.Errorf("rules[%d]: %v", i, err)
+				return payload, fmt.Errorf("rules[%d]: %w", i, err)
 			}
 			if !allowedCitations[citationKey(c)] {
-				return payload, fmt.Errorf("rules[%d] cites %s:%s which is not among the candidate citations", i, c.Path, c.Lines)
+				return payload, fmt.Errorf(
+					"rules[%d] cites %s:%s which is not among the candidate citations",
+					i,
+					c.Path,
+					c.Lines,
+				)
 			}
 		}
 		if bad := notSubset(rule.Entities, allowedEntities); bad != "" {
-			return payload, fmt.Errorf("rules[%d].entities contains %q which is not in ALLOWED_ENTITIES", i, bad)
+			return payload, fmt.Errorf(
+				"rules[%d].entities contains %q which is not in ALLOWED_ENTITIES",
+				i,
+				bad,
+			)
 		}
 		if bad := notSubset(rule.Endpoints, allowedEndpoints); bad != "" {
-			return payload, fmt.Errorf("rules[%d].endpoints contains %q which is not in ALLOWED_ENDPOINTS", i, bad)
+			return payload, fmt.Errorf(
+				"rules[%d].endpoints contains %q which is not in ALLOWED_ENDPOINTS",
+				i,
+				bad,
+			)
 		}
 		if !mapper.Natures[rule.Nature] {
-			return payload, fmt.Errorf("rules[%d].nature %q is not one of business|presentation|technical", i, rule.Nature)
+			return payload, fmt.Errorf(
+				"rules[%d].nature %q is not one of business|presentation|technical",
+				i,
+				rule.Nature,
+			)
 		}
 		if !mapper.Origins[rule.Origin] {
-			return payload, fmt.Errorf("rules[%d].origin %q is not one of explicit|implicit", i, rule.Origin)
+			return payload, fmt.Errorf(
+				"rules[%d].origin %q is not one of explicit|implicit",
+				i,
+				rule.Origin,
+			)
 		}
 		if rule.Confidence < 0 || rule.Confidence > 1 {
-			return payload, fmt.Errorf("rules[%d].confidence %v is outside [0,1]", i, rule.Confidence)
+			return payload, fmt.Errorf(
+				"rules[%d].confidence %v is outside [0,1]",
+				i,
+				rule.Confidence,
+			)
 		}
 	}
 	return payload, nil

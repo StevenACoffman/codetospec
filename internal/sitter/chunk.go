@@ -38,7 +38,12 @@ const (
 // property lines before the first child). Files without definitions — or
 // without a grammar (info == nil) — fall back to fixed-size line windows
 // with overlap. domainOf resolves the domain from (namespace, path).
-func ChunkFile(path, language string, content []byte, info *FileInfo, domainOf func(namespace, path string) string) []Chunk {
+func ChunkFile(
+	path, language string,
+	content []byte,
+	info *FileInfo,
+	domainOf func(namespace, path string) string,
+) []Chunk {
 	lines := splitLines(content)
 	if len(lines) == 0 {
 		return nil
@@ -76,7 +81,10 @@ func ChunkFile(path, language string, content []byte, info *FileInfo, domainOf f
 		size := def.EndLine - def.StartLine + 1
 		children := directChildren(allDefs, def)
 		if size <= maxDefinitionLines || len(children) == 0 {
-			chunks = append(chunks, makeChunk(def.StartLine, def.EndLine, joinLines(lines, def.StartLine, def.EndLine)))
+			chunks = append(
+				chunks,
+				makeChunk(def.StartLine, def.EndLine, joinLines(lines, def.StartLine, def.EndLine)),
+			)
 			continue
 		}
 		header := ""
@@ -98,7 +106,10 @@ func ChunkFile(path, language string, content []byte, info *FileInfo, domainOf f
 			chunks = append(chunks, c)
 		}
 	}
-	sort.SliceStable(chunks, func(i, j int) bool { return chunks[i].StartLine < chunks[j].StartLine })
+	sort.SliceStable(
+		chunks,
+		func(i, j int) bool { return chunks[i].StartLine < chunks[j].StartLine },
+	)
 	return chunks
 }
 
@@ -156,7 +167,10 @@ func directChildren(defs []Definition, parent Definition) []Definition {
 			children = append(children, d)
 		}
 	}
-	sort.SliceStable(children, func(i, j int) bool { return children[i].StartLine < children[j].StartLine })
+	sort.SliceStable(
+		children,
+		func(i, j int) bool { return children[i].StartLine < children[j].StartLine },
+	)
 	return children
 }
 

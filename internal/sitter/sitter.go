@@ -73,12 +73,20 @@ var grammars = map[string]*grammar{
 	"go": {name: "go", queryFile: "queries/go.scm", language: func() *tree_sitter.Language {
 		return tree_sitter.NewLanguage(tree_sitter_go.Language())
 	}},
-	"javascript": {name: "javascript", queryFile: "queries/javascript.scm", language: func() *tree_sitter.Language {
-		return tree_sitter.NewLanguage(tree_sitter_javascript.Language())
-	}},
-	"typescript": {name: "typescript", queryFile: "queries/typescript.scm", language: func() *tree_sitter.Language {
-		return tree_sitter.NewLanguage(tree_sitter_typescript.LanguageTypescript())
-	}},
+	"javascript": {
+		name:      "javascript",
+		queryFile: "queries/javascript.scm",
+		language: func() *tree_sitter.Language {
+			return tree_sitter.NewLanguage(tree_sitter_javascript.Language())
+		},
+	},
+	"typescript": {
+		name:      "typescript",
+		queryFile: "queries/typescript.scm",
+		language: func() *tree_sitter.Language {
+			return tree_sitter.NewLanguage(tree_sitter_typescript.LanguageTypescript())
+		},
+	},
 	"tsx": {name: "tsx", queryFile: "queries/tsx.scm", language: func() *tree_sitter.Language {
 		return tree_sitter.NewLanguage(tree_sitter_typescript.LanguageTSX())
 	}},

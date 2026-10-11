@@ -16,14 +16,24 @@ func fixtureFacts() []extract.Fact {
 			Source: extract.Ref{Path: "database/migrations/m.php", Lines: "11-16"},
 		},
 		{
-			Kind: "route", ID: "route.post./api/activate",
-			Attrs:  map[string]string{"method": "POST", "path": "/api/activate", "controller": `App\Http\Controllers\ActivationController`, "action": "store"},
+			Kind: "route",
+			ID:   "route.post./api/activate",
+			Attrs: map[string]string{
+				"method":     "POST",
+				"path":       "/api/activate",
+				"controller": `App\Http\Controllers\ActivationController`,
+				"action":     "store",
+			},
 			Source: extract.Ref{Path: "routes/web.php", Lines: "5-5"},
 		},
 		{
-			Kind: "module", ID: "module.App\\Http\\Controllers",
-			Attrs:  map[string]string{"name": `App\Http\Controllers`},
-			Source: extract.Ref{Path: "app/Http/Controllers/ActivationController.php", Lines: "3-3"},
+			Kind:  "module",
+			ID:    "module.App\\Http\\Controllers",
+			Attrs: map[string]string{"name": `App\Http\Controllers`},
+			Source: extract.Ref{
+				Path:  "app/Http/Controllers/ActivationController.php",
+				Lines: "3-3",
+			},
 		},
 		{
 			Kind: "module", ID: "module.App\\Services\\Billing",
@@ -31,9 +41,16 @@ func fixtureFacts() []extract.Fact {
 			Source: extract.Ref{Path: "app/Services/Billing/ProrataCalculator.php", Lines: "3-3"},
 		},
 		{
-			Kind: "import", ID: "import.app/Http/Controllers/ActivationController.php#App\\Services\\Billing\\ProrataCalculator",
-			Attrs:  map[string]string{"target": `App\Services\Billing\ProrataCalculator`, "namespace": `App\Http\Controllers`},
-			Source: extract.Ref{Path: "app/Http/Controllers/ActivationController.php", Lines: "6-6"},
+			Kind: "import",
+			ID:   "import.app/Http/Controllers/ActivationController.php#App\\Services\\Billing\\ProrataCalculator",
+			Attrs: map[string]string{
+				"target":    `App\Services\Billing\ProrataCalculator`,
+				"namespace": `App\Http\Controllers`,
+			},
+			Source: extract.Ref{
+				Path:  "app/Http/Controllers/ActivationController.php",
+				Lines: "6-6",
+			},
 		},
 	}
 }
@@ -41,12 +58,14 @@ func fixtureFacts() []extract.Fact {
 func fixtureReduced() []reducer.Output {
 	rule := func(slug string) reducer.Rule {
 		return reducer.Rule{
-			Slug:               slug,
-			Title:              "Titre " + slug,
-			EarsKind:           "event",
-			Requirement:        "QUAND x, le systeme doit y.",
-			Rationale:          "Parce que.",
-			Citations:          []extract.Ref{{Path: "app/Services/Billing/ProrataCalculator.php", Lines: "11-24"}},
+			Slug:        slug,
+			Title:       "Titre " + slug,
+			EarsKind:    "event",
+			Requirement: "QUAND x, le systeme doit y.",
+			Rationale:   "Parce que.",
+			Citations: []extract.Ref{
+				{Path: "app/Services/Billing/ProrataCalculator.php", Lines: "11-24"},
+			},
 			Entities:           []string{"entity.invoices"},
 			Endpoints:          []string{"endpoint.post-api-activate"},
 			AcceptanceCriteria: []string{"a", "b", "c"},
@@ -56,8 +75,16 @@ func fixtureReduced() []reducer.Output {
 		}
 	}
 	return []reducer.Output{
-		{Domain: "services", DomainSummary: "Calculs.", Rules: []reducer.Rule{rule("prorata-activation")}},
-		{Domain: "http", DomainSummary: "Entrées HTTP.", Rules: []reducer.Rule{rule("activation-endpoint")}},
+		{
+			Domain:        "services",
+			DomainSummary: "Calculus.",
+			Rules:         []reducer.Rule{rule("prorata-activation")},
+		},
+		{
+			Domain:        "http",
+			DomainSummary: "Entrées HTTP.",
+			Rules:         []reducer.Rule{rule("activation-endpoint")},
+		},
 		{Domain: "failed", Failed: true},
 	}
 }
@@ -104,7 +131,8 @@ func TestBuildProducesAllNodeTypes(t *testing.T) {
 	}
 
 	endpoint := byID["endpoint.post-api-activate"]
-	if !strings.Contains(endpoint.Body, "POST") || !strings.Contains(endpoint.Body, "/api/activate") ||
+	if !strings.Contains(endpoint.Body, "POST") ||
+		!strings.Contains(endpoint.Body, "/api/activate") ||
 		!strings.Contains(endpoint.Body, "ActivationController@store") {
 		t.Errorf("endpoint body = %q", endpoint.Body)
 	}
@@ -139,7 +167,11 @@ func TestBuildDomainDependsOnGoStyleImports(t *testing.T) {
 			Nature:             "business", Origin: "explicit", Confidence: 0.9,
 		}}}
 	}
-	nodes := Build(facts, []reducer.Output{rule("billing"), rule("invoice")}, extract.DomainResolver{})
+	nodes := Build(
+		facts,
+		[]reducer.Output{rule("billing"), rule("invoice")},
+		extract.DomainResolver{},
+	)
 	for _, n := range nodes {
 		if n.ID != "domain.invoice" {
 			continue
@@ -149,7 +181,10 @@ func TestBuildDomainDependsOnGoStyleImports(t *testing.T) {
 				return
 			}
 		}
-		t.Fatalf("domain.invoice should depend on domain.billing via suffix match, edges = %+v", n.Edges)
+		t.Fatalf(
+			"domain.invoice should depend on domain.billing via suffix match, edges = %+v",
+			n.Edges,
+		)
 	}
 	t.Fatal("domain.invoice not found")
 }
@@ -187,7 +222,11 @@ func TestComputeCoverage(t *testing.T) {
 	nodes := Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{})
 	cov := ComputeCoverage(nodes)
 	if cov.EndpointsTotal != 1 || cov.EndpointsReferenced != 1 {
-		t.Errorf("endpoints coverage = %d/%d, want 1/1", cov.EndpointsReferenced, cov.EndpointsTotal)
+		t.Errorf(
+			"endpoints coverage = %d/%d, want 1/1",
+			cov.EndpointsReferenced,
+			cov.EndpointsTotal,
+		)
 	}
 	if cov.EntitiesTotal != 1 || cov.EntitiesTouched != 1 {
 		t.Errorf("entities coverage = %d/%d, want 1/1", cov.EntitiesTouched, cov.EntitiesTotal)

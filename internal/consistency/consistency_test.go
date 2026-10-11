@@ -16,9 +16,18 @@ func rule(id, requirement string) graph.Node {
 
 func TestFindDuplicatesFlagsNearIdentical(t *testing.T) {
 	nodes := []graph.Node{
-		rule("rule.root.note-gol", "Le système doit afficher la note indiquant que les tonnages du Gol incluent Grand Pourpier."),
-		rule("rule.usine.note-gol", "Le système doit afficher une note indiquant que les tonnages du Gol incluent Grand Pourpier."),
-		rule("rule.billing.prorata", "QUAND un abonné active en cours de mois, le système doit facturer au prorata des jours restants."),
+		rule(
+			"rule.root.note-gol",
+			"Le système doit afficher la note indiquant que les tonnages du Gol incluent Grand Pourpier.",
+		),
+		rule(
+			"rule.usine.note-gol",
+			"Le système doit afficher une note indiquant que les tonnages du Gol incluent Grand Pourpier.",
+		),
+		rule(
+			"rule.billing.prorata",
+			"QUAND un abonné active en cours de mois, le système doit facturer au prorata des jours restants.",
+		),
 		{ID: "domain.x", Type: "domain", Body: "ignore me"},
 	}
 	pairs := FindDuplicates(nodes, DefaultThreshold)
@@ -36,8 +45,14 @@ func TestFindDuplicatesFlagsNearIdentical(t *testing.T) {
 
 func TestFindDuplicatesIgnoresDistinctRules(t *testing.T) {
 	nodes := []graph.Node{
-		rule("rule.a.x", "Le système doit calculer la TVA à vingt pour cent sur le montant hors taxe."),
-		rule("rule.b.y", "QUAND un utilisateur se connecte, le système doit vérifier son mot de passe."),
+		rule(
+			"rule.a.x",
+			"Le système doit calculer la TVA à vingt pour cent sur le montant hors taxe.",
+		),
+		rule(
+			"rule.b.y",
+			"QUAND un utilisateur se connecte, le système doit vérifier son mot de passe.",
+		),
 	}
 	if pairs := FindDuplicates(nodes, DefaultThreshold); len(pairs) != 0 {
 		t.Fatalf("distinct rules should not pair, got %+v", pairs)
@@ -46,8 +61,14 @@ func TestFindDuplicatesIgnoresDistinctRules(t *testing.T) {
 
 func TestFindDuplicatesDeterministicOrder(t *testing.T) {
 	nodes := []graph.Node{
-		rule("rule.z.b", "Le système doit afficher le cumul de la semaine pour Bois Rouge et Le Gol."),
-		rule("rule.a.a", "Le système doit afficher le cumul de la semaine pour Bois Rouge et Le Gol."),
+		rule(
+			"rule.z.b",
+			"Le système doit afficher le cumul de la semaine pour Bois Rouge et Le Gol.",
+		),
+		rule(
+			"rule.a.a",
+			"Le système doit afficher le cumul de la semaine pour Bois Rouge et Le Gol.",
+		),
 	}
 	p1 := FindDuplicates(nodes, DefaultThreshold)
 	p2 := FindDuplicates(nodes, DefaultThreshold)

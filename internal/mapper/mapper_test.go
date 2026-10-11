@@ -50,16 +50,19 @@ const validMapReply = `{"chunk_summary": "un calcul", "rules": [{"title": "T", "
 
 func TestMapNominal(t *testing.T) {
 	calls := 0
-	m := newMapper(t, chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
-		calls++
-		if len(msgs) != 2 || msgs[0].Role != "system" {
-			t.Errorf("unexpected conversation shape: %d messages", len(msgs))
-		}
-		if !strings.Contains(msgs[1].Content, "FILE: app/X.php (lines 10-20)") {
-			t.Errorf("user prompt missing file header:\n%s", msgs[1].Content)
-		}
-		return validMapReply, llm.Usage{PromptTokens: 10, CompletionTokens: 5}, nil
-	}))
+	m := newMapper(
+		t,
+		chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+			calls++
+			if len(msgs) != 2 || msgs[0].Role != "system" {
+				t.Errorf("unexpected conversation shape: %d messages", len(msgs))
+			}
+			if !strings.Contains(msgs[1].Content, "FILE: app/X.php (lines 10-20)") {
+				t.Errorf("user prompt missing file header:\n%s", msgs[1].Content)
+			}
+			return validMapReply, llm.Usage{PromptTokens: 10, CompletionTokens: 5}, nil
+		}),
+	)
 
 	outputs, err := m.Run(context.Background(), []sitter.Chunk{testChunk()})
 	if err != nil {
@@ -78,19 +81,22 @@ func TestMapNominal(t *testing.T) {
 
 func TestMapRejectionThenCorrection(t *testing.T) {
 	calls := 0
-	m := newMapper(t, chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
-		calls++
-		if calls == 1 {
-			// Citation outside the chunk bounds: must be rejected.
-			return strings.ReplaceAll(validMapReply, "12-15", "1-5"), llm.Usage{}, nil
-		}
-		last := msgs[len(msgs)-1]
-		if last.Role != "user" || !strings.HasPrefix(last.Content, "output rejected:") ||
-			!strings.HasSuffix(last.Content, "resend the full corrected JSON only") {
-			t.Errorf("correction message malformed: %q", last.Content)
-		}
-		return validMapReply, llm.Usage{}, nil
-	}))
+	m := newMapper(
+		t,
+		chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+			calls++
+			if calls == 1 {
+				// Citation outside the chunk bounds: must be rejected.
+				return strings.ReplaceAll(validMapReply, "12-15", "1-5"), llm.Usage{}, nil
+			}
+			last := msgs[len(msgs)-1]
+			if last.Role != "user" || !strings.HasPrefix(last.Content, "output rejected:") ||
+				!strings.HasSuffix(last.Content, "resend the full corrected JSON only") {
+				t.Errorf("correction message malformed: %q", last.Content)
+			}
+			return validMapReply, llm.Usage{}, nil
+		}),
+	)
 
 	outputs, err := m.Run(context.Background(), []sitter.Chunk{testChunk()})
 	if err != nil {
@@ -145,27 +151,36 @@ func TestMapResumeSkipsCachedChunks(t *testing.T) {
 }
 
 func TestMapInjectsPreciseSymbols(t *testing.T) {
-	m := newMapper(t, chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
-		user := msgs[1].Content
-		if !strings.Contains(user, "PRECISE_SYMBOLS") {
-			t.Errorf("prompt missing PRECISE_SYMBOLS section:\n%s", user)
-		}
-		// The overlapping symbol is present with its span and signature.
-		if !strings.Contains(user, "calculate (method) lines 12-18: func calculate() float64") {
-			t.Errorf("prompt missing overlapping symbol:\n%s", user)
-		}
-		// A symbol outside the chunk range must not be injected.
-		if strings.Contains(user, "unrelated") {
-			t.Errorf("prompt injected a non-overlapping symbol:\n%s", user)
-		}
-		return validMapReply, llm.Usage{}, nil
-	}))
+	m := newMapper(
+		t,
+		chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+			user := msgs[1].Content
+			if !strings.Contains(user, "PRECISE_SYMBOLS") {
+				t.Errorf("prompt missing PRECISE_SYMBOLS section:\n%s", user)
+			}
+			// The overlapping symbol is present with its span and signature.
+			if !strings.Contains(user, "calculate (method) lines 12-18: func calculate() float64") {
+				t.Errorf("prompt missing overlapping symbol:\n%s", user)
+			}
+			// A symbol outside the chunk range must not be injected.
+			if strings.Contains(user, "unrelated") {
+				t.Errorf("prompt injected a non-overlapping symbol:\n%s", user)
+			}
+			return validMapReply, llm.Usage{}, nil
+		}),
+	)
 	m.SymbolsFor = func(path string) []SymbolContext {
 		if path != "app/X.php" {
 			return nil
 		}
 		return []SymbolContext{
-			{Name: "calculate", StartLine: 12, EndLine: 18, Kind: "method", Signature: "func calculate() float64"},
+			{
+				Name:      "calculate",
+				StartLine: 12,
+				EndLine:   18,
+				Kind:      "method",
+				Signature: "func calculate() float64",
+			},
 			{Name: "unrelated", StartLine: 100, EndLine: 120, Kind: "method"},
 		}
 	}
@@ -175,12 +190,15 @@ func TestMapInjectsPreciseSymbols(t *testing.T) {
 }
 
 func TestMapNoSymbolsSectionWhenAbsent(t *testing.T) {
-	m := newMapper(t, chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
-		if strings.Contains(msgs[1].Content, "PRECISE_SYMBOLS") {
-			t.Error("PRECISE_SYMBOLS must be absent when no SCIP index is provided")
-		}
-		return validMapReply, llm.Usage{}, nil
-	}))
+	m := newMapper(
+		t,
+		chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+			if strings.Contains(msgs[1].Content, "PRECISE_SYMBOLS") {
+				t.Error("PRECISE_SYMBOLS must be absent when no SCIP index is provided")
+			}
+			return validMapReply, llm.Usage{}, nil
+		}),
+	)
 	if _, err := m.Run(context.Background(), []sitter.Chunk{testChunk()}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -191,21 +209,24 @@ func TestMapPromptNumbersCodeLines(t *testing.T) {
 		ID: "n0", Path: "app/X.php", StartLine: 659, EndLine: 661, Language: "php", Domain: "x",
 		Content: "function a() {\n    return 1;\n}",
 	}
-	m := newMapper(t, chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
-		user := msgs[1].Content
-		// Each code line must carry its absolute number, starting at 659.
-		if !strings.Contains(user, "659\tfunction a() {") ||
-			!strings.Contains(user, "660\t    return 1;") ||
-			!strings.Contains(user, "661\t}") {
-			t.Errorf("code lines not numbered from the absolute start:\n%s", user)
-		}
-		if !strings.Contains(msgs[0].Content, "absolute line number") {
-			t.Error("system prompt must instruct to copy the shown line numbers")
-		}
-		return `{"chunk_summary": "s", "rules": [{"title": "T", "ears_kind": "event",
+	m := newMapper(
+		t,
+		chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+			user := msgs[1].Content
+			// Each code line must carry its absolute number, starting at 659.
+			if !strings.Contains(user, "659\tfunction a() {") ||
+				!strings.Contains(user, "660\t    return 1;") ||
+				!strings.Contains(user, "661\t}") {
+				t.Errorf("code lines not numbered from the absolute start:\n%s", user)
+			}
+			if !strings.Contains(msgs[0].Content, "absolute line number") {
+				t.Error("system prompt must instruct to copy the shown line numbers")
+			}
+			return `{"chunk_summary": "s", "rules": [{"title": "T", "ears_kind": "event",
 "requirement": "QUAND x, le systeme doit y.", "citations": [{"path": "app/X.php", "lines": "659-661"}],
 "entities": [], "endpoints": [], "nature": "business", "origin": "explicit", "confidence": 0.9}]}`, llm.Usage{}, nil
-	}))
+		}),
+	)
 	if _, err := m.Run(context.Background(), []sitter.Chunk{chunk}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -214,11 +235,15 @@ func TestMapPromptNumbersCodeLines(t *testing.T) {
 func TestMapValidationRejectsBadValues(t *testing.T) {
 	chunk := testChunk()
 	cases := map[string]string{
-		"bad ears kind":     strings.ReplaceAll(validMapReply, `"event"`, `"whenever"`),
-		"foreign path":      strings.ReplaceAll(validMapReply, "app/X.php", "other.php"),
-		"unknown entity":    strings.ReplaceAll(validMapReply, "entity.invoices", "entity.ghosts"),
-		"confidence out":    strings.ReplaceAll(validMapReply, "0.9", "1.7"),
-		"missing citations": strings.ReplaceAll(validMapReply, `[{"path": "app/X.php", "lines": "12-15"}]`, "[]"),
+		"bad ears kind":  strings.ReplaceAll(validMapReply, `"event"`, `"whenever"`),
+		"foreign path":   strings.ReplaceAll(validMapReply, "app/X.php", "other.php"),
+		"unknown entity": strings.ReplaceAll(validMapReply, "entity.invoices", "entity.ghosts"),
+		"confidence out": strings.ReplaceAll(validMapReply, "0.9", "1.7"),
+		"missing citations": strings.ReplaceAll(
+			validMapReply,
+			`[{"path": "app/X.php", "lines": "12-15"}]`,
+			"[]",
+		),
 	}
 	for name, reply := range cases {
 		if _, err := validateMapReply(reply, chunk, []string{"entity.invoices"}, nil); err == nil {

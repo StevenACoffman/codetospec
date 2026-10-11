@@ -61,7 +61,12 @@ func TestCheckEditOutsideCitedSpanStaysOK(t *testing.T) {
 	rule := ruleWithDigest(t, dir, extract.Ref{Path: "calc.go", Lines: "3-5"})
 
 	// Change a line OUTSIDE the cited span (line 7) -> still ok.
-	writeSource(t, dir, "calc.go", "package x\n\nfunc f() int {\n\treturn 1\n}\n\nfunc g() { println(1) }\n")
+	writeSource(
+		t,
+		dir,
+		"calc.go",
+		"package x\n\nfunc f() int {\n\treturn 1\n}\n\nfunc g() { println(1) }\n",
+	)
 	if r := Check([]graph.Node{rule}, dir); r.OK != 1 || r.Drifted() {
 		t.Fatalf("edit outside cited span must not drift, got %+v", r)
 	}
@@ -79,7 +84,11 @@ func TestCheckBrokenAndUnknown(t *testing.T) {
 	}
 
 	// A rule with no stored digest -> unknown.
-	noDigest := graph.Node{ID: "rule.x.r2", Type: "rule", Sources: []extract.Ref{{Path: "calc.go", Lines: "1-1"}}}
+	noDigest := graph.Node{
+		ID:      "rule.x.r2",
+		Type:    "rule",
+		Sources: []extract.Ref{{Path: "calc.go", Lines: "1-1"}},
+	}
 	if r := Check([]graph.Node{noDigest}, dir); r.Unknown != 1 || r.Drifted() {
 		t.Fatalf("rule without digest should be unknown, got %+v", r)
 	}

@@ -69,7 +69,12 @@ func Digest(srcRoot string, sources []extract.Ref) (string, error) {
 		}
 		lines := strings.Split(string(data), "\n")
 		if end > len(lines) {
-			return "", fmt.Errorf("%s: lines %s exceed file (%d lines)", src.Path, src.Lines, len(lines))
+			return "", fmt.Errorf(
+				"%s: lines %s exceed file (%d lines)",
+				src.Path,
+				src.Lines,
+				len(lines),
+			)
 		}
 		fmt.Fprintf(h, "%s|%s\n%s\n", src.Path, src.Lines, strings.Join(lines[start-1:end], "\n"))
 	}
@@ -86,8 +91,8 @@ func Check(nodes []graph.Node, srcRoot string) Report {
 		}
 		stored := n.Extra["digest"]
 		rs := RuleStatus{RuleID: n.ID}
-		switch {
-		case stored == "":
+		switch stored {
+		case "":
 			rs.Status = StatusUnknown
 			rs.Detail = "no stored digest (regenerate the spec to enable drift checks)"
 			report.Unknown++

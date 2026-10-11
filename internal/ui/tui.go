@@ -3,14 +3,14 @@ package ui
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
+	"codetospec/internal/llm"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-
-	"codetospec/internal/llm"
 )
 
 // TUISink forwards pipeline events to a running Bubble Tea program.
@@ -62,7 +62,10 @@ var (
 	amberSt   = lipgloss.NewStyle().Foreground(amber)
 	failStyle = lipgloss.NewStyle().Foreground(red).Bold(true)
 
-	panelStyle  = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(line).Padding(0, 1)
+	panelStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(line).
+			Padding(0, 1)
 	footerStyle = lipgloss.NewStyle().Foreground(gray).Background(ground).Padding(0, 1)
 	trackStyle  = lipgloss.NewStyle().Foreground(line)
 )
@@ -290,7 +293,11 @@ func (m Model) View() string {
 	var b strings.Builder
 
 	// Header
-	left := brandStyle.Render("codetospec") + rightStyle.Render(fmt.Sprintf("  %s → %s", m.src, m.out))
+	left := brandStyle.Render(
+		"codetospec",
+	) + rightStyle.Render(
+		fmt.Sprintf("  %s → %s", m.src, m.out),
+	)
 	right := rightStyle.Render(fmt.Sprintf("%s · %d workers", m.model, m.workers))
 	b.WriteString(headerBar(left, right, m.width) + "\n\n")
 
@@ -380,7 +387,7 @@ func (m Model) hero() string {
 
 // bigNum groups digits for readability (1,204).
 func bigNum(n int) string {
-	s := fmt.Sprintf("%d", n)
+	s := strconv.Itoa(n)
 	if n < 1000 {
 		return s
 	}
@@ -475,7 +482,9 @@ func (m Model) domainBars() string {
 	}
 	head := capStyle.Render(title)
 	if len(items) > rowsShown {
-		head += grayStyle.Render(fmt.Sprintf("   +%d more · %s total", len(items)-rowsShown, bigNum(total)))
+		head += grayStyle.Render(
+			fmt.Sprintf("   +%d more · %s total", len(items)-rowsShown, bigNum(total)),
+		)
 	} else {
 		head += grayStyle.Render(fmt.Sprintf("   %s total", bigNum(total)))
 	}
@@ -539,7 +548,7 @@ func formatTokens(n int) string {
 	case n >= 1_000:
 		return fmt.Sprintf("%dk", n/1_000)
 	default:
-		return fmt.Sprintf("%d", n)
+		return strconv.Itoa(n)
 	}
 }
 

@@ -92,21 +92,56 @@ func ParseRun(args []string) (*Config, error) {
 	)
 	fs.StringVar(&cfg.Src, "src", "", "root of the analyzed repository (required)")
 	fs.StringVar(&cfg.Out, "out", "", "output graph directory (required)")
-	fs.StringVar(&configPath, "config", "", "config file (default <src>/codetospec.yaml when present)")
+	fs.StringVar(
+		&configPath,
+		"config",
+		"",
+		"config file (default <src>/codetospec.yaml when present)",
+	)
 	fs.StringVar(&cfg.BaseURL, "base-url", os.Getenv("LLM_BASE_URL"), "OpenAI-compatible endpoint")
-	fs.StringVar(&cfg.APIKey, "api-key", os.Getenv("LLM_API_KEY"), "API key (empty accepted for local vLLM)")
+	fs.StringVar(
+		&cfg.APIKey,
+		"api-key",
+		os.Getenv("LLM_API_KEY"),
+		"API key (empty accepted for local vLLM)",
+	)
 	fs.StringVar(&cfg.Model, "model", os.Getenv("LLM_MODEL"), "model name")
 	fs.StringVar(&cfg.Lang, "lang", "fr", "requirements language (fr or en)")
 	fs.IntVar(&cfg.Workers, "workers", 4, "map parallelism")
 	fs.IntVar(&cfg.MaxTokens, "max-tokens", 4096, "generation cap per LLM call")
-	fs.StringVar(&excludeCSV, "exclude", strings.Join(DefaultExclude, ","), "comma-separated ignored directories")
+	fs.StringVar(
+		&excludeCSV,
+		"exclude",
+		strings.Join(DefaultExclude, ","),
+		"comma-separated ignored directories",
+	)
 	fs.Var(&facts, "facts", "additional facts JSON file (repeatable)")
 	fs.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
 	fs.BoolVar(&cfg.NoTUI, "no-tui", false, "disable the full-screen dashboard, log to stderr")
-	fs.BoolVar(&cfg.Crosscheck, "crosscheck", false, "adversarial review pass: a fresh-context LLM tries to refute each rule against its cited lines")
-	fs.BoolVar(&cfg.Repair, "repair", false, "repair pass (implies --crosscheck): a flagged rule re-cites the exact span of a precise symbol; needs a SCIP index")
-	fs.IntVar(&cfg.ReduceBatch, "reduce-batch", 30, "max candidate rules per reduce call; larger domains are batched then merged")
-	fs.IntVar(&cfg.DomainDepth, "domain-depth", 1, "namespace segments (after the root) forming a domain; 2-3 splits a single-root repo (e.g. core-controller-sdk)")
+	fs.BoolVar(
+		&cfg.Crosscheck,
+		"crosscheck",
+		false,
+		"adversarial review pass: a fresh-context LLM tries to refute each rule against its cited lines",
+	)
+	fs.BoolVar(
+		&cfg.Repair,
+		"repair",
+		false,
+		"repair pass (implies --crosscheck): a flagged rule re-cites the exact span of a precise symbol; needs a SCIP index",
+	)
+	fs.IntVar(
+		&cfg.ReduceBatch,
+		"reduce-batch",
+		30,
+		"max candidate rules per reduce call; larger domains are batched then merged",
+	)
+	fs.IntVar(
+		&cfg.DomainDepth,
+		"domain-depth",
+		1,
+		"namespace segments (after the root) forming a domain; 2-3 splits a single-root repo (e.g. core-controller-sdk)",
+	)
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
@@ -221,7 +256,10 @@ func (c *Config) validateRun() error {
 	switch c.DomainStrategy {
 	case "auto", "namespace", "directory":
 	default:
-		return fmt.Errorf("domain_strategy %q must be auto, namespace or directory", c.DomainStrategy)
+		return fmt.Errorf(
+			"domain_strategy %q must be auto, namespace or directory",
+			c.DomainStrategy,
+		)
 	}
 	if c.BaseURL == "" {
 		return errors.New("missing LLM endpoint: set --base-url or LLM_BASE_URL")
@@ -231,7 +269,11 @@ func (c *Config) validateRun() error {
 	}
 	for _, e := range c.Extractors {
 		if e.Name == "" || e.Cmd == "" {
-			return fmt.Errorf("extractor entries need both name and cmd (got name=%q cmd=%q)", e.Name, e.Cmd)
+			return fmt.Errorf(
+				"extractor entries need both name and cmd (got name=%q cmd=%q)",
+				e.Name,
+				e.Cmd,
+			)
 		}
 		if _, err := e.TimeoutDuration(); err != nil {
 			return err

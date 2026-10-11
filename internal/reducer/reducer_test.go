@@ -51,20 +51,23 @@ const validReduceReply = `{"domain_summary": "Facturation.", "rules": [{"slug": 
 
 func TestReduceNominal(t *testing.T) {
 	calls := 0
-	r := newReducer(t, chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
-		calls++
-		if !strings.Contains(msgs[1].Content, "DOMAIN: billing") {
-			t.Errorf("user prompt missing domain:\n%s", msgs[1].Content)
-		}
-		if !strings.Contains(msgs[1].Content, "CANDIDATE_RULES:") {
-			t.Error("user prompt missing candidates")
-		}
-		// Acceptance criteria must be constrained to the cited behavior.
-		if !strings.Contains(msgs[0].Content, "Do NOT invent error cases") {
-			t.Error("system prompt missing the acceptance-criteria provability constraint")
-		}
-		return validReduceReply, llm.Usage{PromptTokens: 20, CompletionTokens: 10}, nil
-	}))
+	r := newReducer(
+		t,
+		chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+			calls++
+			if !strings.Contains(msgs[1].Content, "DOMAIN: billing") {
+				t.Errorf("user prompt missing domain:\n%s", msgs[1].Content)
+			}
+			if !strings.Contains(msgs[1].Content, "CANDIDATE_RULES:") {
+				t.Error("user prompt missing candidates")
+			}
+			// Acceptance criteria must be constrained to the cited behavior.
+			if !strings.Contains(msgs[0].Content, "Do NOT invent error cases") {
+				t.Error("system prompt missing the acceptance-criteria provability constraint")
+			}
+			return validReduceReply, llm.Usage{PromptTokens: 20, CompletionTokens: 10}, nil
+		}),
+	)
 
 	outputs, err := r.Run(context.Background(), candidates())
 	if err != nil {
@@ -73,25 +76,29 @@ func TestReduceNominal(t *testing.T) {
 	if calls != 1 || len(outputs) != 1 {
 		t.Fatalf("calls=%d outputs=%d, want 1/1", calls, len(outputs))
 	}
-	if outputs[0].Failed || len(outputs[0].Rules) != 1 || outputs[0].Rules[0].Slug != "prorata-activation" {
+	if outputs[0].Failed || len(outputs[0].Rules) != 1 ||
+		outputs[0].Rules[0].Slug != "prorata-activation" {
 		t.Fatalf("output = %+v", outputs[0])
 	}
 }
 
 func TestReduceRejectsInventedCitationThenCorrects(t *testing.T) {
 	calls := 0
-	r := newReducer(t, chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
-		calls++
-		if calls == 1 {
-			// Citation not present verbatim among the candidates.
-			return strings.ReplaceAll(validReduceReply, "12-15", "12-16"), llm.Usage{}, nil
-		}
-		last := msgs[len(msgs)-1]
-		if !strings.Contains(last.Content, "output rejected:") {
-			t.Errorf("correction message malformed: %q", last.Content)
-		}
-		return validReduceReply, llm.Usage{}, nil
-	}))
+	r := newReducer(
+		t,
+		chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+			calls++
+			if calls == 1 {
+				// Citation not present verbatim among the candidates.
+				return strings.ReplaceAll(validReduceReply, "12-15", "12-16"), llm.Usage{}, nil
+			}
+			last := msgs[len(msgs)-1]
+			if !strings.Contains(last.Content, "output rejected:") {
+				t.Errorf("correction message malformed: %q", last.Content)
+			}
+			return validReduceReply, llm.Usage{}, nil
+		}),
+	)
 
 	outputs, err := r.Run(context.Background(), candidates())
 	if err != nil {
@@ -123,19 +130,32 @@ func TestReduceValidationRules(t *testing.T) {
 	entities := []string{"entity.invoices"}
 	endpoints := []string{"endpoint.post-api-activate"}
 
-	duplicated := strings.Replace(validReduceReply, `"rules": [{`, `"rules": [{"slug": "prorata-activation",
+	duplicated := strings.Replace(
+		validReduceReply,
+		`"rules": [{`,
+		`"rules": [{"slug": "prorata-activation",
 "title": "Dup", "ears_kind": "event", "requirement": "QUAND a, le systeme doit b.",
 "rationale": "", "citations": [{"path": "app/X.php", "lines": "12-15"}],
-"entities": [], "endpoints": [], "acceptance_criteria": ["a", "b"], "nature": "business", "origin": "explicit", "confidence": 0.8}, {`, 1)
+"entities": [], "endpoints": [], "acceptance_criteria": ["a", "b"], "nature": "business", "origin": "explicit", "confidence": 0.8}, {`,
+		1,
+	)
 	payload, err := validateReduceReply(duplicated, entities, endpoints, allowed)
 	if err != nil {
 		t.Fatalf("duplicate slug should be repaired, got %v", err)
 	}
 	if payload.Rules[0].Slug == payload.Rules[1].Slug {
-		t.Errorf("duplicate slugs not disambiguated: %q vs %q", payload.Rules[0].Slug, payload.Rules[1].Slug)
+		t.Errorf(
+			"duplicate slugs not disambiguated: %q vs %q",
+			payload.Rules[0].Slug,
+			payload.Rules[1].Slug,
+		)
 	}
 
-	badSlug := strings.ReplaceAll(validReduceReply, "prorata-activation", "Un Slug beaucoup TROP long vraiment")
+	badSlug := strings.ReplaceAll(
+		validReduceReply,
+		"prorata-activation",
+		"Un Slug beaucoup TROP long vraiment",
+	)
 	payload, err = validateReduceReply(badSlug, entities, endpoints, allowed)
 	if err != nil {
 		t.Fatalf("malformed slug should be repaired, got %v", err)
@@ -163,29 +183,32 @@ func TestReduceBatchesLargeDomain(t *testing.T) {
 
 	calls := 0
 	var batchSizes []int
-	r := newReducer(t, chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
-		calls++
-		// Count how many candidates this batch carried.
-		_, candJSON, _ := strings.Cut(msgs[1].Content, "CANDIDATE_RULES:\n")
-		var cands []mapper.Rule
-		if err := json.Unmarshal([]byte(candJSON), &cands); err != nil {
-			t.Fatalf("batch %d: bad candidates JSON: %v", calls, err)
-		}
-		batchSizes = append(batchSizes, len(cands))
-		// Echo each candidate back as one consolidated rule.
-		rules := make([]map[string]any, len(cands))
-		for i, c := range cands {
-			rules[i] = map[string]any{
-				"slug": "regle", "title": c.Title, "ears_kind": "event",
-				"requirement": c.Requirement, "rationale": "r",
-				"citations": c.Citations, "entities": []string{}, "endpoints": []string{},
-				"acceptance_criteria": []string{"a", "b"},
-				"nature":              "business", "origin": "explicit", "confidence": 0.8,
+	r := newReducer(
+		t,
+		chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+			calls++
+			// Count how many candidates this batch carried.
+			_, candJSON, _ := strings.Cut(msgs[1].Content, "CANDIDATE_RULES:\n")
+			var cands []mapper.Rule
+			if err := json.Unmarshal([]byte(candJSON), &cands); err != nil {
+				t.Fatalf("batch %d: bad candidates JSON: %v", calls, err)
 			}
-		}
-		out, _ := json.Marshal(map[string]any{"domain_summary": "S", "rules": rules})
-		return string(out), llm.Usage{}, nil
-	}))
+			batchSizes = append(batchSizes, len(cands))
+			// Echo each candidate back as one consolidated rule.
+			rules := make([]map[string]any, len(cands))
+			for i, c := range cands {
+				rules[i] = map[string]any{
+					"slug": "regle", "title": c.Title, "ears_kind": "event",
+					"requirement": c.Requirement, "rationale": "r",
+					"citations": c.Citations, "entities": []string{}, "endpoints": []string{},
+					"acceptance_criteria": []string{"a", "b"},
+					"nature":              "business", "origin": "explicit", "confidence": 0.8,
+				}
+			}
+			out, _ := json.Marshal(map[string]any{"domain_summary": "S", "rules": rules})
+			return string(out), llm.Usage{}, nil
+		}),
+	)
 	r.BatchSize = 50
 
 	outputs, err := r.Run(context.Background(), map[string][]mapper.Rule{"billing": big})
@@ -228,26 +251,41 @@ func TestReduceBatchAdaptiveHalvingRecoversMostRules(t *testing.T) {
 			Citations:   []extract.Ref{{Path: "app/X.php", Lines: fmt.Sprintf("%d-%d", i+1, i+2)}},
 		}
 	}
-	r := newReducer(t, chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
-		_, candJSON, _ := strings.Cut(msgs[1].Content, "CANDIDATE_RULES:\n")
-		if strings.Contains(candJSON, "QUAND cas 0,") {
-			return "not json", llm.Usage{}, nil
-		}
-		var cands []mapper.Rule
-		if err := json.Unmarshal([]byte(candJSON), &cands); err != nil {
-			t.Fatalf("bad candidates JSON: %v", err)
-		}
-		rules := make([]map[string]any, len(cands))
-		for i, c := range cands {
-			rules[i] = map[string]any{
-				"slug": "r", "title": c.Title, "ears_kind": "event", "requirement": c.Requirement,
-				"rationale": "r", "citations": c.Citations, "entities": []string{}, "endpoints": []string{},
-				"acceptance_criteria": []string{"a", "b"}, "nature": "business", "origin": "explicit", "confidence": 0.8,
+	r := newReducer(
+		t,
+		chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+			_, candJSON, _ := strings.Cut(msgs[1].Content, "CANDIDATE_RULES:\n")
+			if strings.Contains(candJSON, "QUAND cas 0,") {
+				return "not json", llm.Usage{}, nil
 			}
-		}
-		out, _ := json.Marshal(map[string]any{"domain_summary": "S", "rules": rules})
-		return string(out), llm.Usage{}, nil
-	}))
+			var cands []mapper.Rule
+			if err := json.Unmarshal([]byte(candJSON), &cands); err != nil {
+				t.Fatalf("bad candidates JSON: %v", err)
+			}
+			rules := make([]map[string]any, len(cands))
+			for i, c := range cands {
+				rules[i] = map[string]any{
+					"slug":        "r",
+					"title":       c.Title,
+					"ears_kind":   "event",
+					"requirement": c.Requirement,
+					"rationale":   "r",
+					"citations":   c.Citations,
+					"entities":    []string{},
+					"endpoints":   []string{},
+					"acceptance_criteria": []string{
+						"a",
+						"b",
+					},
+					"nature":     "business",
+					"origin":     "explicit",
+					"confidence": 0.8,
+				}
+			}
+			out, _ := json.Marshal(map[string]any{"domain_summary": "S", "rules": rules})
+			return string(out), llm.Usage{}, nil
+		}),
+	)
 	r.BatchSize = 40
 
 	outputs, err := r.Run(context.Background(), map[string][]mapper.Rule{"billing": big})
@@ -298,15 +336,25 @@ func TestReduceParallelDeterministic(t *testing.T) {
 	// Several domains reduced by a worker pool must return sorted, stable.
 	multi := map[string][]mapper.Rule{}
 	for _, d := range []string{"zeta", "alpha", "mu", "beta", "kappa"} {
-		multi[d] = []mapper.Rule{{
-			Title: "T", EarsKind: "event", Requirement: "QUAND x, le systeme doit y.",
-			Citations: []extract.Ref{{Path: "app/X.php", Lines: "12-15"}}, Entities: []string{"entity.invoices"},
-		}}
+		multi[d] = []mapper.Rule{
+			{
+				Title:       "T",
+				EarsKind:    "event",
+				Requirement: "QUAND x, le systeme doit y.",
+				Citations: []extract.Ref{
+					{Path: "app/X.php", Lines: "12-15"},
+				},
+				Entities: []string{"entity.invoices"},
+			},
+		}
 	}
 	run := func() []string {
-		r := newReducer(t, chatFunc(func(context.Context, []llm.Message) (string, llm.Usage, error) {
-			return validReduceReply, llm.Usage{}, nil
-		}))
+		r := newReducer(
+			t,
+			chatFunc(func(context.Context, []llm.Message) (string, llm.Usage, error) {
+				return validReduceReply, llm.Usage{}, nil
+			}),
+		)
 		r.Workers = 4
 		outputs, err := r.Run(context.Background(), multi)
 		if err != nil {

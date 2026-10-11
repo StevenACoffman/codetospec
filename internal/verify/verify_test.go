@@ -61,7 +61,9 @@ func TestRunRejectsDanglingEdge(t *testing.T) {
 
 func TestRunRejectsCitationOutOfBounds(t *testing.T) {
 	rule := validRule()
-	rule.Sources = []extract.Ref{{Path: "app/Services/Billing/ProrataCalculator.php", Lines: "11-999"}}
+	rule.Sources = []extract.Ref{
+		{Path: "app/Services/Billing/ProrataCalculator.php", Lines: "11-999"},
+	}
 	violations := Run([]graph.Node{rule, validDomain()}, fixtureRoot)
 	if !hasCheck(violations, "unresolvable-citation") {
 		t.Fatalf("violations = %v, want unresolvable-citation", violations)

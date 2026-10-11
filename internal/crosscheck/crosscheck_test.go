@@ -25,8 +25,10 @@ func ruleNode() graph.Node {
 		Title:  "Prorata à l'activation",
 		Body: "**Exigence (EARS)** : QUAND un abonné active en cours de mois, le systeme doit facturer au prorata.\n\n" +
 			"**Critères d'acceptation** :\n1. Cas nominal.\n2. Cas limite.",
-		Sources: []extract.Ref{{Path: "app/Services/Billing/ProrataCalculator.php", Lines: "11-24"}},
-		Extra:   map[string]string{"ears": "event", "acceptance": "2"},
+		Sources: []extract.Ref{
+			{Path: "app/Services/Billing/ProrataCalculator.php", Lines: "11-24"},
+		},
+		Extra: map[string]string{"ears": "event", "acceptance": "2"},
 	}
 }
 
@@ -66,24 +68,33 @@ func TestCitedExcerptShowsContext(t *testing.T) {
 
 func TestCrosscheckNominal(t *testing.T) {
 	calls := 0
-	c := newChecker(t, chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
-		calls++
-		if !strings.Contains(msgs[0].Content, "adversarial code reviewer") {
-			t.Error("system prompt missing adversarial role")
-		}
-		user := msgs[1].Content
-		if !strings.Contains(user, "RULE: rule.services.prorata-activation") {
-			t.Errorf("user prompt missing rule id:\n%s", user)
-		}
-		// The prompt must carry the real cited source lines, numbered.
-		if !strings.Contains(user, "app/Services/Billing/ProrataCalculator.php:11-24") ||
-			!strings.Contains(user, "public function calculate") {
-			t.Errorf("user prompt missing cited source:\n%s", user)
-		}
-		return `{"verdict": "supported", "reason": "Le calcul au prorata est visible lignes 21-23."}`, llm.Usage{PromptTokens: 50, CompletionTokens: 10}, nil
-	}))
+	c := newChecker(
+		t,
+		chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+			calls++
+			if !strings.Contains(msgs[0].Content, "adversarial code reviewer") {
+				t.Error("system prompt missing adversarial role")
+			}
+			user := msgs[1].Content
+			if !strings.Contains(user, "RULE: rule.services.prorata-activation") {
+				t.Errorf("user prompt missing rule id:\n%s", user)
+			}
+			// The prompt must carry the real cited source lines, numbered.
+			if !strings.Contains(user, "app/Services/Billing/ProrataCalculator.php:11-24") ||
+				!strings.Contains(user, "public function calculate") {
+				t.Errorf("user prompt missing cited source:\n%s", user)
+			}
+			return `{"verdict": "supported", "reason": "Le calcul au prorata est visible lignes 21-23."}`, llm.Usage{
+				PromptTokens:     50,
+				CompletionTokens: 10,
+			}, nil
+		}),
+	)
 
-	verdicts, err := c.Run(context.Background(), []graph.Node{ruleNode(), {ID: "domain.x", Type: "domain"}})
+	verdicts, err := c.Run(
+		context.Background(),
+		[]graph.Node{ruleNode(), {ID: "domain.x", Type: "domain"}},
+	)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -98,17 +109,20 @@ func TestCrosscheckNominal(t *testing.T) {
 
 func TestCrosscheckRejectsBadVerdictThenCorrects(t *testing.T) {
 	calls := 0
-	c := newChecker(t, chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
-		calls++
-		if calls == 1 {
-			return `{"verdict": "maybe", "reason": "?"}`, llm.Usage{}, nil
-		}
-		last := msgs[len(msgs)-1]
-		if !strings.Contains(last.Content, "output rejected:") {
-			t.Errorf("correction message malformed: %q", last.Content)
-		}
-		return `{"verdict": "partial", "reason": "Le seuil cité diffère de l'exigence."}`, llm.Usage{}, nil
-	}))
+	c := newChecker(
+		t,
+		chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+			calls++
+			if calls == 1 {
+				return `{"verdict": "maybe", "reason": "?"}`, llm.Usage{}, nil
+			}
+			last := msgs[len(msgs)-1]
+			if !strings.Contains(last.Content, "output rejected:") {
+				t.Errorf("correction message malformed: %q", last.Content)
+			}
+			return `{"verdict": "partial", "reason": "Le seuil cité diffère de l'exigence."}`, llm.Usage{}, nil
+		}),
+	)
 
 	verdicts, err := c.Run(context.Background(), []graph.Node{ruleNode()})
 	if err != nil {
@@ -169,24 +183,36 @@ func TestCrosscheckCacheByInputHash(t *testing.T) {
 
 func TestRepairRecitesToGroundedSymbol(t *testing.T) {
 	call := 0
-	c := newChecker(t, chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
-		call++
-		if call == 1 { // adversarial verify -> unsupported
-			return `{"verdict": "unsupported", "reason": "Les lignes citées ne montrent aucune logique."}`, llm.Usage{}, nil
-		}
-		// repair call: must carry the symbol catalog; re-cite the symbol span.
-		user := msgs[1].Content
-		if !strings.Contains(user, "AVAILABLE_SYMBOLS") || !strings.Contains(user, "calculate (method) lines 12-24") {
-			t.Errorf("repair prompt missing symbol catalog:\n%s", user)
-		}
-		return `{"citations": [{"path": "app/Services/Billing/ProrataCalculator.php", "lines": "12-24"}], "reason": "corps de calculate"}`, llm.Usage{}, nil
-	}))
+	c := newChecker(
+		t,
+		chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+			call++
+			if call == 1 { // adversarial verify -> unsupported
+				return `{"verdict": "unsupported", "reason": "Les lignes citées ne montrent aucune logique."}`, llm.Usage{}, nil
+			}
+			// repair call: must carry the symbol catalog; re-cite the symbol span.
+			user := msgs[1].Content
+			if !strings.Contains(user, "AVAILABLE_SYMBOLS") ||
+				!strings.Contains(user, "calculate (method) lines 12-24") {
+				t.Errorf("repair prompt missing symbol catalog:\n%s", user)
+			}
+			return `{"citations": [{"path": "app/Services/Billing/ProrataCalculator.php", "lines": "12-24"}], "reason": "corps de calculate"}`, llm.Usage{}, nil
+		}),
+	)
 	c.Repair = true
 	c.SymbolsFor = func(path string) []mapper.SymbolContext {
 		if path != "app/Services/Billing/ProrataCalculator.php" {
 			return nil
 		}
-		return []mapper.SymbolContext{{Name: "calculate", StartLine: 12, EndLine: 24, Kind: "method", Signature: "func calculate()"}}
+		return []mapper.SymbolContext{
+			{
+				Name:      "calculate",
+				StartLine: 12,
+				EndLine:   24,
+				Kind:      "method",
+				Signature: "func calculate()",
+			},
+		}
 	}
 
 	verdicts, err := c.Run(context.Background(), []graph.Node{ruleNode()})
@@ -204,14 +230,17 @@ func TestRepairRecitesToGroundedSymbol(t *testing.T) {
 
 func TestRepairRejectsUngroundedCitation(t *testing.T) {
 	call := 0
-	c := newChecker(t, chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
-		call++
-		if call == 1 {
-			return `{"verdict": "unsupported", "reason": "rien"}`, llm.Usage{}, nil
-		}
-		// The model cites lines outside any symbol body -> must be rejected.
-		return `{"citations": [{"path": "app/Services/Billing/ProrataCalculator.php", "lines": "1-3"}], "reason": "x"}`, llm.Usage{}, nil
-	}))
+	c := newChecker(
+		t,
+		chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+			call++
+			if call == 1 {
+				return `{"verdict": "unsupported", "reason": "rien"}`, llm.Usage{}, nil
+			}
+			// The model cites lines outside any symbol body -> must be rejected.
+			return `{"citations": [{"path": "app/Services/Billing/ProrataCalculator.php", "lines": "1-3"}], "reason": "x"}`, llm.Usage{}, nil
+		}),
+	)
 	c.Repair = true
 	c.SymbolsFor = func(string) []mapper.SymbolContext {
 		return []mapper.SymbolContext{{Name: "calculate", StartLine: 12, EndLine: 24}}
@@ -250,10 +279,16 @@ func TestRepairNoopWithoutSymbols(t *testing.T) {
 }
 
 func TestAnnotateAndCount(t *testing.T) {
-	nodes := []graph.Node{ruleNode(), {ID: "rule.x.failed", Type: "rule", Extra: map[string]string{}}}
+	nodes := []graph.Node{
+		ruleNode(),
+		{ID: "rule.x.failed", Type: "rule", Extra: map[string]string{}},
+	}
 	verdicts := map[string]Verdict{
-		"rule.services.prorata-activation": {RuleID: "rule.services.prorata-activation", Verdict: VerdictSupported},
-		"rule.x.failed":                    {RuleID: "rule.x.failed", Failed: true},
+		"rule.services.prorata-activation": {
+			RuleID:  "rule.services.prorata-activation",
+			Verdict: VerdictSupported,
+		},
+		"rule.x.failed": {RuleID: "rule.x.failed", Failed: true},
 	}
 	nodes = Annotate(nodes, verdicts)
 	if nodes[0].Extra["crosscheck"] != VerdictSupported {

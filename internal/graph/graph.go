@@ -155,7 +155,10 @@ func ruleAndDomainNodes(reduced []reducer.Output) (rules, domains []Node) {
 			continue
 		}
 		domainRules := append([]reducer.Rule(nil), out.Rules...)
-		sort.SliceStable(domainRules, func(i, j int) bool { return domainRules[i].Slug < domainRules[j].Slug })
+		sort.SliceStable(
+			domainRules,
+			func(i, j int) bool { return domainRules[i].Slug < domainRules[j].Slug },
+		)
 
 		var ruleList strings.Builder
 		for _, rule := range domainRules {
@@ -225,7 +228,11 @@ func ruleAndDomainNodes(reduced []reducer.Output) (rules, domains []Node) {
 
 // domainDependencies computes depends_on edges between existing domains from
 // import facts whose source and target resolve to different domains.
-func domainDependencies(facts []extract.Fact, resolver extract.DomainResolver, domains []Node) map[string][]Edge {
+func domainDependencies(
+	facts []extract.Fact,
+	resolver extract.DomainResolver,
+	domains []Node,
+) map[string][]Edge {
 	existing := make(map[string]bool, len(domains))
 	for _, d := range domains {
 		existing[strings.TrimPrefix(d.ID, "domain.")] = true

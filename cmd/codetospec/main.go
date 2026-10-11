@@ -16,8 +16,6 @@ import (
 	"strings"
 	"syscall"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"codetospec/internal/config"
 	"codetospec/internal/consistency"
 	"codetospec/internal/crosscheck"
@@ -33,6 +31,7 @@ import (
 	"codetospec/internal/state"
 	"codetospec/internal/ui"
 	"codetospec/internal/verify"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func main() {
@@ -140,7 +139,7 @@ func runTUI(ctx context.Context, cfg *config.Config) int {
 	finalModel, err := program.Run()
 	setupLogging(cfg.LogLevel)
 	if err != nil {
-		slog.Error("tui failed", "err", err)
+		slog.ErrorContext(ctx, "tui failed", "err", err)
 		return 1
 	}
 	model, ok := finalModel.(ui.Model)
@@ -194,7 +193,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 	for _, f := range files {
 		data, readErr := os.ReadFile(f.AbsPath)
 		if readErr != nil {
-			slog.Warn("unreadable file skipped", "path", f.Path, "err", readErr)
+			slog.WarnContext(ctx, "unreadable file skipped", "path", f.Path, "err", readErr)
 			continue
 		}
 		fileData[f.Path] = data
@@ -205,7 +204,14 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		}
 		info, parseErr := sitter.Parse(f.Language, data)
 		if parseErr != nil {
-			slog.Warn("parse failed, falling back to line chunks", "path", f.Path, "err", parseErr)
+			slog.WarnContext(
+				ctx,
+				"parse failed, falling back to line chunks",
+				"path",
+				f.Path,
+				"err",
+				parseErr,
+			)
 			noGrammar = append(noGrammar, f.Path)
 			sink.Emit(ui.FileExtracted{Path: f.Path, Language: f.Language})
 			continue
@@ -215,7 +221,14 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		sitterFacts = append(sitterFacts, facts...)
 		sink.Emit(ui.FileExtracted{Path: f.Path, Language: f.Language, Facts: len(facts)})
 	}
-	slog.Info("extract: universal layer done", "files", len(files), "facts", len(sitterFacts))
+	slog.InfoContext(
+		ctx,
+		"extract: universal layer done",
+		"files",
+		len(files),
+		"facts",
+		len(sitterFacts),
+	)
 
 	// Layer B: external extractors (graceful degradation).
 	extractorStatus := map[string]string{}
@@ -235,7 +248,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			slog.Warn("extractor failed", "name", e.Name, "err", extErr)
+			slog.WarnContext(ctx, "extractor failed", "name", e.Name, "err", extErr)
 			extractorStatus[e.Name] = "failed"
 			sink.Emit(ui.ExtractorFinished{Name: e.Name, Status: "failed"})
 			continue
@@ -284,7 +297,9 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		if !ok {
 			continue
 		}
-		chunks = append(chunks, sitter.ChunkFile(f.Path, f.Language, data, fileInfo[f.Path], resolver.Resolve)...)
+		chunks = append(
+			chunks,
+			sitter.ChunkFile(f.Path, f.Language, data, fileInfo[f.Path], resolver.Resolve)...)
 	}
 	sort.SliceStable(chunks, func(i, j int) bool {
 		if chunks[i].Path != chunks[j].Path {
@@ -331,7 +346,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 				s.Tokens["map"].Completion += usage.CompletionTokens
 				done = s.ChunksDone
 			}); err != nil {
-				slog.Warn("state save failed", "err", err)
+				slog.WarnContext(ctx, "state save failed", "err", err)
 			}
 			sink.Emit(ui.MapUnit{
 				Path:   out.Path,
@@ -386,7 +401,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 				s.Tokens["reduce"].Completion += usage.CompletionTokens
 				done = s.DomainsDone
 			}); err != nil {
-				slog.Warn("state save failed", "err", err)
+				slog.WarnContext(ctx, "state save failed", "err", err)
 			}
 			sink.Emit(ui.ReduceUnit{
 				Domain: out.Domain,
@@ -438,7 +453,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 					s.Tokens["crosscheck"].Prompt += usage.PromptTokens
 					s.Tokens["crosscheck"].Completion += usage.CompletionTokens
 				}); err != nil {
-					slog.Warn("state save failed", "err", err)
+					slog.WarnContext(ctx, "state save failed", "err", err)
 				}
 				checkDone++
 				sink.Emit(ui.CrosscheckUnit{
@@ -478,9 +493,21 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 	if len(violations) > 0 {
 		for _, v := range violations {
 			final.Violations = append(final.Violations, v.String())
-			slog.Error("verification failed", "node", v.NodeID, "check", v.Check, "detail", v.Detail)
+			slog.ErrorContext(
+				ctx,
+				"verification failed",
+				"node",
+				v.NodeID,
+				"check",
+				v.Check,
+				"detail",
+				v.Detail,
+			)
 		}
-		return fmt.Errorf("graph verification failed with %d violation(s), nothing rendered", len(violations))
+		return fmt.Errorf(
+			"graph verification failed with %d violation(s), nothing rendered",
+			len(violations),
+		)
 	}
 
 	snapshot := st.Snapshot()
@@ -533,11 +560,18 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 
 // writeFactsFile persists the merged facts under <out>/.codetospec/facts.json.
 func writeFactsFile(outDir string, facts []extract.Fact) error {
-	data, err := json.MarshalIndent(extract.FactsEnvelope{Schema: extract.FactsSchema, Facts: facts}, "", "  ")
+	data, err := json.MarshalIndent(
+		extract.FactsEnvelope{Schema: extract.FactsSchema, Facts: facts},
+		"",
+		"  ",
+	)
 	if err != nil {
 		return fmt.Errorf("encode facts.json: %w", err)
 	}
-	return state.WriteFileAtomic(filepath.Join(outDir, ".codetospec", "facts.json"), append(data, '\n'))
+	return state.WriteFileAtomic(
+		filepath.Join(outDir, ".codetospec", "facts.json"),
+		append(data, '\n'),
+	)
 }
 
 // allowedLists derives the allowed entity ids and, per source file, the
@@ -711,8 +745,18 @@ func statsCommand(cfg *config.Config) int {
 		return 1
 	}
 	fmt.Printf("phase: %s (started %s)\n", s.Phase, s.StartedAt)
-	fmt.Printf("chunks: %d done, %d failed, %d total\n", s.ChunksDone, s.ChunksFailed, s.ChunksTotal)
-	fmt.Printf("domains: %d done, %d failed, %d total\n", s.DomainsDone, s.DomainsFailed, s.DomainsTotal)
+	fmt.Printf(
+		"chunks: %d done, %d failed, %d total\n",
+		s.ChunksDone,
+		s.ChunksFailed,
+		s.ChunksTotal,
+	)
+	fmt.Printf(
+		"domains: %d done, %d failed, %d total\n",
+		s.DomainsDone,
+		s.DomainsFailed,
+		s.DomainsTotal,
+	)
 	for _, phase := range []string{"map", "reduce", "crosscheck"} {
 		if t := s.Tokens[phase]; t != nil {
 			fmt.Printf("tokens %s: prompt %d, completion %d\n", phase, t.Prompt, t.Completion)

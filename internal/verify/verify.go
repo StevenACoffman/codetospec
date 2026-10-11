@@ -33,7 +33,10 @@ func Run(nodes []graph.Node, srcRoot string) []Violation {
 	ids := make(map[string]bool, len(nodes))
 	for _, n := range nodes {
 		if ids[n.ID] {
-			violations = append(violations, Violation{n.ID, "duplicate-id", "node id appears more than once"})
+			violations = append(
+				violations,
+				Violation{n.ID, "duplicate-id", "node id appears more than once"},
+			)
 		}
 		ids[n.ID] = true
 	}
@@ -42,12 +45,17 @@ func Run(nodes []graph.Node, srcRoot string) []Violation {
 	for _, n := range nodes {
 		for _, e := range n.Edges {
 			if !ids[e.To] {
-				violations = append(violations, Violation{n.ID, "dangling-edge",
-					fmt.Sprintf("edge %s points to missing node %s", e.Type, e.To)})
+				violations = append(violations, Violation{
+					n.ID, "dangling-edge",
+					fmt.Sprintf("edge %s points to missing node %s", e.Type, e.To),
+				})
 			}
 		}
 		if n.Type == "rule" && len(n.Sources) == 0 {
-			violations = append(violations, Violation{n.ID, "rule-without-citation", "rule node has no source citation"})
+			violations = append(
+				violations,
+				Violation{n.ID, "rule-without-citation", "rule node has no source citation"},
+			)
 		}
 		for _, s := range n.Sources {
 			if detail := checkCitation(srcRoot, s.Path, s.Lines, lineCounts); detail != "" {

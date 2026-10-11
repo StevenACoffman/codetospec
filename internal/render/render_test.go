@@ -1,6 +1,7 @@
 package render
 
 import (
+	"bytes"
 	"flag"
 	"os"
 	"path/filepath"
@@ -55,13 +56,22 @@ func testNodes() []graph.Node {
 			Body: "**Exigence (EARS)** : QUAND un abonné active en cours de mois, le systeme doit facturer au prorata des jours restants.\n\n" +
 				"**Justification** : Calcul observé dans ProrataCalculator.\n\n" +
 				"**Critères d'acceptation** :\n1. Cas nominal couvert.\n2. Cas limite couvert.\n3. Erreur couverte.",
-			Sources: []extract.Ref{{Path: "app/Services/Billing/ProrataCalculator.php", Lines: "11-24"}},
+			Sources: []extract.Ref{
+				{Path: "app/Services/Billing/ProrataCalculator.php", Lines: "11-24"},
+			},
 			Edges: []graph.Edge{
 				{Type: "belongs_to", To: "domain.billing"},
 				{Type: "touches", To: "entity.invoices"},
 				{Type: "exposed_by", To: "endpoint.post-api-activate"},
 			},
-			Extra: map[string]string{"ears": "event", "acceptance": "3", "nature": "business", "origin": "explicit", "confidence": "0.90", "crosscheck": "supported"},
+			Extra: map[string]string{
+				"ears":       "event",
+				"acceptance": "3",
+				"nature":     "business",
+				"origin":     "explicit",
+				"confidence": "0.90",
+				"crosscheck": "supported",
+			},
 		},
 	}
 }
@@ -111,9 +121,13 @@ func TestWriteGolden(t *testing.T) {
 		}
 		want, err := os.ReadFile(goldenPath)
 		if err != nil {
-			t.Fatalf("missing golden %s (run go test ./internal/render -update): %v", goldenPath, err)
+			t.Fatalf(
+				"missing golden %s (run go test ./internal/render -update): %v",
+				goldenPath,
+				err,
+			)
 		}
-		if string(got) != string(want) {
+		if !bytes.Equal(got, want) {
 			t.Errorf("%s differs from golden:\n--- got ---\n%s\n--- want ---\n%s", rel, got, want)
 		}
 	}

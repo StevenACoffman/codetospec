@@ -72,7 +72,9 @@ OUTPUT JSON SCHEMA:
 func numberedContent(chunk sitter.Chunk) string {
 	var b strings.Builder
 	if chunk.Context != "" {
-		b.WriteString("CONTEXT (enclosing declaration, shown for reference — do NOT cite these lines):\n")
+		b.WriteString(
+			"CONTEXT (enclosing declaration, shown for reference — do NOT cite these lines):\n",
+		)
 		for i, line := range strings.Split(chunk.Context, "\n") {
 			fmt.Fprintf(&b, "%d\t%s\n", chunk.ContextStart+i, line)
 		}
@@ -188,7 +190,7 @@ func (m *Mapper) Run(ctx context.Context, chunks []sitter.Chunk) ([]Output, erro
 			m.OnUnit(out, usage)
 		}
 		if done%25 == 0 {
-			slog.Info("map progress", "done", done, "total", len(chunks))
+			slog.InfoContext(ctx, "map progress", "done", done, "total", len(chunks))
 		}
 	}
 
@@ -232,7 +234,7 @@ func (m *Mapper) mapChunk(ctx context.Context, chunk sitter.Chunk) (Output, llm.
 		if unmarshalErr := json.Unmarshal(data, &cached); unmarshalErr == nil {
 			return cached, llm.Usage{}, nil
 		}
-		slog.Warn("corrupt map cache, re-mapping", "path", outPath)
+		slog.WarnContext(ctx, "corrupt map cache, re-mapping", "path", outPath)
 	}
 
 	allowedEndpoints := m.EndpointsFor(chunk.Path)
@@ -272,7 +274,7 @@ func (m *Mapper) mapChunk(ctx context.Context, chunk sitter.Chunk) (Output, llm.
 	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
 		return Output{}, usage, err
 	default:
-		slog.Warn("chunk failed", "chunk", chunk.ID, "path", chunk.Path, "err", err)
+		slog.WarnContext(ctx, "chunk failed", "chunk", chunk.ID, "path", chunk.Path, "err", err)
 		out.Failed = true
 		out.Error = err.Error()
 	}
@@ -303,9 +305,14 @@ func (m *Mapper) symbolsSection(chunk sitter.Chunk) string {
 	if len(relevant) == 0 {
 		return ""
 	}
-	sort.SliceStable(relevant, func(i, j int) bool { return relevant[i].StartLine < relevant[j].StartLine })
+	sort.SliceStable(
+		relevant,
+		func(i, j int) bool { return relevant[i].StartLine < relevant[j].StartLine },
+	)
 	var b strings.Builder
-	b.WriteString("\nPRECISE_SYMBOLS (exact definitions resolved by an indexer; cite these line spans, never guess):\n")
+	b.WriteString(
+		"\nPRECISE_SYMBOLS (exact definitions resolved by an indexer; cite these line spans, never guess):\n",
+	)
 	for _, s := range relevant {
 		kind := s.Kind
 		if kind == "" {
@@ -321,44 +328,83 @@ func (m *Mapper) symbolsSection(chunk sitter.Chunk) string {
 }
 
 // validateMapReply enforces the deterministic contract on one map reply.
-func validateMapReply(reply string, chunk sitter.Chunk, allowedEntities, allowedEndpoints []string) (mapPayload, error) {
+func validateMapReply(
+	reply string,
+	chunk sitter.Chunk,
+	allowedEntities, allowedEndpoints []string,
+) (mapPayload, error) {
 	var payload mapPayload
 	if err := json.Unmarshal([]byte(llm.StripFences(reply)), &payload); err != nil {
-		return payload, fmt.Errorf("invalid JSON: %v", err)
+		return payload, fmt.Errorf("invalid JSON: %w", err)
 	}
 	for i, rule := range payload.Rules {
 		if !EARSKinds[rule.EarsKind] {
-			return payload, fmt.Errorf("rules[%d].ears_kind %q is not one of ubiquitous|event|state|unwanted|optional", i, rule.EarsKind)
+			return payload, fmt.Errorf(
+				"rules[%d].ears_kind %q is not one of ubiquitous|event|state|unwanted|optional",
+				i,
+				rule.EarsKind,
+			)
 		}
 		if len(rule.Citations) == 0 {
 			return payload, fmt.Errorf("rules[%d] has no citation", i)
 		}
 		for _, c := range rule.Citations {
 			if c.Path != chunk.Path {
-				return payload, fmt.Errorf("rules[%d] cites path %q, must be %q", i, c.Path, chunk.Path)
+				return payload, fmt.Errorf(
+					"rules[%d] cites path %q, must be %q",
+					i,
+					c.Path,
+					chunk.Path,
+				)
 			}
 			a, b, err := extract.ParseLines(c.Lines)
 			if err != nil {
-				return payload, fmt.Errorf("rules[%d]: %v", i, err)
+				return payload, fmt.Errorf("rules[%d]: %w", i, err)
 			}
 			if a < chunk.StartLine || b > chunk.EndLine {
-				return payload, fmt.Errorf("rules[%d] cites lines %s outside %d-%d", i, c.Lines, chunk.StartLine, chunk.EndLine)
+				return payload, fmt.Errorf(
+					"rules[%d] cites lines %s outside %d-%d",
+					i,
+					c.Lines,
+					chunk.StartLine,
+					chunk.EndLine,
+				)
 			}
 		}
 		if bad := notSubset(rule.Entities, allowedEntities); bad != "" {
-			return payload, fmt.Errorf("rules[%d].entities contains %q which is not in ALLOWED_ENTITIES", i, bad)
+			return payload, fmt.Errorf(
+				"rules[%d].entities contains %q which is not in ALLOWED_ENTITIES",
+				i,
+				bad,
+			)
 		}
 		if bad := notSubset(rule.Endpoints, allowedEndpoints); bad != "" {
-			return payload, fmt.Errorf("rules[%d].endpoints contains %q which is not in ALLOWED_ENDPOINTS", i, bad)
+			return payload, fmt.Errorf(
+				"rules[%d].endpoints contains %q which is not in ALLOWED_ENDPOINTS",
+				i,
+				bad,
+			)
 		}
 		if !Natures[rule.Nature] {
-			return payload, fmt.Errorf("rules[%d].nature %q is not one of business|presentation|technical", i, rule.Nature)
+			return payload, fmt.Errorf(
+				"rules[%d].nature %q is not one of business|presentation|technical",
+				i,
+				rule.Nature,
+			)
 		}
 		if !Origins[rule.Origin] {
-			return payload, fmt.Errorf("rules[%d].origin %q is not one of explicit|implicit", i, rule.Origin)
+			return payload, fmt.Errorf(
+				"rules[%d].origin %q is not one of explicit|implicit",
+				i,
+				rule.Origin,
+			)
 		}
 		if rule.Confidence < 0 || rule.Confidence > 1 {
-			return payload, fmt.Errorf("rules[%d].confidence %v is outside [0,1]", i, rule.Confidence)
+			return payload, fmt.Errorf(
+				"rules[%d].confidence %v is outside [0,1]",
+				i,
+				rule.Confidence,
+			)
 		}
 	}
 	return payload, nil

@@ -59,17 +59,21 @@ func mockLLM(t *testing.T) *httptest.Server {
 			}
 			payload := map[string]any{"chunk_summary": "Chunk analysé.", "rules": []any{}}
 			if strings.Contains(user, "public function") {
-				payload["rules"] = []any{map[string]any{
-					"title":       "Règle de " + m[1],
-					"ears_kind":   "event",
-					"requirement": "QUAND un abonné active en cours de mois, le systeme doit facturer au prorata.",
-					"citations":   []any{map[string]any{"path": m[1], "lines": m[2] + "-" + m[3]}},
-					"entities":    listLine(user, "ALLOWED_ENTITIES: "),
-					"endpoints":   listLine(user, "ALLOWED_ENDPOINTS: "),
-					"nature":      "business",
-					"origin":      "explicit",
-					"confidence":  0.9,
-				}}
+				payload["rules"] = []any{
+					map[string]any{
+						"title":       "Règle de " + m[1],
+						"ears_kind":   "event",
+						"requirement": "QUAND un abonné active en cours de mois, le systeme doit facturer au prorata.",
+						"citations": []any{
+							map[string]any{"path": m[1], "lines": m[2] + "-" + m[3]},
+						},
+						"entities":   listLine(user, "ALLOWED_ENTITIES: "),
+						"endpoints":  listLine(user, "ALLOWED_ENDPOINTS: "),
+						"nature":     "business",
+						"origin":     "explicit",
+						"confidence": 0.9,
+					},
+				}
 			}
 			data, err := json.Marshal(payload)
 			if err != nil {
@@ -91,19 +95,26 @@ func mockLLM(t *testing.T) *httptest.Server {
 			rules := make([]any, 0, len(candidates))
 			for i, c := range candidates {
 				rules = append(rules, map[string]any{
-					"slug":                "regle-" + string(rune('a'+i)),
-					"title":               c.Title,
-					"ears_kind":           c.EarsKind,
-					"requirement":         c.Requirement,
-					"rationale":           "Consolidée depuis le code.",
-					"citations":           c.Citations,
-					"entities":            c.Entities,
-					"endpoints":           c.Endpoints,
-					"acceptance_criteria": []string{"Le calcul nominal est correct.", "Le cas limite est couvert."},
-					"nature":              "business", "origin": "explicit", "confidence": 0.9,
+					"slug":        "regle-" + string(rune('a'+i)),
+					"title":       c.Title,
+					"ears_kind":   c.EarsKind,
+					"requirement": c.Requirement,
+					"rationale":   "Consolidée depuis le code.",
+					"citations":   c.Citations,
+					"entities":    c.Entities,
+					"endpoints":   c.Endpoints,
+					"acceptance_criteria": []string{
+						"Le calcul nominal est correct.",
+						"Le cas limite est couvert.",
+					},
+					"nature":     "business",
+					"origin":     "explicit",
+					"confidence": 0.9,
 				})
 			}
-			data, err := json.Marshal(map[string]any{"domain_summary": "Domaine consolidé.", "rules": rules})
+			data, err := json.Marshal(
+				map[string]any{"domain_summary": "Domaine consolidé.", "rules": rules},
+			)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -121,8 +132,10 @@ func mockLLM(t *testing.T) *httptest.Server {
 		}
 
 		resp := map[string]any{
-			"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": content}}},
-			"usage":   map[string]any{"prompt_tokens": 100, "completion_tokens": 50},
+			"choices": []any{
+				map[string]any{"message": map[string]any{"role": "assistant", "content": content}},
+			},
+			"usage": map[string]any{"prompt_tokens": 100, "completion_tokens": 50},
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
@@ -194,7 +207,8 @@ func TestEndToEndRunOnFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(readme), "```mermaid") || !strings.Contains(string(readme), "## Couverture") {
+	if !strings.Contains(string(readme), "```mermaid") ||
+		!strings.Contains(string(readme), "## Couverture") {
 		t.Error("README.md missing mermaid graph or coverage section")
 	}
 	if !strings.Contains(string(readme), "Contre-vérification adversariale") {
@@ -244,7 +258,11 @@ func TestEndToEndRunOnFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	var envelope extract.FactsEnvelope
-	if err := json.Unmarshal(factsData, &envelope); err != nil || envelope.Schema != extract.FactsSchema {
+	if err := json.Unmarshal(
+		factsData,
+		&envelope,
+	); err != nil ||
+		envelope.Schema != extract.FactsSchema {
 		t.Fatalf("facts.json invalid: %v", err)
 	}
 

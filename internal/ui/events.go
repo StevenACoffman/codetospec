@@ -112,8 +112,13 @@ type RunFinished struct {
 // PrintSummary prints the end-of-run summary on stdout (plain mode, and
 // after the TUI exits the alternate screen).
 func PrintSummary(e RunFinished) {
-	fmt.Printf("nodes: %d domains, %d entities, %d endpoints, %d rules\n",
-		e.NodesByType["domain"], e.NodesByType["entity"], e.NodesByType["endpoint"], e.NodesByType["rule"])
+	fmt.Printf(
+		"nodes: %d domains, %d entities, %d endpoints, %d rules\n",
+		e.NodesByType["domain"],
+		e.NodesByType["entity"],
+		e.NodesByType["endpoint"],
+		e.NodesByType["rule"],
+	)
 	fmt.Printf("coverage: endpoints %d/%d, entities %d/%d\n",
 		e.Coverage.EndpointsReferenced, e.Coverage.EndpointsTotal,
 		e.Coverage.EntitiesTouched, e.Coverage.EntitiesTotal)
@@ -161,7 +166,17 @@ func (Plain) Emit(event any) {
 	case ReduceUnit:
 		slog.Info("reduce progress", "domain", e.Domain, "done", e.Done, "total", e.Total)
 	case CrosscheckUnit:
-		slog.Info("crosscheck progress", "rule", e.RuleID, "verdict", e.Verdict, "done", e.Done, "total", e.Total)
+		slog.Info(
+			"crosscheck progress",
+			"rule",
+			e.RuleID,
+			"verdict",
+			e.Verdict,
+			"done",
+			e.Done,
+			"total",
+			e.Total,
+		)
 	case LogLine:
 		slog.Log(context.Background(), e.Level, e.Message)
 	case RunFinished:

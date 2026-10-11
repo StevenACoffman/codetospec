@@ -28,7 +28,10 @@ func TestMergePriority(t *testing.T) {
 }
 
 func TestMergeSortsAndKeepsDistinctIDs(t *testing.T) {
-	merged := Merge([]Fact{fact("b", OriginSitter, CertaintyStatic)}, []Fact{fact("a", OriginSitter, CertaintyStatic)})
+	merged := Merge(
+		[]Fact{fact("b", OriginSitter, CertaintyStatic)},
+		[]Fact{fact("a", OriginSitter, CertaintyStatic)},
+	)
 	if len(merged) != 2 || merged[0].ID != "a" || merged[1].ID != "b" {
 		t.Fatalf("merge should sort by id, got %+v", merged)
 	}
@@ -77,7 +80,10 @@ func TestDomainDepthSplitsSingleRoot(t *testing.T) {
 		t.Errorf("depth 0 = %q, want core", got)
 	}
 	// short namespace: depth caps gracefully.
-	if got := (DomainResolver{Strategy: "auto", Depth: 3}).Resolve(`AP\Core`, "x.php"); got != "core" {
+	if got := (DomainResolver{Strategy: "auto", Depth: 3}).Resolve(
+		`AP\Core`,
+		"x.php",
+	); got != "core" {
 		t.Errorf("short ns = %q, want core", got)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -106,7 +107,12 @@ func (c *Client) Chat(ctx context.Context, msgs []Message) (string, Usage, error
 }
 
 func (c *Client) call(ctx context.Context, body []byte) (string, Usage, bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		c.baseURL+"/chat/completions",
+		bytes.NewReader(body),
+	)
 	if err != nil {
 		return "", Usage{}, false, fmt.Errorf("build request: %w", err)
 	}
@@ -129,10 +135,18 @@ func (c *Client) call(ctx context.Context, body []byte) (string, Usage, bool, er
 		return "", Usage{}, true, fmt.Errorf("read chat response: %w", err)
 	}
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
-		return "", Usage{}, true, fmt.Errorf("chat endpoint returned %s: %s", resp.Status, truncate(data, 200))
+		return "", Usage{}, true, fmt.Errorf(
+			"chat endpoint returned %s: %s",
+			resp.Status,
+			truncate(data, 200),
+		)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", Usage{}, false, fmt.Errorf("chat endpoint returned %s: %s", resp.Status, truncate(data, 200))
+		return "", Usage{}, false, fmt.Errorf(
+			"chat endpoint returned %s: %s",
+			resp.Status,
+			truncate(data, 200),
+		)
 	}
 
 	var parsed chatResponse
@@ -140,7 +154,7 @@ func (c *Client) call(ctx context.Context, body []byte) (string, Usage, bool, er
 		return "", Usage{}, false, fmt.Errorf("decode chat response: %w", err)
 	}
 	if len(parsed.Choices) == 0 {
-		return "", Usage{}, false, fmt.Errorf("chat response has no choices")
+		return "", Usage{}, false, errors.New("chat response has no choices")
 	}
 	return parsed.Choices[0].Message.Content, parsed.Usage, false, nil
 }
@@ -198,9 +212,16 @@ func ChatJSON[T any](
 			return result, nil
 		}
 		lastErr = validationErr
-		conversation = append(conversation,
+		conversation = append(
+			conversation,
 			Message{Role: "assistant", Content: reply},
-			Message{Role: "user", Content: fmt.Sprintf("output rejected: %v; resend the full corrected JSON only", validationErr)},
+			Message{
+				Role: "user",
+				Content: fmt.Sprintf(
+					"output rejected: %v; resend the full corrected JSON only",
+					validationErr,
+				),
+			},
 		)
 	}
 	return zero, fmt.Errorf("rejected after %d corrections: %w", maxRepairs, lastErr)

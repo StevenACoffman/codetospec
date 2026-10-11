@@ -22,7 +22,8 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	echoBin = filepath.Join(dir, "echoextractor")
-	if out, buildErr := exec.Command("go", "build", "-o", echoBin, "./testdata/echoextractor").CombinedOutput(); buildErr != nil {
+	if out, buildErr := exec.Command("go", "build", "-o", echoBin, "./testdata/echoextractor").
+		CombinedOutput(); buildErr != nil {
 		fmt.Fprintf(os.Stderr, "build echoextractor: %v\n%s", buildErr, out)
 		os.Exit(1)
 	}
@@ -91,7 +92,9 @@ func TestRunExtractorInvalidJSON(t *testing.T) {
 }
 
 func TestLoadFactsFile(t *testing.T) {
-	facts, err := LoadFactsFile(filepath.Join("..", "..", "testdata", "fixture", "fixture.facts.json"))
+	facts, err := LoadFactsFile(
+		filepath.Join("..", "..", "testdata", "fixture", "fixture.facts.json"),
+	)
 	if err != nil {
 		t.Fatalf("LoadFactsFile: %v", err)
 	}

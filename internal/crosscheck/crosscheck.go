@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -35,6 +36,10 @@ const (
 	VerdictPartial     = "partial"
 	VerdictUnsupported = "unsupported"
 	VerdictRepaired    = "repaired" // citation was corrected to a grounded symbol span
+	// VerdictUnchecked marks a rule the review never judged (its call failed
+	// or it got no verdict). Recorded so an unexamined rule never reads like
+	// one that passed.
+	VerdictUnchecked = "unchecked"
 )
 
 var verdicts = map[string]bool{
@@ -121,6 +126,7 @@ type repairPayload struct {
 // Checker drives the adversarial cross-check phase.
 type Checker struct {
 	LLM     llm.Chatter
+	Model   string // model id, folded into the cache key
 	Lang    string
 	Workers int
 	OutDir  string // <out>/.codetospec/crosscheck
@@ -144,7 +150,7 @@ func (c *Checker) Run(ctx context.Context, nodes []graph.Node) (map[string]Verdi
 	}
 	var rules []graph.Node
 	for _, n := range nodes {
-		if n.Type == "rule" {
+		if n.Type == graph.TypeRule {
 			rules = append(rules, n)
 		}
 	}
@@ -205,7 +211,7 @@ func (c *Checker) checkRule(ctx context.Context, rule graph.Node) (Verdict, llm.
 	if err != nil {
 		return Verdict{}, llm.Usage{}, fmt.Errorf("rule %s: %w", rule.ID, err)
 	}
-	hash := inputHash(rule, excerpt)
+	hash := inputHash(c.promptKey(), rule, excerpt)
 
 	outPath := filepath.Join(c.OutDir, rule.ID+".json")
 	if data, readErr := os.ReadFile(outPath); readErr == nil {
@@ -220,7 +226,7 @@ func (c *Checker) checkRule(ctx context.Context, rule graph.Node) (Verdict, llm.
 		criteria = strings.Join(lines, "\n")
 	}
 	userPrompt := fmt.Sprintf(userPromptFormat,
-		rule.ID, rule.Title, requirementOf(rule.Body), criteria, excerpt)
+		rule.ID, rule.Title, graph.RuleRequirement(rule.Body), criteria, excerpt)
 	msgs := []llm.Message{
 		{
 			Role:    "system",
@@ -315,7 +321,7 @@ func (c *Checker) repairRule(
 	}
 
 	userPrompt := fmt.Sprintf(repairUserPromptFormat,
-		rule.ID, rule.Title, requirementOf(rule.Body), reason, catalog)
+		rule.ID, rule.Title, graph.RuleRequirement(rule.Body), reason, catalog)
 	msgs := []llm.Message{
 		{
 			Role:    "system",
@@ -457,16 +463,21 @@ func (c *Checker) citedExcerpt(sources []extract.Ref) (string, error) {
 }
 
 // Annotate writes verdicts into the rule nodes (Extra["crosscheck"]) and,
-// for repaired rules, replaces their citations with the grounded ones.
-// Failed checks are left unannotated.
+// for repaired rules, replaces their citations with the grounded ones. A rule
+// whose check failed, or that has no verdict at all, is annotated
+// VerdictUnchecked.
 func Annotate(nodes []graph.Node, verdictsByRule map[string]Verdict) []graph.Node {
 	for i := range nodes {
-		v, ok := verdictsByRule[nodes[i].ID]
-		if !ok || v.Failed {
+		if nodes[i].Type != graph.TypeRule {
 			continue
 		}
 		if nodes[i].Extra == nil {
 			nodes[i].Extra = map[string]string{}
+		}
+		v, ok := verdictsByRule[nodes[i].ID]
+		if !ok || v.Failed {
+			nodes[i].Extra["crosscheck"] = VerdictUnchecked
+			continue
 		}
 		nodes[i].Extra["crosscheck"] = v.Verdict
 		if v.Verdict == VerdictRepaired && len(v.NewCitations) > 0 {
@@ -482,45 +493,48 @@ type Tally struct {
 	Partial     int
 	Unsupported int
 	Repaired    int
-	Failed      int
+	Unchecked   int
 }
 
-// Count tallies a verdict set.
-func Count(verdictsByRule map[string]Verdict) Tally {
+// Count tallies the crosscheck annotations of annotated rule nodes (see
+// Annotate), so rules that never got a verdict are counted as unchecked.
+func Count(nodes []graph.Node) Tally {
 	var t Tally
-	for _, v := range verdictsByRule {
-		switch {
-		case v.Failed:
-			t.Failed++
-		case v.Verdict == VerdictSupported:
+	for _, n := range nodes {
+		if n.Type != graph.TypeRule {
+			continue
+		}
+		switch n.Extra["crosscheck"] {
+		case VerdictSupported:
 			t.Supported++
-		case v.Verdict == VerdictPartial:
+		case VerdictPartial:
 			t.Partial++
-		case v.Verdict == VerdictUnsupported:
+		case VerdictUnsupported:
 			t.Unsupported++
-		case v.Verdict == VerdictRepaired:
+		case VerdictRepaired:
 			t.Repaired++
+		case VerdictUnchecked:
+			t.Unchecked++
 		}
 	}
 	return t
 }
 
-func inputHash(rule graph.Node, excerpt string) string {
-	sum := sha256.Sum256(
-		fmt.Appendf(nil, "%s\n%s\n%s\n%s", rule.ID, rule.Title, rule.Body, excerpt),
-	)
-	return hex.EncodeToString(sum[:])[:16]
+// promptKey covers everything besides the rule and its cited code that
+// shapes a verdict: model, language, both prompts and whether repair runs.
+func (c *Checker) promptKey() string {
+	return llm.PromptKey(c.Model, mapper.LangName(c.Lang),
+		systemPrompt, userPromptFormat, repairSystemPrompt, repairUserPromptFormat,
+		strconv.FormatBool(c.Repair))
 }
 
-// requirementOf extracts the EARS requirement line from a rule body.
-func requirementOf(body string) string {
-	for line := range strings.SplitSeq(body, "\n") {
-		if rest, ok := strings.CutPrefix(line, "**Exigence (EARS)** : "); ok {
-			return rest
-		}
-	}
-	first, _, _ := strings.Cut(body, "\n")
-	return first
+// inputHash keys a cached verdict: the prompt key plus the rule and the
+// exact cited code it was judged against.
+func inputHash(promptKey string, rule graph.Node, excerpt string) string {
+	sum := sha256.Sum256(
+		fmt.Appendf(nil, "%s\n%s\n%s\n%s\n%s", promptKey, rule.ID, rule.Title, rule.Body, excerpt),
+	)
+	return hex.EncodeToString(sum[:])[:16]
 }
 
 // acceptanceCriteria extracts the numbered criteria lines from a rule body.

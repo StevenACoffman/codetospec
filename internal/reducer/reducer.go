@@ -80,6 +80,7 @@ type reducePayload struct {
 // Reducer drives the reduce phase.
 type Reducer struct {
 	LLM       llm.Chatter
+	Model     string // model id, folded into the cache key
 	Lang      string
 	OutDir    string   // <out>/.codetospec/reduce
 	Entities  []string // allowed entity ids
@@ -168,18 +169,18 @@ func (r *Reducer) reduceDomain(
 	rules []mapper.Rule,
 ) (Output, llm.Usage, error) {
 	outPath := filepath.Join(r.OutDir, domain+".json")
-	hash := candidatesHash(rules)
+	hash := candidatesHash(r.promptKey(), rules)
 	if data, err := os.ReadFile(outPath); err == nil {
 		var cached Output
 		switch unmarshalErr := json.Unmarshal(data, &cached); {
 		case unmarshalErr != nil:
 			slog.WarnContext(ctx, "corrupt reduce cache, re-reducing", "path", outPath)
 		case cached.CandidatesHash == hash:
-			return cached, llm.Usage{}, nil // candidates unchanged
+			return cached, llm.Usage{}, nil // candidates and prompt unchanged
 		default:
 			slog.InfoContext(
 				ctx,
-				"reduce cache stale (candidates changed), re-reducing",
+				"reduce cache stale (candidates, model or prompt changed), re-reducing",
 				"domain",
 				domain,
 			)
@@ -524,16 +525,17 @@ func uniqueSlug(slug string, taken map[string]bool) string {
 	}
 }
 
-// promptVersion is folded into the reduce cache key. Bump it whenever the
-// reduce prompt changes so cached reductions produced by an older prompt are
-// recomputed instead of silently kept (the cache is keyed by candidate
-// content, which a prompt edit does not change).
-const promptVersion = "2" // 2: acceptance criteria must not reach beyond cited behavior
+// promptKey covers everything besides the candidates that shapes a reduce
+// reply: model, language and prompt templates.
+func (r *Reducer) promptKey() string {
+	return llm.PromptKey(r.Model, mapper.LangName(r.Lang), systemPrompt, userPromptFormat)
+}
 
 // candidatesHash is a stable content hash of a domain's candidate rules and
-// the prompt version, so the reduce cache is invalidated when the candidates
-// change (e.g. after the source was edited and re-mapped) or the prompt does.
-func candidatesHash(rules []mapper.Rule) string {
+// the prompt key (model + prompt templates), so the reduce cache is
+// invalidated when the candidates change (e.g. after the source was edited
+// and re-mapped), the model changes or the prompt is edited.
+func candidatesHash(promptKey string, rules []mapper.Rule) string {
 	sorted := append([]mapper.Rule(nil), rules...)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		if sorted[i].Requirement != sorted[j].Requirement {
@@ -545,7 +547,7 @@ func candidatesHash(rules []mapper.Rule) string {
 	if err != nil {
 		return ""
 	}
-	sum := sha256.Sum256(append([]byte(promptVersion+"\n"), data...))
+	sum := sha256.Sum256(append([]byte(promptKey+"\n"), data...))
 	return hex.EncodeToString(sum[:])[:16]
 }
 

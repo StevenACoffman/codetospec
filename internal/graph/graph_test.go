@@ -232,3 +232,28 @@ func TestComputeCoverage(t *testing.T) {
 		t.Errorf("entities coverage = %d/%d, want 1/1", cov.EntitiesTouched, cov.EntitiesTotal)
 	}
 }
+
+func TestRuleRequirement(t *testing.T) {
+	cases := map[string]struct {
+		body string
+		want string
+	}{
+		"requirement line": {
+			body: requirementLabel + "QUAND a, le systeme doit b.\n\n**Justification** : z",
+			want: "QUAND a, le systeme doit b.",
+		},
+		"requirement after other lines": {
+			body: "intro\n" + requirementLabel + "Le systeme doit y.",
+			want: "Le systeme doit y.",
+		},
+		"no requirement line": {body: "first line\nsecond", want: "first line"},
+		"empty body":          {body: "", want: ""},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := RuleRequirement(tc.body); got != tc.want {
+				t.Fatalf("RuleRequirement = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

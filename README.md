@@ -52,7 +52,8 @@ acceptance: 3
 nature: business          # business | presentation | technical
 origin: explicit          # explicit | implicit
 confidence: 0.90
-crosscheck: supported     # supported | partial | unsupported
+crosscheck: supported     # supported | partial | unsupported | repaired | unchecked
+grounding: grounded       # grounded | ungrounded | unchecked
 ---
 
 # Prorated billing on activation
@@ -89,7 +90,15 @@ the LLM inside a loop it does not control:
 - **An adversarial reviewer refutes each rule** (`--crosscheck`): a
   fresh-context LLM sees only the rule and the lines it cites, and votes
   `supported | partial | unsupported`. A disputed rule is flagged, never
-  silently dropped.
+  silently dropped; a rule the reviewer never judged is marked `unchecked`,
+  so it cannot pass for a supported one.
+- **Stated values are checked against the code, without an LLM**: every
+  number (`30`, `1 000`, `10 %` ↔ `0.1`) and quoted string in a rule's
+  requirement must occur in its cited lines. A rule that states a value its
+  citation lacks is marked `grounding: ungrounded` and listed in the output
+  README, with where the value does appear in the file (usually where the
+  citation should point). A rule with nothing checkable is `unchecked`,
+  never counted as a pass.
 - **Flagged rules are repaired, not just flagged** (`--repair`, needs a SCIP
   index): a rule the reviewer rejected gets one chance to re-cite the exact
   span of a precise symbol that implements it. The new citation is accepted
@@ -128,7 +137,7 @@ variables.
 ```
 extract (layers 1+2) ──▶ chunk (AST) ──▶ map (LLM, parallel, per chunk)
        ──▶ reduce (LLM, per domain) ──▶ crosscheck (LLM, optional)
-       ──▶ build + verify + render (pure Go)
+       ──▶ build + grounding + verify + render (pure Go)
 ```
 
 - **map**: one call per chunk extracts candidate rules with citations. When
@@ -146,7 +155,9 @@ extract (layers 1+2) ──▶ chunk (AST) ──▶ map (LLM, parallel, per chu
 
 Runs are **resumable** (Ctrl-C safe: state is saved after every unit, cached
 units are skipped on rerun) and **deterministic** (two warm-cache runs
-produce byte-for-byte identical output). Token usage is tracked per phase
+produce byte-for-byte identical output). Cache keys cover the model and the
+prompt templates, so editing a prompt or switching models re-runs only what
+it affects. Token usage is tracked per phase
 and shown live.
 
 ## Quick start

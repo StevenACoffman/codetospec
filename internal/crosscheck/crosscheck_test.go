@@ -32,6 +32,9 @@ func ruleNode() graph.Node {
 	}
 }
 
+// supportedReply is a minimal valid crosscheck reply.
+const supportedReply = `{"verdict": "supported", "reason": "ok"}`
+
 func newChecker(t *testing.T, chat llm.Chatter) *Checker {
 	t.Helper()
 	return &Checker{
@@ -149,7 +152,7 @@ func TestCrosscheckDoubleFailureIsTraced(t *testing.T) {
 
 func TestCrosscheckCacheByInputHash(t *testing.T) {
 	c := newChecker(t, chatFunc(func(context.Context, []llm.Message) (string, llm.Usage, error) {
-		return `{"verdict": "supported", "reason": "ok"}`, llm.Usage{}, nil
+		return supportedReply, llm.Usage{}, nil
 	}))
 	if _, err := c.Run(context.Background(), []graph.Node{ruleNode()}); err != nil {
 		t.Fatal(err)
@@ -279,26 +282,86 @@ func TestRepairNoopWithoutSymbols(t *testing.T) {
 }
 
 func TestAnnotateAndCount(t *testing.T) {
-	nodes := []graph.Node{
-		ruleNode(),
-		{ID: "rule.x.failed", Type: "rule", Extra: map[string]string{}},
-	}
-	verdicts := map[string]Verdict{
-		"rule.services.prorata-activation": {
-			RuleID:  "rule.services.prorata-activation",
-			Verdict: VerdictSupported,
+	cases := map[string]struct {
+		verdict   *Verdict // nil: the rule got no verdict
+		wantExtra string
+		wantTally Tally
+	}{
+		"supported": {
+			verdict:   &Verdict{Verdict: VerdictSupported},
+			wantExtra: VerdictSupported,
+			wantTally: Tally{Supported: 1},
 		},
-		"rule.x.failed": {RuleID: "rule.x.failed", Failed: true},
+		"failed check": {
+			verdict:   &Verdict{Failed: true, Error: "boom"},
+			wantExtra: VerdictUnchecked,
+			wantTally: Tally{Unchecked: 1},
+		},
+		"no verdict": {
+			verdict:   nil,
+			wantExtra: VerdictUnchecked,
+			wantTally: Tally{Unchecked: 1},
+		},
 	}
-	nodes = Annotate(nodes, verdicts)
-	if nodes[0].Extra["crosscheck"] != VerdictSupported {
-		t.Errorf("supported rule not annotated: %v", nodes[0].Extra)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			rule := ruleNode()
+			domain := graph.Node{ID: "domain.services", Type: "domain"}
+			verdicts := map[string]Verdict{}
+			if tc.verdict != nil {
+				v := *tc.verdict
+				v.RuleID = rule.ID
+				verdicts[rule.ID] = v
+			}
+			nodes := Annotate([]graph.Node{rule, domain}, verdicts)
+			if got := nodes[0].Extra["crosscheck"]; got != tc.wantExtra {
+				t.Errorf("rule crosscheck = %q, want %q", got, tc.wantExtra)
+			}
+			if _, ok := nodes[1].Extra["crosscheck"]; ok {
+				t.Errorf("non-rule node annotated: %v", nodes[1].Extra)
+			}
+			if got := Count(nodes); got != tc.wantTally {
+				t.Errorf("tally = %+v, want %+v", got, tc.wantTally)
+			}
+		})
 	}
-	if nodes[1].Extra["crosscheck"] != "" {
-		t.Errorf("failed check must not annotate: %v", nodes[1].Extra)
+}
+
+func TestCrosscheckCacheKeyedByModelAndPrompt(t *testing.T) {
+	cases := map[string]struct {
+		change    func(c *Checker)
+		wantCalls int
+	}{
+		"unchanged":   {change: func(*Checker) {}, wantCalls: 0},
+		"other model": {change: func(c *Checker) { c.Model = "model-b" }, wantCalls: 1},
+		"other lang":  {change: func(c *Checker) { c.Lang = "en" }, wantCalls: 1},
+		"repair on":   {change: func(c *Checker) { c.Repair = true }, wantCalls: 1},
 	}
-	tally := Count(verdicts)
-	if tally.Supported != 1 || tally.Failed != 1 {
-		t.Errorf("tally = %+v", tally)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := newChecker(
+				t,
+				chatFunc(func(context.Context, []llm.Message) (string, llm.Usage, error) {
+					return supportedReply, llm.Usage{}, nil
+				}),
+			)
+			c.Model = "model-a"
+			if _, err := c.Run(context.Background(), []graph.Node{ruleNode()}); err != nil {
+				t.Fatalf("first Run: %v", err)
+			}
+
+			calls := 0
+			c.LLM = chatFunc(func(context.Context, []llm.Message) (string, llm.Usage, error) {
+				calls++
+				return supportedReply, llm.Usage{}, nil
+			})
+			tc.change(c)
+			if _, err := c.Run(context.Background(), []graph.Node{ruleNode()}); err != nil {
+				t.Fatalf("second Run: %v", err)
+			}
+			if calls != tc.wantCalls {
+				t.Fatalf("second Run made %d LLM calls, want %d", calls, tc.wantCalls)
+			}
+		})
 	}
 }

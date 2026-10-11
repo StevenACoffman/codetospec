@@ -15,6 +15,8 @@ nature: business
 origin: explicit
 confidence: 0.90
 crosscheck: supported
+grounding: ungrounded
+grounding_missing: "30 @app/Services/Billing/ProrataCalculator.php:9"
 ---
 
 # Prorata à l'activation

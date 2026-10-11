@@ -251,3 +251,41 @@ func TestMapValidationRejectsBadValues(t *testing.T) {
 		}
 	}
 }
+
+func TestMapCacheKeyedByModelAndPrompt(t *testing.T) {
+	cases := map[string]struct {
+		change    func(m *Mapper)
+		wantCalls int
+	}{
+		"unchanged":   {change: func(*Mapper) {}, wantCalls: 0},
+		"other model": {change: func(m *Mapper) { m.Model = "model-b" }, wantCalls: 1},
+		"other lang":  {change: func(m *Mapper) { m.Lang = "en" }, wantCalls: 1},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := newMapper(
+				t,
+				chatFunc(func(context.Context, []llm.Message) (string, llm.Usage, error) {
+					return validMapReply, llm.Usage{}, nil
+				}),
+			)
+			m.Model = "model-a"
+			if _, err := m.Run(context.Background(), []sitter.Chunk{testChunk()}); err != nil {
+				t.Fatalf("first Run: %v", err)
+			}
+
+			calls := 0
+			m.LLM = chatFunc(func(context.Context, []llm.Message) (string, llm.Usage, error) {
+				calls++
+				return validMapReply, llm.Usage{}, nil
+			})
+			tc.change(m)
+			if _, err := m.Run(context.Background(), []sitter.Chunk{testChunk()}); err != nil {
+				t.Fatalf("second Run: %v", err)
+			}
+			if calls != tc.wantCalls {
+				t.Fatalf("second Run made %d LLM calls, want %d", calls, tc.wantCalls)
+			}
+		})
+	}
+}

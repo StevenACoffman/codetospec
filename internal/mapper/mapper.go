@@ -124,6 +124,9 @@ type Output struct {
 	Rules        []Rule `json:"rules"`
 	Failed       bool   `json:"failed,omitempty"`
 	Error        string `json:"error,omitempty"`
+	// PromptKey records the model and prompt templates that produced this
+	// output; a cached output is reused only while it matches.
+	PromptKey string `json:"prompt_key"`
 }
 
 // mapPayload mirrors the JSON schema requested from the LLM.
@@ -145,6 +148,7 @@ type SymbolContext struct {
 // Mapper drives the map phase.
 type Mapper struct {
 	LLM          llm.Chatter
+	Model        string // model id, folded into the cache key
 	Lang         string // "fr" | "en"
 	Workers      int
 	OutDir       string   // <out>/.codetospec/map
@@ -158,8 +162,8 @@ type Mapper struct {
 	OnUnit func(out Output, usage llm.Usage)
 }
 
-// Run maps every chunk, skipping chunks whose output file already exists.
-// Results are returned sorted by (path, start line).
+// Run maps every chunk, reusing a chunk's cached output when it was produced
+// by the same model and prompt templates. Results are returned sorted by (path, start line).
 func (m *Mapper) Run(ctx context.Context, chunks []sitter.Chunk) ([]Output, error) {
 	if err := os.MkdirAll(m.OutDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create map dir: %w", err)
@@ -228,13 +232,18 @@ feed:
 
 // mapChunk maps one chunk, reusing a cached output when present.
 func (m *Mapper) mapChunk(ctx context.Context, chunk sitter.Chunk) (Output, llm.Usage, error) {
+	// The file name keys the chunk content; PromptKey keys everything else
+	// that shapes the reply.
 	outPath := filepath.Join(m.OutDir, chunk.ID+".json")
+	promptKey := m.promptKey()
 	if data, err := os.ReadFile(outPath); err == nil {
 		var cached Output
-		if unmarshalErr := json.Unmarshal(data, &cached); unmarshalErr == nil {
+		switch unmarshalErr := json.Unmarshal(data, &cached); {
+		case unmarshalErr != nil:
+			slog.WarnContext(ctx, "corrupt map cache, re-mapping", "path", outPath)
+		case cached.PromptKey == promptKey:
 			return cached, llm.Usage{}, nil
 		}
-		slog.WarnContext(ctx, "corrupt map cache, re-mapping", "path", outPath)
 	}
 
 	allowedEndpoints := m.EndpointsFor(chunk.Path)
@@ -266,6 +275,7 @@ func (m *Mapper) mapChunk(ctx context.Context, chunk sitter.Chunk) (Output, llm.
 		StartLine: chunk.StartLine,
 		EndLine:   chunk.EndLine,
 		Domain:    chunk.Domain,
+		PromptKey: promptKey,
 	}
 	switch {
 	case err == nil:
@@ -287,6 +297,12 @@ func (m *Mapper) mapChunk(ctx context.Context, chunk sitter.Chunk) (Output, llm.
 		return Output{}, usage, fmt.Errorf("write map output: %w", err)
 	}
 	return out, usage, nil
+}
+
+// promptKey covers everything besides the chunk content that shapes a map
+// reply: model, language and prompt templates.
+func (m *Mapper) promptKey() string {
+	return llm.PromptKey(m.Model, LangName(m.Lang), systemPrompt, userPromptFormat)
 }
 
 // symbolsSection renders the precise symbol definitions overlapping a chunk,

@@ -34,7 +34,7 @@ type Meta struct {
 	CrosscheckPartial     int
 	CrosscheckUnsupported int
 	CrosscheckRepaired    int
-	CrosscheckFailed      int
+	CrosscheckUnchecked   int // rules the review never judged
 	// Near-duplicate rule pairs (deterministic consistency check).
 	DuplicatePairs []consistency.DuplicatePair
 }
@@ -133,6 +133,12 @@ func Frontmatter(n graph.Node) string {
 	if v := n.Extra["crosscheck"]; v != "" {
 		fmt.Fprintf(&b, "crosscheck: %s\n", v)
 	}
+	if v := n.Extra["grounding"]; v != "" {
+		fmt.Fprintf(&b, "grounding: %s\n", v)
+	}
+	if v := n.Extra["grounding_missing"]; v != "" {
+		fmt.Fprintf(&b, "grounding_missing: %q\n", v)
+	}
 	if v := n.Extra["digest"]; v != "" {
 		fmt.Fprintf(&b, "digest: %s\n", v)
 	}
@@ -230,7 +236,7 @@ func countByType(nodes []graph.Node) map[string]int {
 func countByExtra(nodes []graph.Node, key string) map[string]int {
 	counts := make(map[string]int)
 	for _, n := range nodes {
-		if n.Type == "rule" && n.Extra[key] != "" {
+		if n.Type == graph.TypeRule && n.Extra[key] != "" {
 			counts[n.Extra[key]]++
 		}
 	}
@@ -254,7 +260,7 @@ func readme(nodes []graph.Node, meta Meta) string {
 	fmt.Fprintf(&b, "- Domaines : %d\n", counts["domain"])
 	fmt.Fprintf(&b, "- Entités : %d\n", counts["entity"])
 	fmt.Fprintf(&b, "- Endpoints : %d\n", counts["endpoint"])
-	fmt.Fprintf(&b, "- Règles : %d\n", counts["rule"])
+	fmt.Fprintf(&b, "- Règles : %d\n", counts[graph.TypeRule])
 
 	byNature := countByExtra(nodes, "nature")
 	if total := byNature["business"] + byNature["presentation"] + byNature["technical"]; total > 0 {
@@ -305,11 +311,13 @@ func readme(nodes []graph.Node, meta Meta) string {
 		if meta.CrosscheckRepaired > 0 {
 			fmt.Fprintf(&b, ", %d réparés", meta.CrosscheckRepaired)
 		}
-		if meta.CrosscheckFailed > 0 {
-			fmt.Fprintf(&b, ", %d en échec", meta.CrosscheckFailed)
+		if meta.CrosscheckUnchecked > 0 {
+			fmt.Fprintf(&b, ", %d non vérifiées", meta.CrosscheckUnchecked)
 		}
 		b.WriteString("\n")
 	}
+	b.WriteString(groundingSummary(nodes))
+	b.WriteString(ungroundedSection(nodes))
 
 	if len(meta.DuplicatePairs) > 0 {
 		intra, cross := 0, 0
@@ -328,10 +336,7 @@ func readme(nodes []graph.Node, meta Meta) string {
 			intra,
 			cross,
 		)
-		shown := meta.DuplicatePairs
-		if len(shown) > 20 {
-			shown = shown[:20]
-		}
+		shown := meta.DuplicatePairs[:min(len(meta.DuplicatePairs), maxListed)]
 		for _, p := range shown {
 			fmt.Fprintf(&b, "- `%s` ↔ `%s` (%.0f%%)\n", p.A, p.B, p.Similarity*100)
 		}
@@ -364,6 +369,50 @@ func readme(nodes []graph.Node, meta Meta) string {
 		}
 	}
 	b.WriteString("```\n")
+	return b.String()
+}
+
+// maxListed caps how many entries a README review list shows.
+const maxListed = 20
+
+// groundingSummary is the README coverage line tallying the mechanical
+// grounding check (see package grounding); empty when no rule was checked.
+func groundingSummary(nodes []graph.Node) string {
+	byStatus := countByExtra(nodes, "grounding")
+	if len(byStatus) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"- Ancrage mécanique (valeurs citées présentes dans le code) : %d ancrées, %d non ancrées, %d sans valeur vérifiable\n",
+		byStatus["grounded"],
+		byStatus["ungrounded"],
+		byStatus["unchecked"],
+	)
+}
+
+// ungroundedSection lists the rules whose stated values are missing from
+// their cited code, for review; empty when there are none.
+func ungroundedSection(nodes []graph.Node) string {
+	var listed []graph.Node
+	for _, n := range nodes {
+		if n.Type == graph.TypeRule && n.Extra["grounding"] == "ungrounded" {
+			listed = append(listed, n)
+		}
+	}
+	if len(listed) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n## Règles non ancrées\n\n")
+	fmt.Fprintf(&b, "%d règles énoncent des valeurs absentes des lignes citées "+
+		"(valeur inventée ou citation décalée ; `@` indique où la valeur apparaît hors citation) :\n\n",
+		len(listed))
+	for _, n := range listed[:min(len(listed), maxListed)] {
+		fmt.Fprintf(&b, "- `%s` : %s\n", n.ID, n.Extra["grounding_missing"])
+	}
+	if len(listed) > maxListed {
+		fmt.Fprintf(&b, "- … et %d autres\n", len(listed)-maxListed)
+	}
 	return b.String()
 }
 
@@ -430,6 +479,8 @@ type frontmatterDoc struct {
 	Origin     string   `yaml:"origin"`
 	Confidence *float64 `yaml:"confidence"`
 	Crosscheck string   `yaml:"crosscheck"`
+	Grounding  string   `yaml:"grounding"`
+	Missing    string   `yaml:"grounding_missing"`
 	Digest     string   `yaml:"digest"`
 }
 
@@ -477,6 +528,12 @@ func ParseNode(content string) (graph.Node, error) {
 	}
 	if doc.Crosscheck != "" {
 		extra["crosscheck"] = doc.Crosscheck
+	}
+	if doc.Grounding != "" {
+		extra["grounding"] = doc.Grounding
+	}
+	if doc.Missing != "" {
+		extra["grounding_missing"] = doc.Missing
 	}
 	if doc.Digest != "" {
 		extra["digest"] = doc.Digest

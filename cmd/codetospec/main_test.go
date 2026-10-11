@@ -13,6 +13,8 @@ import (
 
 	"codetospec/internal/config"
 	"codetospec/internal/extract"
+	"codetospec/internal/graph"
+	"codetospec/internal/grounding"
 	"codetospec/internal/llm"
 	"codetospec/internal/mapper"
 	"codetospec/internal/render"
@@ -63,7 +65,7 @@ func mockLLM(t *testing.T) *httptest.Server {
 					map[string]any{
 						"title":       "Règle de " + m[1],
 						"ears_kind":   "event",
-						"requirement": "QUAND un abonné active en cours de mois, le systeme doit facturer au prorata.",
+						"requirement": mockRequirement(m[1]),
 						"citations": []any{
 							map[string]any{"path": m[1], "lines": m[2] + "-" + m[3]},
 						},
@@ -144,6 +146,16 @@ func mockLLM(t *testing.T) *httptest.Server {
 	}))
 }
 
+// mockRequirement is the requirement the mock map step states for a file.
+// The ProrataCalculator rule carries a planted wrong threshold (15 is not in
+// the code) that the mechanical grounding check must flag.
+func mockRequirement(path string) string {
+	if strings.HasSuffix(path, "ProrataCalculator.php") {
+		return "SI le jour d'activation dépasse 15, ALORS le systeme doit facturer au prorata."
+	}
+	return "QUAND un abonné active en cours de mois, le systeme doit facturer au prorata."
+}
+
 func e2eConfig(t *testing.T, serverURL, outDir string) *config.Config {
 	t.Helper()
 	src, err := filepath.Abs(filepath.Join("..", "..", "testdata", "fixture"))
@@ -213,6 +225,20 @@ func TestEndToEndRunOnFixture(t *testing.T) {
 	}
 	if !strings.Contains(string(readme), "Contre-vérification adversariale") {
 		t.Error("README.md missing adversarial crosscheck tally")
+	}
+	// The planted wrong threshold must be listed for review.
+	if !strings.Contains(string(readme), "## Règles non ancrées") ||
+		!strings.Contains(string(readme), ": 15\n") {
+		t.Errorf("README.md does not list the planted ungrounded rule:\n%s", readme)
+	}
+	var ungrounded int
+	for _, n := range nodes {
+		if n.Type == graph.TypeRule && n.Extra["grounding"] == string(grounding.StatusUngrounded) {
+			ungrounded++
+		}
+	}
+	if ungrounded != 1 {
+		t.Errorf("%d ungrounded rules, want exactly the planted one", ungrounded)
 	}
 
 	// Every rule node must carry its crosscheck verdict in the frontmatter.

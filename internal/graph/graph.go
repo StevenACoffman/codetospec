@@ -30,6 +30,25 @@ type Edge struct {
 	To   string `json:"to"`
 }
 
+// requirementLabel opens the EARS requirement line of a rule body; written
+// by Build and read back by RuleRequirement.
+const requirementLabel = "**Exigence (EARS)** : "
+
+// RuleRequirement returns the EARS requirement of a rule body, falling back
+// to the body's first line when the body has no requirement line.
+func RuleRequirement(body string) string {
+	for line := range strings.SplitSeq(body, "\n") {
+		if rest, ok := strings.CutPrefix(line, requirementLabel); ok {
+			return rest
+		}
+	}
+	first, _, _ := strings.Cut(body, "\n")
+	return first
+}
+
+// TypeRule is the Node.Type of a business rule.
+const TypeRule = "rule"
+
 // StatusGenerated is the only node status in v0.1.
 const StatusGenerated = "generated"
 
@@ -181,7 +200,7 @@ func ruleAndDomainNodes(reduced []reducer.Output) (rules, domains []Node) {
 			})
 
 			var body strings.Builder
-			body.WriteString("**Exigence (EARS)** : " + rule.Requirement)
+			body.WriteString(requirementLabel + rule.Requirement)
 			if rule.Rationale != "" {
 				body.WriteString("\n\n**Justification** : " + rule.Rationale)
 			}
@@ -194,7 +213,7 @@ func ruleAndDomainNodes(reduced []reducer.Output) (rules, domains []Node) {
 
 			rules = append(rules, Node{
 				ID:      nodeID,
-				Type:    "rule",
+				Type:    TypeRule,
 				Status:  StatusGenerated,
 				Sources: sources,
 				Edges:   edges,
@@ -384,7 +403,7 @@ func ComputeCoverage(nodes []Node) Coverage {
 	var cov Coverage
 	referenced := make(map[string]bool)
 	for _, n := range nodes {
-		if n.Type != "rule" {
+		if n.Type != TypeRule {
 			continue
 		}
 		for _, e := range n.Edges {

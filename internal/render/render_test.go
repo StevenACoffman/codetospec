@@ -71,6 +71,9 @@ func testNodes() []graph.Node {
 				"origin":     "explicit",
 				"confidence": "0.90",
 				"crosscheck": "supported",
+				// Planted: the stated value sits outside the cited lines.
+				"grounding":         "ungrounded",
+				"grounding_missing": `30 @app/Services/Billing/ProrataCalculator.php:9`,
 			},
 		},
 	}
@@ -86,6 +89,10 @@ func testMeta() Meta {
 		ChunksFailed:   1,
 		DomainsTotal:   1,
 		FilesNoGrammar: []string{"routes/web.php"},
+		// Crosscheck ran: one supported rule, one the review never judged.
+		Crosschecked:        true,
+		CrosscheckSupported: 1,
+		CrosscheckUnchecked: 1,
 	}
 }
 

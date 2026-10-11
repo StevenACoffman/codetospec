@@ -394,3 +394,41 @@ func TestReduceResumeSkipsCachedDomains(t *testing.T) {
 		t.Fatalf("cached run: outputs=%+v err=%v", outputs, err)
 	}
 }
+
+func TestReduceCacheKeyedByModelAndPrompt(t *testing.T) {
+	cases := map[string]struct {
+		change    func(r *Reducer)
+		wantCalls int
+	}{
+		"unchanged":   {change: func(*Reducer) {}, wantCalls: 0},
+		"other model": {change: func(r *Reducer) { r.Model = "model-b" }, wantCalls: 1},
+		"other lang":  {change: func(r *Reducer) { r.Lang = "en" }, wantCalls: 1},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			r := newReducer(
+				t,
+				chatFunc(func(context.Context, []llm.Message) (string, llm.Usage, error) {
+					return validReduceReply, llm.Usage{}, nil
+				}),
+			)
+			r.Model = "model-a"
+			if _, err := r.Run(context.Background(), candidates()); err != nil {
+				t.Fatalf("first Run: %v", err)
+			}
+
+			calls := 0
+			r.LLM = chatFunc(func(context.Context, []llm.Message) (string, llm.Usage, error) {
+				calls++
+				return validReduceReply, llm.Usage{}, nil
+			})
+			tc.change(r)
+			if _, err := r.Run(context.Background(), candidates()); err != nil {
+				t.Fatalf("second Run: %v", err)
+			}
+			if calls != tc.wantCalls {
+				t.Fatalf("second Run made %d LLM calls, want %d", calls, tc.wantCalls)
+			}
+		})
+	}
+}

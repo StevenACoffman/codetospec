@@ -22,6 +22,7 @@ import (
 	"codetospec/internal/drift"
 	"codetospec/internal/extract"
 	"codetospec/internal/graph"
+	"codetospec/internal/grounding"
 	"codetospec/internal/llm"
 	"codetospec/internal/mapper"
 	"codetospec/internal/reducer"
@@ -325,6 +326,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 	}
 	m := &mapper.Mapper{
 		LLM:      client,
+		Model:    cfg.Model,
 		Lang:     cfg.Lang,
 		Workers:  cfg.Workers,
 		OutDir:   filepath.Join(cfg.Out, ".codetospec", "map"),
@@ -384,6 +386,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 	}
 	r := &reducer.Reducer{
 		LLM:       client,
+		Model:     cfg.Model,
 		Lang:      cfg.Lang,
 		OutDir:    filepath.Join(cfg.Out, ".codetospec", "reduce"),
 		Entities:  entities,
@@ -433,13 +436,14 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		}
 		ruleCount := 0
 		for _, n := range nodes {
-			if n.Type == "rule" {
+			if n.Type == graph.TypeRule {
 				ruleCount++
 			}
 		}
 		checkDone := 0
 		checker := &crosscheck.Checker{
 			LLM:     client,
+			Model:   cfg.Model,
 			Lang:    cfg.Lang,
 			Workers: cfg.Workers,
 			OutDir:  filepath.Join(cfg.Out, ".codetospec", "crosscheck"),
@@ -470,13 +474,17 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 			return checkErr
 		}
 		nodes = crosscheck.Annotate(nodes, verdictsByRule)
-		checkTally = crosscheck.Count(verdictsByRule)
+		checkTally = crosscheck.Count(nodes)
 	}
+
+	// Check, without an LLM, that each rule's stated values occur in the code
+	// it cites (after crosscheck, whose repair may re-cite).
+	nodes = grounding.Annotate(os.DirFS(cfg.Src), nodes)
 
 	// Stamp each rule with a digest of its cited code, enabling later drift
 	// checks against an evolving source tree.
 	for i := range nodes {
-		if nodes[i].Type != "rule" {
+		if nodes[i].Type != graph.TypeRule {
 			continue
 		}
 		digest, digestErr := drift.Digest(cfg.Src, nodes[i].Sources)
@@ -523,7 +531,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		CrosscheckPartial:     checkTally.Partial,
 		CrosscheckUnsupported: checkTally.Unsupported,
 		CrosscheckRepaired:    checkTally.Repaired,
-		CrosscheckFailed:      checkTally.Failed,
+		CrosscheckUnchecked:   checkTally.Unchecked,
 		DuplicatePairs:        consistency.FindDuplicates(nodes, consistency.DefaultThreshold),
 	}
 	for name, status := range extractorStatus {

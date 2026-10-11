@@ -86,7 +86,7 @@ func Digest(srcRoot string, sources []extract.Ref) (string, error) {
 func Check(nodes []graph.Node, srcRoot string) Report {
 	var report Report
 	for _, n := range nodes {
-		if n.Type != "rule" {
+		if n.Type != graph.TypeRule {
 			continue
 		}
 		stored := n.Extra["digest"]

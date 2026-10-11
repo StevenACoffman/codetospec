@@ -33,7 +33,7 @@ func FindDuplicates(nodes []graph.Node, threshold float64) []DuplicatePair {
 	}
 	var rules []rule
 	for _, n := range nodes {
-		if n.Type != "rule" {
+		if n.Type != graph.TypeRule {
 			continue
 		}
 		words := tokenize(requirementOf(n.Body))

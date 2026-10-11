@@ -15,6 +15,11 @@ make run-fixture                               # run mocké sur testdata/fixture
 - **Rebuild `bin/codetospec` après toute modif de code avant de le lancer** —
   un binaire périmé produit un run faux silencieusement (déjà arrivé).
 - CGO obligatoire (tree-sitter) : `CGO_ENABLED=1`, toolchain C requise.
+- Mesure du crosscheck LLM sur des fautes plantées (opt-in, appelle le
+  modèle) : `CODETOSPEC_EVAL=1 go test ./internal/crosscheck -run Eval -v`
+  (avec `LLM_BASE_URL`, `LLM_MODEL`). À relancer avant d'adopter un nouveau
+  prompt ou modèle. `TestPlantedFaults` (grounding) est l'équivalent
+  mécanique, toujours actif, angles morts listés explicitement.
 - `go test ./...` tourne sans réseau ni PHP. Tests taggés `phplocal` pour
   l'extracteur PHP (skip si `php` absent).
 
@@ -34,6 +39,11 @@ Pipeline : `extract → chunk → map → reduce → crosscheck(+repair) → bui
 - `internal/{graph,verify,render}` — assemblage déterministe, contrôles, écriture.
 - `internal/drift` — digest du code cité par règle (frontmatter `digest:`) ;
   commande `drift` = re-hache et signale les règles périmées (déterministe).
+- `internal/grounding` — contrôle mécanique (sans LLM) : chaque nombre /
+  chaîne citée de l'exigence EARS doit apparaître dans les lignes citées.
+  `grounded | ungrounded | unchecked` en frontmatter ; « unchecked » n'est
+  jamais un succès. Seule l'exigence est vérifiée (les critères d'acceptation
+  contiennent des exemples de test absents du code).
 - `internal/consistency` — détection de règles quasi-doublons (Jaccard sur
   les exigences), listées dans le README de sortie.
 - `cmd/codetospec/main.go` — séquence complète.
@@ -50,9 +60,15 @@ hors de ce jeu. Le convertisseur SCIP émet des facts `symbol` avec
 
 ## Cache & reprise (`<out>/.codetospec/`)
 
-- `map/<chunkID>.json` — clé = hash du contenu du chunk.
-- `reduce/<domain>.json` — réutilisé si le hash des candidates (`candidates_hash`) correspond. Ce hash **fold une version de prompt** (`promptVersion`) : bumper cette constante à chaque édition du prompt reduce, sinon un changement de prompt est silencieusement ignoré sur cache chaud (le hash ne dépend que du contenu des candidates).
-- `crosscheck/<ruleID>.json` — clé = hash (règle + lignes citées).
+- `map/<chunkID>.json` — nom = hash du contenu du chunk ; réutilisé si son `prompt_key` correspond.
+- `reduce/<domain>.json` — réutilisé si le hash des candidates (`candidates_hash`) correspond.
+- `crosscheck/<ruleID>.json` — clé = hash (prompt key + règle + lignes citées).
+
+Les trois clés incluent `llm.PromptKey` : modèle, langue et **texte des
+templates de prompt** (+ `--repair` pour le crosscheck). Éditer un prompt ou
+changer de modèle invalide donc le cache tout seul — aucune constante de
+version à bumper. Un cache sans clé (version antérieure) est considéré
+périmé.
 
 Reprise = existence de ces fichiers. Pour rejouer une phase, **purger son
 cache** (`rm -rf .codetospec/reduce`) puis relancer ; les phases amont

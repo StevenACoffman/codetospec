@@ -51,7 +51,7 @@ func Run(nodes []graph.Node, srcRoot string) []Violation {
 				})
 			}
 		}
-		if n.Type == "rule" && len(n.Sources) == 0 {
+		if n.Type == graph.TypeRule && len(n.Sources) == 0 {
 			violations = append(
 				violations,
 				Violation{n.ID, "rule-without-citation", "rule node has no source citation"},
@@ -114,7 +114,7 @@ func checkRoundTrip(n graph.Node) string {
 	if !reflect.DeepEqual(parsed.Edges, n.Edges) {
 		return "edges did not survive the round-trip"
 	}
-	for _, key := range []string{"ears", "acceptance", "nature", "origin", "confidence", "crosscheck", "digest"} {
+	for _, key := range []string{"ears", "acceptance", "nature", "origin", "confidence", "crosscheck", "grounding", "grounding_missing", "digest"} {
 		if parsed.Extra[key] != n.Extra[key] {
 			return "extra field " + key + " did not survive the round-trip"
 		}

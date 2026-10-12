@@ -1,0 +1,4 @@
+schema:
+- ../../pkg/graphql/shared-schemas/automap.graphql
+- auth_emails.graphql
+- user.graphql

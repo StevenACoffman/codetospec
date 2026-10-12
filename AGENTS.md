@@ -27,6 +27,9 @@ make run-fixture                               # run mocké sur testdata/fixture
 
 Pipeline : `extract → chunk → map → reduce → crosscheck(+repair) → build → digest → verify → render`.
 - `internal/sitter` — tree-sitter, une grammaire + un `.scm` par langage.
+  Le chunker regroupe les petites définitions adjacentes (même fichier,
+  namespace et domaine) jusqu'à 150 lignes (`pack`) : le coût fixe d'un
+  appel map (~570 tokens) domine les petites fonctions.
   Ajouter un langage = grammaire + fichier query, zéro modif du cœur.
 - `internal/extract` — modèle Fact, fusion, protocole extracteurs externes.
 - `internal/{mapper,reducer,crosscheck}` — phases LLM, chacune valide
@@ -58,16 +61,25 @@ Pipeline : `extract → chunk → map → reduce → crosscheck(+repair) → bui
 ## Extracteurs = modules Go SÉPARÉS
 
 `extractors/php/` (composer), `extractors/go/` (`go.mod` propre, dépend de
-`golang.org/x/tools`) et `extractors/scip/` (dépend de `github.com/scip-code/scip`
-+ protobuf) **ne sont pas** construits par `go build ./...` depuis la racine.
+`golang.org/x/tools`), `extractors/scip/` (dépend de `github.com/scip-code/scip`
++ protobuf) et `extractors/webapp/` (Khan webapp/gqlgen, dépend de
+`vektah/gqlparser/v2` + yaml) **ne sont pas** construits par `go build ./...` depuis la racine.
 Les tester/builder depuis leur dossier. Raison : le module principal a un jeu
 de dépendances verrouillé (yaml, tree-sitter, charm) — les extracteurs vivent
 hors de ce jeu. Le convertisseur SCIP émet des facts `symbol` avec
 `precise: true` que le map injecte comme ancres de citation.
 
+Faits `rule` et `domain` (contrat : constantes de `internal/extract`) : un
+extracteur peut fournir des règles déterministes (validées par
+`graph.ValidateRuleFacts`, rendues `extracted_by` + `crosscheck: mechanical`,
+listées au map en `MECHANICAL_RULES`) et des domaines par plage de lignes
+(`extract.DomainHints`, prioritaires sur la stratégie de domaine). Aucun code
+spécifique à un dépôt dans le cœur : tout le savoir webapp vit dans
+`extractors/webapp`.
+
 ## Cache & reprise (`<out>/.codetospec/`)
 
-- `map/<chunkID>.json` — nom = hash du contenu du chunk ; réutilisé si son `prompt_key` correspond.
+- `map/<chunkID>.json` — nom = hash du contenu du chunk ; réutilisé si son `prompt_key` correspond. Le domaine d'une sortie en cache est repris du chunk courant (changer la stratégie de domaine regroupe sans re-mapper).
 - `reduce/<domain>.json` — réutilisé si le hash des candidates (`candidates_hash`) correspond.
 - `crosscheck/<ruleID>.json` — clé = hash (prompt key + règle + lignes citées).
 

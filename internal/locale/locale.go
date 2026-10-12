@@ -67,6 +67,8 @@ type ReadmeCoverage struct {
 	NoGrammarFmt, ExtractorsFailedFmt       string // %s: comma-separated list
 	CrosscheckFmt                           string // %d supported, partial, unsupported
 	RepairedFmt, UncheckedFmt               string // %d, appended to CrosscheckFmt
+	MechanicalFmt                           string // %d, appended to CrosscheckFmt
+	RejectedRulesFmt                        string // %d malformed extractor rule facts
 	GroundingFmt                            string // %d grounded, ungrounded, unchecked
 }
 
@@ -270,9 +272,17 @@ func newReadmeCoverage(tr translate) ReadmeCoverage {
 			", %d non vérifiées",
 			", %d unchecked",
 		),
+		RejectedRulesFmt: tr(
+			"- Règles d'extracteur rejetées (malformées, voir les logs) : %d",
+			"- Extractor rules rejected (malformed, see the logs): %d",
+		),
+		MechanicalFmt: tr(
+			", %d mécaniques (extraites du code, non soumises au LLM)",
+			", %d mechanical (extracted from the code, not sent to the LLM)",
+		),
 		GroundingFmt: tr(
-			"- Ancrage mécanique (valeurs citées présentes dans le code) : "+"%d ancrées, %d non ancrées, %d sans valeur vérifiable",
-			"- Mechanical grounding (stated values present in the cited code): "+"%d grounded, %d ungrounded, %d with no checkable value",
+			"- Ancrage mécanique (valeurs citées présentes dans le code) : %d ancrées, %d non ancrées, %d sans valeur vérifiable",
+			"- Mechanical grounding (stated values present in the cited code): %d grounded, %d ungrounded, %d with no checkable value",
 		),
 	}
 }

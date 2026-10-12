@@ -1,0 +1,193 @@
+[
+  {
+    "kind": "domain",
+    "id": "domain.webapp.resolvers/guards.go:3",
+    "attrs": {
+      "domain": "auth-emails"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "3-10"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "domain",
+    "id": "domain.webapp.resolvers/guards.go:12",
+    "attrs": {
+      "domain": "auth-emails"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "12-18"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "domain",
+    "id": "domain.webapp.resolvers/guards.go:20",
+    "attrs": {
+      "domain": "user"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "20-23"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "domain",
+    "id": "domain.webapp.resolvers/guards.go:25",
+    "attrs": {
+      "domain": "user"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "25-32"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "domain",
+    "id": "domain.webapp.resolvers/guards.go:34",
+    "attrs": {
+      "domain": "user"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "34-48"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:6",
+    "attrs": {
+      "domain": "auth-emails",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "SI la requête n'est pas une requête service-admin, ALORS le systeme doit rejeter Mutation.addAuthEmail avec l'erreur `Unauthorized`.",
+      "slug": "authz-mutation-addauthemail",
+      "title": "Contrôle d'accès : Mutation.addAuthEmail"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "6-8"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:14",
+    "attrs": {
+      "domain": "auth-emails",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "SI l'appelant n'est pas l'utilisateur `kaid` ET la requête n'est pas une requête service-admin, ALORS le systeme doit rejeter Mutation.addCoachRole avec l'erreur `Unauthorized`.",
+      "slug": "authz-mutation-addcoachrole",
+      "title": "Contrôle d'accès : Mutation.addCoachRole"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "14-16"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:21",
+    "attrs": {
+      "domain": "user",
+      "ears": "ubiquitous",
+      "nature": "business",
+      "requirement": "Le systeme doit autoriser tout appelant à appeler Query.checkUsername.",
+      "slug": "authz-query-checkusername",
+      "title": "Contrôle d'accès : Query.checkUsername"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "21-21"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:27",
+    "attrs": {
+      "domain": "user",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "SI l'appelant n'est pas connecté avec un compte non fantôme, ALORS le systeme doit rejeter Query.deviceAuthRequestInfo avec l'erreur `Unauthorized`.",
+      "slug": "authz-query-deviceauthrequestinfo",
+      "title": "Contrôle d'accès : Query.deviceAuthRequestInfo"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "27-30"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:36",
+    "attrs": {
+      "domain": "user",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "SI l'appelant n'est pas l'utilisateur `user.Kaid` ET l'appelant n'a pas la permission `CanViewUserIdentity` pour l'utilisateur `user.Kaid`, ALORS le systeme doit rejeter User.pendingEmailVerifications.",
+      "slug": "authz-user-pendingemailverifications",
+      "title": "Contrôle d'accès : User.pendingEmailVerifications"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "36-39"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:40",
+    "attrs": {
+      "domain": "user",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "SI l'appelant n'a pas la permission `CanChangeUserData` pour tout utilisateur OU (`customCheck(ktx)` est vrai ET l'appelant est coach de l'utilisateur `user.Kaid`), ALORS le systeme doit rejeter User.pendingEmailVerifications avec l'erreur `NotAllowed`.",
+      "slug": "authz-user-pendingemailverifications-2",
+      "title": "Contrôle d'accès : User.pendingEmailVerifications (2)"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "40-46"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:58",
+    "attrs": {
+      "domain": "resolvers",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "SI l'appelant n'est pas connecté, ALORS le systeme doit rejeter Query.orphan avec l'erreur `Unauthorized`.",
+      "slug": "authz-query-orphan",
+      "title": "Contrôle d'accès : Query.orphan"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "58-60"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  }
+]

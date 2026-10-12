@@ -365,3 +365,33 @@ func TestCrosscheckCacheKeyedByModelAndPrompt(t *testing.T) {
 		})
 	}
 }
+
+func TestMechanicalRulesSkipTheReviewer(t *testing.T) {
+	mechanical := ruleNode()
+	mechanical.ID = "rule.services.mechanical"
+	mechanical.Extra = map[string]string{graph.ExtraExtractedBy: "webapp"}
+	reviewed := []string{}
+	c := newChecker(
+		t,
+		chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+			reviewed = append(reviewed, msgs[1].Content)
+			return supportedReply, llm.Usage{}, nil
+		}),
+	)
+	c.Workers = 1
+	nodes := []graph.Node{ruleNode(), mechanical}
+	verdicts, err := c.Run(context.Background(), nodes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reviewed) != 1 || strings.Contains(reviewed[0], mechanical.ID) {
+		t.Fatalf("reviewer saw %d prompts, want only the LLM rule", len(reviewed))
+	}
+	nodes = Annotate(nodes, verdicts)
+	if got := nodes[1].Extra["crosscheck"]; got != VerdictMechanical {
+		t.Errorf("mechanical rule crosscheck = %q, want %q", got, VerdictMechanical)
+	}
+	if got := Count(nodes); got != (Tally{Supported: 1, Mechanical: 1}) {
+		t.Errorf("tally = %+v", got)
+	}
+}

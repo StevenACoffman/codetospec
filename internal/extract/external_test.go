@@ -34,11 +34,20 @@ func TestMain(m *testing.M) {
 
 func TestRunExtractorSuccess(t *testing.T) {
 	facts, err := RunExtractor(context.Background(), ExtractorConfig{
-		Name:    "echo",
-		Cmd:     "go",
-		Args:    []string{"run", "./testdata/echoextractor", "--mode", "ok", "--root", "{src}"},
+		Name: "echo",
+		Cmd:  "go",
+		Args: []string{
+			"run",
+			"./testdata/echoextractor",
+			"--mode",
+			"ok",
+			"--root",
+			"{src}",
+			"--lang",
+			"{lang}",
+		},
 		Timeout: 120 * time.Second,
-	}, "/repo/src")
+	}, "/repo/src", "fr")
 	if err != nil {
 		t.Fatalf("RunExtractor: %v", err)
 	}
@@ -52,6 +61,9 @@ func TestRunExtractorSuccess(t *testing.T) {
 	if f.Attrs["root"] != "/repo/src" {
 		t.Errorf("{src} not substituted, got %q", f.Attrs["root"])
 	}
+	if f.Attrs["lang"] != "fr" {
+		t.Errorf("{lang} not substituted, got %q", f.Attrs["lang"])
+	}
 	if f.Certainty != CertaintyProved {
 		t.Errorf("certainty = %q, want proved", f.Certainty)
 	}
@@ -63,7 +75,7 @@ func TestRunExtractorTimeout(t *testing.T) {
 		Cmd:     echoBin,
 		Args:    []string{"--mode", "hang"},
 		Timeout: 500 * time.Millisecond,
-	}, "/repo/src")
+	}, "/repo/src", "fr")
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("want timeout error, got %v", err)
 	}
@@ -74,7 +86,7 @@ func TestRunExtractorNonZeroExit(t *testing.T) {
 		Name: "echo",
 		Cmd:  echoBin,
 		Args: []string{"--mode", "fail"},
-	}, "/repo/src")
+	}, "/repo/src", "fr")
 	if err == nil {
 		t.Fatal("want error on non-zero exit")
 	}
@@ -85,7 +97,7 @@ func TestRunExtractorInvalidJSON(t *testing.T) {
 		Name: "echo",
 		Cmd:  echoBin,
 		Args: []string{"--mode", "garbage"},
-	}, "/repo/src")
+	}, "/repo/src", "fr")
 	if err == nil || !strings.Contains(err.Error(), "invalid facts JSON") {
 		t.Fatalf("want invalid JSON error, got %v", err)
 	}

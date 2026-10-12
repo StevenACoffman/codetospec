@@ -394,3 +394,67 @@ func TestEndToEndEnglish(t *testing.T) {
 		t.Fatalf("verify violations: %v", violations)
 	}
 }
+
+// TestEndToEndMechanicalRule: an extractor rule fact becomes a rule node
+// marked extracted_by and crosscheck mechanical and passes verify; a
+// malformed one is dropped and counted; a domain fact regroups a chunk.
+func TestEndToEndMechanicalRule(t *testing.T) {
+	server := mockLLM(t)
+	defer server.Close()
+	outDir := t.TempDir()
+	cfg := e2eConfig(t, server.URL, outDir)
+	cfg.Lang = "en"
+
+	factsPath := filepath.Join(t.TempDir(), "mechanical.facts.json")
+	facts := `{"schema":"codetospec/facts/v1","facts":[
+{"kind":"rule","id":"rule.authz.prorata","origin":"webapp","certainty":"static",
+ "source":{"path":"app/Services/Billing/ProrataCalculator.php","lines":"13-15"},
+ "attrs":{"slug":"reject-negative-amount","title":"Reject negative amounts",
+  "requirement":"IF the monthly amount is negative, THEN the system shall throw InvalidArgumentException.",
+  "ears":"unwanted","nature":"business","domain":"billing"}},
+{"kind":"domain","id":"domain.prorata","origin":"webapp","certainty":"static",
+ "source":{"path":"app/Services/Billing/ProrataCalculator.php","lines":"7-25"},
+ "attrs":{"domain":"pricing"}},
+{"kind":"rule","id":"rule.authz.broken","origin":"webapp","certainty":"static",
+ "source":{"path":"app/Services/Billing/ProrataCalculator.php","lines":"13-15"},
+ "attrs":{"slug":"broken","title":"Broken","requirement":"",
+  "ears":"unwanted","nature":"business","domain":"billing"}}]}`
+	if err := os.WriteFile(factsPath, []byte(facts), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg.FactsFiles = append(cfg.FactsFiles, factsPath)
+
+	if err := runPipeline(context.Background(), cfg, ui.Discard{}); err != nil {
+		t.Fatalf("runPipeline: %v", err)
+	}
+	outFS := os.DirFS(outDir)
+	rule, err := fs.ReadFile(outFS, "nodes/rules/billing.reject-negative-amount.md")
+	if err != nil {
+		t.Fatalf("mechanical rule not rendered: %v", err)
+	}
+	// The domain fact moved the ProrataCalculator chunk into "pricing".
+	if _, statErr := fs.Stat(outFS, "nodes/domains/pricing.md"); statErr != nil {
+		t.Errorf("domain fact did not create the pricing domain: %v", statErr)
+	}
+	for _, want := range []string{"extracted_by: webapp", "crosscheck: mechanical"} {
+		if !strings.Contains(string(rule), want) {
+			t.Errorf("rule frontmatter lacks %q:\n%s", want, rule)
+		}
+	}
+	readme, err := fs.ReadFile(outFS, "README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"1 mechanical", "Extractor rules rejected (malformed, see the logs): 1"} {
+		if !strings.Contains(string(readme), want) {
+			t.Errorf("README.md lacks %q:\n%s", want, readme)
+		}
+	}
+	nodes, err := render.LoadDir(outDir)
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	if violations := verify.Run(nodes, cfg.Src); len(violations) != 0 {
+		t.Fatalf("verify violations: %v", violations)
+	}
+}

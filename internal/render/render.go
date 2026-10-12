@@ -36,8 +36,11 @@ type Meta struct {
 	CrosscheckUnsupported int
 	CrosscheckRepaired    int
 	CrosscheckUnchecked   int // rules the review never judged
+	CrosscheckMechanical  int // extractor rules, not sent to the reviewer
 	// Near-duplicate rule pairs (deterministic consistency check).
 	DuplicatePairs []consistency.DuplicatePair
+	// RuleFactsRejected counts extractor rule facts dropped as malformed.
+	RuleFactsRejected int
 	// Lang is the --lang code selecting the output text (see locale).
 	Lang string
 }
@@ -136,6 +139,9 @@ func Frontmatter(n graph.Node) string {
 	}
 	if v := n.Extra["crosscheck"]; v != "" {
 		fmt.Fprintf(&b, "crosscheck: %s\n", v)
+	}
+	if v := n.Extra[graph.ExtraExtractedBy]; v != "" {
+		fmt.Fprintf(&b, "%s: %s\n", graph.ExtraExtractedBy, v)
 	}
 	if v := n.Extra["grounding"]; v != "" {
 		fmt.Fprintf(&b, "grounding: %s\n", v)
@@ -315,7 +321,13 @@ func readme(nodes []graph.Node, meta Meta, text *locale.Text) string {
 		if meta.CrosscheckUnchecked > 0 {
 			fmt.Fprintf(&b, text.UncheckedFmt, meta.CrosscheckUnchecked)
 		}
+		if meta.CrosscheckMechanical > 0 {
+			fmt.Fprintf(&b, text.MechanicalFmt, meta.CrosscheckMechanical)
+		}
 		b.WriteString("\n")
+	}
+	if meta.RuleFactsRejected > 0 {
+		fmt.Fprintf(&b, text.RejectedRulesFmt+"\n", meta.RuleFactsRejected)
 	}
 	b.WriteString(groundingSummary(nodes, text))
 	b.WriteString(ungroundedSection(nodes, text))
@@ -468,6 +480,7 @@ type frontmatterDoc struct {
 	Origin     string   `yaml:"origin"`
 	Confidence *float64 `yaml:"confidence"`
 	Crosscheck string   `yaml:"crosscheck"`
+	Extracted  string   `yaml:"extracted_by"`
 	Grounding  string   `yaml:"grounding"`
 	Missing    string   `yaml:"grounding_missing"`
 	Digest     string   `yaml:"digest"`
@@ -517,6 +530,9 @@ func ParseNode(content string) (graph.Node, error) {
 	}
 	if doc.Crosscheck != "" {
 		extra["crosscheck"] = doc.Crosscheck
+	}
+	if doc.Extracted != "" {
+		extra[graph.ExtraExtractedBy] = doc.Extracted
 	}
 	if doc.Grounding != "" {
 		extra["grounding"] = doc.Grounding

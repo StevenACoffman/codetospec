@@ -4,6 +4,7 @@ package graph
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -70,6 +71,9 @@ func RuleCriteria(body string) []string {
 	return criteria
 }
 
+// EdgeBelongsTo links a rule to its domain.
+const EdgeBelongsTo = "belongs_to"
+
 // TypeRule is the Node.Type of a business rule.
 const TypeRule = "rule"
 
@@ -77,7 +81,8 @@ const TypeRule = "rule"
 const StatusGenerated = "generated"
 
 // Build assembles the node set: entities from table facts, endpoints from
-// route facts, rules and domains from the reduce outputs, and domain
+// route facts, rules and domains from the reduce outputs and from rule facts
+// (which must have passed ValidateRuleFacts), and domain
 // depends_on edges computed from cross-domain import facts (never by the LLM).
 // Node bodies use the labels of the --lang code lang.
 func Build(
@@ -91,7 +96,7 @@ func Build(
 	nodes = append(nodes, entityNodes(facts, text)...)
 	nodes = append(nodes, endpointNodes(facts, text)...)
 
-	ruleNodes, domainNodes := ruleAndDomainNodes(reduced, text)
+	ruleNodes, domainNodes := ruleAndDomainNodes(reduced, facts, text)
 	domainDeps := domainDependencies(facts, resolver, domainNodes)
 	for i := range domainNodes {
 		slug := strings.TrimPrefix(domainNodes[i].ID, "domain.")
@@ -199,81 +204,140 @@ func endpointNodes(facts []extract.Fact, text *locale.Text) []Node {
 	return nodes
 }
 
-func ruleAndDomainNodes(reduced []reducer.Output, text *locale.Text) (rules, domains []Node) {
+// domainDraft collects one domain's summary and rule nodes before its
+// domain node is written.
+type domainDraft struct {
+	summary string
+	rules   []Node
+}
+
+// ruleAndDomainNodes builds rule nodes from the reduce outputs and from the
+// mechanical rule facts, and one domain node per domain that has rules.
+func ruleAndDomainNodes(
+	reduced []reducer.Output,
+	facts []extract.Fact,
+	text *locale.Text,
+) ([]Node, []Node) {
+	drafts := make(map[string]*domainDraft)
+	draft := func(domain string) *domainDraft {
+		if drafts[domain] == nil {
+			drafts[domain] = &domainDraft{}
+		}
+		return drafts[domain]
+	}
+	taken := make(map[string]bool)
+
 	for _, out := range reduced {
 		if out.Failed || len(out.Rules) == 0 {
 			continue
 		}
-		domainRules := append([]reducer.Rule(nil), out.Rules...)
-		sort.SliceStable(
-			domainRules,
-			func(i, j int) bool { return domainRules[i].Slug < domainRules[j].Slug },
-		)
+		d := draft(out.Domain)
+		d.summary = out.DomainSummary
+		for i := range out.Rules {
+			n := reducedRuleNode(out.Domain, &out.Rules[i], text)
+			taken[n.ID] = true
+			d.rules = append(d.rules, n)
+		}
+	}
+	for i := range facts {
+		f := &facts[i]
+		if f.Kind != extract.KindRule {
+			continue
+		}
+		domain := f.Attrs[extract.AttrDomain]
+		id := uniqueID("rule."+domain+"."+f.Attrs[extract.AttrSlug], taken)
+		taken[id] = true
+		draft(domain).rules = append(draft(domain).rules, mechanicalRuleNode(f, id, text))
+	}
 
+	var rules, domains []Node
+	for _, domain := range slices.Sorted(maps.Keys(drafts)) {
+		d := drafts[domain]
+		sort.SliceStable(d.rules, func(i, j int) bool { return d.rules[i].ID < d.rules[j].ID })
 		var ruleList strings.Builder
-		for _, rule := range domainRules {
-			nodeID := fmt.Sprintf("rule.%s.%s", out.Domain, rule.Slug)
-			edges := []Edge{{Type: "belongs_to", To: "domain." + out.Domain}}
-			for _, e := range dedupSorted(rule.Entities) {
-				edges = append(edges, Edge{Type: "touches", To: e})
-			}
-			for _, e := range dedupSorted(rule.Endpoints) {
-				edges = append(edges, Edge{Type: "exposed_by", To: e})
-			}
-			sortEdges(edges)
-
-			sources := append([]extract.Ref(nil), rule.Citations...)
-			sort.SliceStable(sources, func(i, j int) bool {
-				if sources[i].Path != sources[j].Path {
-					return sources[i].Path < sources[j].Path
-				}
-				return sources[i].Lines < sources[j].Lines
-			})
-
-			var body strings.Builder
-			body.WriteString(text.Requirement + rule.Requirement)
-			if rule.Rationale != "" {
-				body.WriteString("\n\n" + text.Rationale + rule.Rationale)
-			}
-			if len(rule.AcceptanceCriteria) > 0 {
-				body.WriteString("\n\n" + text.Criteria)
-				for i, criterion := range rule.AcceptanceCriteria {
-					fmt.Fprintf(&body, "\n%d. %s", i+1, criterion)
-				}
-			}
-
-			rules = append(rules, Node{
-				ID:      nodeID,
-				Type:    TypeRule,
-				Status:  StatusGenerated,
-				Sources: sources,
-				Edges:   edges,
-				Title:   rule.Title,
-				Body:    body.String(),
-				Extra: map[string]string{
-					"ears":       rule.EarsKind,
-					"acceptance": strconv.Itoa(len(rule.AcceptanceCriteria)),
-					"nature":     rule.Nature,
-					"origin":     rule.Origin,
-					"confidence": strconv.FormatFloat(rule.Confidence, 'f', 2, 64),
-				},
-			})
-			fmt.Fprintf(&ruleList, "- [%s](../rules/%s.%s.md)\n", rule.Title, out.Domain, rule.Slug)
+		for _, r := range d.rules {
+			fmt.Fprintf(
+				&ruleList,
+				"- [%s](../rules/%s.md)\n",
+				r.Title,
+				strings.TrimPrefix(r.ID, "rule."),
+			)
 		}
-
-		body := out.DomainSummary
-		if ruleList.Len() > 0 {
-			body += "\n\n" + text.RulesHeading + "\n\n" + strings.TrimRight(ruleList.String(), "\n")
-		}
+		rules = append(rules, d.rules...)
+		body := d.summary + "\n\n" + text.RulesHeading + "\n\n" + strings.TrimRight(
+			ruleList.String(),
+			"\n",
+		)
 		domains = append(domains, Node{
-			ID:     "domain." + out.Domain,
+			ID:     "domain." + domain,
 			Type:   "domain",
 			Status: StatusGenerated,
-			Title:  fmt.Sprintf(text.DomainTitleFmt, out.Domain),
+			Title:  fmt.Sprintf(text.DomainTitleFmt, domain),
 			Body:   strings.TrimSpace(body),
 		})
 	}
 	return rules, domains
+}
+
+// reducedRuleNode turns one reduced rule of domain into a rule node.
+func reducedRuleNode(domain string, rule *reducer.Rule, text *locale.Text) Node {
+	edges := []Edge{{Type: EdgeBelongsTo, To: "domain." + domain}}
+	for _, e := range dedupSorted(rule.Entities) {
+		edges = append(edges, Edge{Type: "touches", To: e})
+	}
+	for _, e := range dedupSorted(rule.Endpoints) {
+		edges = append(edges, Edge{Type: "exposed_by", To: e})
+	}
+	sortEdges(edges)
+
+	sources := append([]extract.Ref(nil), rule.Citations...)
+	sort.SliceStable(sources, func(i, j int) bool {
+		if sources[i].Path != sources[j].Path {
+			return sources[i].Path < sources[j].Path
+		}
+		return sources[i].Lines < sources[j].Lines
+	})
+
+	var body strings.Builder
+	body.WriteString(text.Requirement + rule.Requirement)
+	if rule.Rationale != "" {
+		body.WriteString("\n\n" + text.Rationale + rule.Rationale)
+	}
+	if len(rule.AcceptanceCriteria) > 0 {
+		body.WriteString("\n\n" + text.Criteria)
+		for i, criterion := range rule.AcceptanceCriteria {
+			fmt.Fprintf(&body, "\n%d. %s", i+1, criterion)
+		}
+	}
+
+	return Node{
+		ID:      fmt.Sprintf("rule.%s.%s", domain, rule.Slug),
+		Type:    TypeRule,
+		Status:  StatusGenerated,
+		Sources: sources,
+		Edges:   edges,
+		Title:   rule.Title,
+		Body:    body.String(),
+		Extra: map[string]string{
+			"ears":       rule.EarsKind,
+			"acceptance": strconv.Itoa(len(rule.AcceptanceCriteria)),
+			"nature":     rule.Nature,
+			"origin":     rule.Origin,
+			"confidence": strconv.FormatFloat(rule.Confidence, 'f', 2, 64),
+		},
+	}
+}
+
+// uniqueID returns id, or id-2, id-3… if taken already holds it.
+func uniqueID(id string, taken map[string]bool) string {
+	if !taken[id] {
+		return id
+	}
+	for n := 2; ; n++ {
+		if candidate := id + "-" + strconv.Itoa(n); !taken[candidate] {
+			return candidate
+		}
+	}
 }
 
 // domainDependencies computes depends_on edges between existing domains from
@@ -396,7 +460,7 @@ func sortEdges(edges []Edge) {
 
 func edgeTypeRank(t string) int {
 	switch t {
-	case "belongs_to":
+	case EdgeBelongsTo:
 		return 0
 	case "touches":
 		return 1

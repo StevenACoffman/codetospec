@@ -41,6 +41,11 @@ const (
 	// or it got no verdict). Recorded so an unexamined rule never reads like
 	// one that passed.
 	VerdictUnchecked = "unchecked"
+	// VerdictMechanical marks a rule an extractor derived deterministically
+	// from the code (graph.ExtraExtractedBy): it is not sent to the reviewer,
+	// and is neither supported (nobody reviewed it) nor unchecked (nothing is
+	// missing — it is grounded by construction).
+	VerdictMechanical = "mechanical"
 )
 
 var verdicts = map[string]bool{
@@ -151,7 +156,7 @@ func (c *Checker) Run(ctx context.Context, nodes []graph.Node) (map[string]Verdi
 	}
 	var rules []graph.Node
 	for _, n := range nodes {
-		if n.Type == graph.TypeRule {
+		if n.Type == graph.TypeRule && n.Extra[graph.ExtraExtractedBy] == "" {
 			rules = append(rules, n)
 		}
 	}
@@ -466,7 +471,7 @@ func (c *Checker) citedExcerpt(sources []extract.Ref) (string, error) {
 // Annotate writes verdicts into the rule nodes (Extra["crosscheck"]) and,
 // for repaired rules, replaces their citations with the grounded ones. A rule
 // whose check failed, or that has no verdict at all, is annotated
-// VerdictUnchecked.
+// VerdictUnchecked; a mechanical rule is annotated VerdictMechanical.
 func Annotate(nodes []graph.Node, verdictsByRule map[string]Verdict) []graph.Node {
 	for i := range nodes {
 		if nodes[i].Type != graph.TypeRule {
@@ -474,6 +479,10 @@ func Annotate(nodes []graph.Node, verdictsByRule map[string]Verdict) []graph.Nod
 		}
 		if nodes[i].Extra == nil {
 			nodes[i].Extra = map[string]string{}
+		}
+		if nodes[i].Extra[graph.ExtraExtractedBy] != "" {
+			nodes[i].Extra["crosscheck"] = VerdictMechanical
+			continue
 		}
 		v, ok := verdictsByRule[nodes[i].ID]
 		if !ok || v.Failed {
@@ -495,6 +504,7 @@ type Tally struct {
 	Unsupported int
 	Repaired    int
 	Unchecked   int
+	Mechanical  int
 }
 
 // Count tallies the crosscheck annotations of annotated rule nodes (see
@@ -516,6 +526,8 @@ func Count(nodes []graph.Node) Tally {
 			t.Repaired++
 		case VerdictUnchecked:
 			t.Unchecked++
+		case VerdictMechanical:
+			t.Mechanical++
 		}
 	}
 	return t

@@ -141,7 +141,11 @@ extract (layers 1+2) ──▶ chunk (AST) ──▶ map (LLM, parallel, per chu
        ──▶ build + grounding + verify + render (pure Go)
 ```
 
-- **map**: one call per chunk extracts candidate rules with citations. When
+- **map**: one call per chunk extracts candidate rules with citations.
+  A chunk is one top-level definition, and adjacent small definitions of a
+  file (same namespace and domain) are packed up to 150 lines: each call
+  carries several hundred tokens of fixed prompt, so packing cuts calls ~3×
+  on a codebase of small functions. When
   a SCIP index is supplied (via the SCIP converter), each chunk's prompt is
   grounded with the exact signatures and line spans of the symbols it
   contains, so the model cites real code spans instead of guessing.
@@ -252,6 +256,20 @@ extractors:
 `static` or `proved` (runtime-verified). Facts merge by id with priority
 `proved` > extractor > tree-sitter, so a runtime-proved route overrides a
 statically guessed one. A failing extractor is a warning, not a fatal error.
+
+Arguments may use `{src}` (the analyzed root) and `{lang}` (`--lang`).
+Two more kinds let an extractor contribute beyond structure (contract in
+`internal/extract`):
+
+- `rule` — a business rule derived deterministically from the code. `source`
+  is its exact citation; attrs `slug`, `title`, `requirement` (EARS text in
+  the output language), `ears`, `nature`, `domain`. Malformed rule facts are
+  dropped and counted in the output README. Valid ones become rule nodes
+  with `extracted_by: <extractor>` and `crosscheck: mechanical` (never sent to
+  the LLM reviewer), are listed to the map prompt as `MECHANICAL_RULES` so the
+  model does not restate them, and are grounded like any rule.
+- `domain` — attr `domain` assigns the code in `source` to a domain,
+  overriding the domain strategy for chunks starting there.
 
 ## Limitations (v0.1)
 

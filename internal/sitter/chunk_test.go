@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func noopDomain(namespace, path string) string { return "test" }
+func noopDomain(namespace, path string, line int) string { return "test" }
 
 func TestChunkFileOneChunkPerDefinition(t *testing.T) {
 	content := readFixture(t, "app/Services/Billing/ProrataCalculator.php")

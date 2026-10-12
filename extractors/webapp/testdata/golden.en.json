@@ -1,0 +1,193 @@
+[
+  {
+    "kind": "domain",
+    "id": "domain.webapp.resolvers/guards.go:3",
+    "attrs": {
+      "domain": "auth-emails"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "3-10"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "domain",
+    "id": "domain.webapp.resolvers/guards.go:12",
+    "attrs": {
+      "domain": "auth-emails"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "12-18"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "domain",
+    "id": "domain.webapp.resolvers/guards.go:20",
+    "attrs": {
+      "domain": "user"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "20-23"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "domain",
+    "id": "domain.webapp.resolvers/guards.go:25",
+    "attrs": {
+      "domain": "user"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "25-32"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "domain",
+    "id": "domain.webapp.resolvers/guards.go:34",
+    "attrs": {
+      "domain": "user"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "34-48"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:6",
+    "attrs": {
+      "domain": "auth-emails",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "IF the request is not a service-admin query, THEN the system shall reject Mutation.addAuthEmail with the `Unauthorized` error.",
+      "slug": "authz-mutation-addauthemail",
+      "title": "Access control: Mutation.addAuthEmail"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "6-8"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:14",
+    "attrs": {
+      "domain": "auth-emails",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "IF the caller is not the user `kaid` AND the request is not a service-admin query, THEN the system shall reject Mutation.addCoachRole with the `Unauthorized` error.",
+      "slug": "authz-mutation-addcoachrole",
+      "title": "Access control: Mutation.addCoachRole"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "14-16"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:21",
+    "attrs": {
+      "domain": "user",
+      "ears": "ubiquitous",
+      "nature": "business",
+      "requirement": "The system shall allow any caller to call Query.checkUsername.",
+      "slug": "authz-query-checkusername",
+      "title": "Access control: Query.checkUsername"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "21-21"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:27",
+    "attrs": {
+      "domain": "user",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "IF the caller is not logged in with a non-phantom account, THEN the system shall reject Query.deviceAuthRequestInfo with the `Unauthorized` error.",
+      "slug": "authz-query-deviceauthrequestinfo",
+      "title": "Access control: Query.deviceAuthRequestInfo"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "27-30"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:36",
+    "attrs": {
+      "domain": "user",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "IF the caller is not the user `user.Kaid` AND the caller lacks permission `CanViewUserIdentity` for the user `user.Kaid`, THEN the system shall reject User.pendingEmailVerifications.",
+      "slug": "authz-user-pendingemailverifications",
+      "title": "Access control: User.pendingEmailVerifications"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "36-39"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:40",
+    "attrs": {
+      "domain": "user",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "IF the caller lacks permission `CanChangeUserData` for any user OR (`customCheck(ktx)` holds AND the user `user.Kaid` is coached by the caller), THEN the system shall reject User.pendingEmailVerifications with the `NotAllowed` error.",
+      "slug": "authz-user-pendingemailverifications-2",
+      "title": "Access control: User.pendingEmailVerifications (2)"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "40-46"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:58",
+    "attrs": {
+      "domain": "resolvers",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "IF the caller is not logged in, THEN the system shall reject Query.orphan with the `Unauthorized` error.",
+      "slug": "authz-query-orphan",
+      "title": "Access control: Query.orphan"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "58-60"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  }
+]

@@ -30,6 +30,11 @@ const (
 	maxDefinitionLines = 300
 	fallbackChunkLines = 250
 	fallbackOverlap    = 20
+	// packTargetLines caps a pack of adjacent small definitions (see pack).
+	// Every map call pays a fixed prompt overhead of several hundred tokens,
+	// which dwarfs a typical 10-20 line definition, so small neighbours are
+	// mapped together.
+	packTargetLines = 150
 )
 
 // ChunkFile splits one file into chunks. A top-level definition becomes one
@@ -37,12 +42,14 @@ const (
 // child definition, each prefixed with the container header (declaration and
 // property lines before the first child). Files without definitions — or
 // without a grammar (info == nil) — fall back to fixed-size line windows
-// with overlap. domainOf resolves the domain from (namespace, path).
+// with overlap. Adjacent small definitions sharing a namespace and domain
+// are packed into one chunk (see pack). domainOf resolves the domain of the
+// definition starting at line from (namespace, path, line).
 func ChunkFile(
 	path, language string,
 	content []byte,
 	info *FileInfo,
-	domainOf func(namespace, path string) string,
+	domainOf func(namespace, path string, line int) string,
 ) []Chunk {
 	lines := splitLines(content)
 	if len(lines) == 0 {
@@ -67,7 +74,7 @@ func ChunkFile(
 			EndLine:   end,
 			Language:  language,
 			Namespace: namespace,
-			Domain:    domainOf(namespace, path),
+			Domain:    domainOf(namespace, path, start),
 			Content:   chunkContent,
 		}
 	}
@@ -110,7 +117,43 @@ func ChunkFile(
 		chunks,
 		func(i, j int) bool { return chunks[i].StartLine < chunks[j].StartLine },
 	)
-	return chunks
+	return pack(chunks, lines, makeChunk)
+}
+
+// pack merges runs of adjacent definition chunks into one chunk spanning
+// them, gap lines included, so a file of many small functions costs a few map
+// calls instead of one per function.
+//
+// Requires: chunks are one file's definition chunks sorted by StartLine.
+// Ensures:  chunks are merged greedily left to right while the merged span
+// stays within packTargetLines and every member has no Context and the same
+// Namespace and Domain; a chunk that cannot join its predecessor starts a new
+// pack, so a definition longer than the target stays alone. Packing the
+// result again changes nothing.
+func pack(
+	chunks []Chunk,
+	lines []string,
+	makeChunk func(start, end int, content string) Chunk,
+) []Chunk {
+	var packed []Chunk
+	for _, c := range chunks {
+		if n := len(packed); n > 0 && packable(&packed[n-1], &c) {
+			last := packed[n-1]
+			end := max(last.EndLine, c.EndLine)
+			packed[n-1] = makeChunk(last.StartLine, end, joinLines(lines, last.StartLine, end))
+			continue
+		}
+		packed = append(packed, c)
+	}
+	return packed
+}
+
+// packable reports whether next may join the pack ending with last.
+func packable(last, next *Chunk) bool {
+	span := max(last.EndLine, next.EndLine) - last.StartLine + 1
+	return last.Context == "" && next.Context == "" &&
+		last.Namespace == next.Namespace && last.Domain == next.Domain &&
+		span <= packTargetLines
 }
 
 func fallbackChunks(lines []string, makeChunk func(start, end int, content string) Chunk) []Chunk {

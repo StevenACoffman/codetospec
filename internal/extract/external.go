@@ -21,7 +21,7 @@ const FactsSchema = "codetospec/facts/v1"
 type ExtractorConfig struct {
 	Name    string
 	Cmd     string
-	Args    []string // "{src}" is substituted with the analyzed root
+	Args    []string // "{src}" and "{lang}" are substituted (analyzed root, --lang)
 	Timeout time.Duration
 }
 
@@ -31,12 +31,13 @@ type FactsEnvelope struct {
 	Facts  []Fact `json:"facts"`
 }
 
-// RunExtractor executes one external extractor and parses its stdout.
+// RunExtractor executes one external extractor and parses its stdout; src
+// and lang replace "{src}" and "{lang}" in its arguments.
 // The command runs from the current working directory with the configured
 // timeout; stderr is forwarded to debug logs. Any failure (non-zero exit,
 // invalid JSON, wrong schema) is returned as an error so the caller can
 // degrade gracefully.
-func RunExtractor(ctx context.Context, cfg ExtractorConfig, src string) ([]Fact, error) {
+func RunExtractor(ctx context.Context, cfg ExtractorConfig, src, lang string) ([]Fact, error) {
 	timeout := cfg.Timeout
 	if timeout <= 0 {
 		timeout = 300 * time.Second
@@ -44,9 +45,10 @@ func RunExtractor(ctx context.Context, cfg ExtractorConfig, src string) ([]Fact,
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	placeholders := strings.NewReplacer("{src}", src, "{lang}", lang)
 	args := make([]string, len(cfg.Args))
 	for i, a := range cfg.Args {
-		args[i] = strings.ReplaceAll(a, "{src}", src)
+		args[i] = placeholders.Replace(a)
 	}
 
 	cmd := exec.CommandContext(runCtx, cfg.Cmd, args...)

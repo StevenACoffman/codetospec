@@ -12,13 +12,38 @@ import (
 
 // Fact is a mechanically provable statement about the codebase.
 type Fact struct {
-	Kind      string            `json:"kind"` // "symbol", "route", "table", "module", "import"
+	Kind      string            `json:"kind"` // "symbol", "route", "table", "module", "import", KindRule, KindDomain
 	ID        string            `json:"id"`   // stable identifier
 	Attrs     map[string]string `json:"attrs"`
 	Source    Ref               `json:"source"`
 	Origin    string            `json:"origin"`    // "sitter" | extractor name | facts file
 	Certainty string            `json:"certainty"` // "proved" | "static"
 }
+
+// Fact kinds that external extractors may emit beyond the structural ones
+// ("symbol", "route", "table", "module", "import"). This block is the single
+// authoritative description of their contract.
+const (
+	// KindRule is a business rule an extractor derived deterministically from
+	// the code: Source is its exact citation, and the attributes AttrSlug,
+	// AttrTitle, AttrRequirement (EARS text in the output language), AttrEARS
+	// (EARS kind), AttrNature and AttrDomain describe it. The graph turns
+	// valid rule facts into rule nodes that skip the LLM crosscheck.
+	KindRule = "rule"
+	// KindDomain assigns the code in Source to the domain AttrDomain,
+	// overriding the configured domain strategy for chunks starting there.
+	KindDomain = "domain"
+)
+
+// Attribute names of KindRule and KindDomain facts.
+const (
+	AttrSlug        = "slug"
+	AttrTitle       = "title"
+	AttrRequirement = "requirement"
+	AttrEARS        = "ears"
+	AttrNature      = "nature"
+	AttrDomain      = "domain"
+)
 
 // Ref pins a fact to a file location.
 type Ref struct {

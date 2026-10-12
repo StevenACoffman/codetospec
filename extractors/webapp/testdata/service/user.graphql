@@ -1,0 +1,9 @@
+type User {
+  kaid: String
+  pendingEmailVerifications: [String]
+}
+
+extend type Query {
+  checkUsername(username: String!): Boolean
+  deviceAuthRequestInfo: String
+}

@@ -12,6 +12,7 @@ import (
 func main() {
 	mode := flag.String("mode", "ok", "ok | fail | hang | garbage")
 	root := flag.String("root", "", "analyzed root, echoed in the facts")
+	lang := flag.String("lang", "", "output language, echoed in the facts")
 	flag.Parse()
 
 	switch *mode {
@@ -23,6 +24,6 @@ func main() {
 	case "garbage":
 		fmt.Println("this is not json")
 	default:
-		fmt.Printf(`{"schema":"codetospec/facts/v1","facts":[{"kind":"route","id":"route.get./ping","attrs":{"method":"GET","path":"/ping","root":%q},"source":{"path":"routes/web.php","lines":"1-1"},"origin":"echo","certainty":"proved"}]}`+"\n", *root)
+		fmt.Printf(`{"schema":"codetospec/facts/v1","facts":[{"kind":"route","id":"route.get./ping","attrs":{"method":"GET","path":"/ping","root":%q,"lang":%q},"source":{"path":"routes/web.php","lines":"1-1"},"origin":"echo","certainty":"proved"}]}`+"\n", *root, *lang)
 	}
 }

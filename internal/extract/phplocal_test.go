@@ -42,7 +42,7 @@ func TestPHPExtractorOnFixture(t *testing.T) {
 		Cmd:     "php",
 		Args:    []string{filepath.Join(extractorDir, "extract.php"), "--root", "{src}"},
 		Timeout: 120 * time.Second,
-	}, src)
+	}, src, "fr")
 	if err != nil {
 		t.Fatalf("RunExtractor: %v", err)
 	}

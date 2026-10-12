@@ -245,7 +245,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 			Cmd:     e.Cmd,
 			Args:    e.Args,
 			Timeout: timeout,
-		}, cfg.Src)
+		}, cfg.Src, cfg.Lang)
 		if extErr != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -271,7 +271,14 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		fileFacts = append(fileFacts, facts...)
 	}
 
-	facts := extract.Merge(sitterFacts, extractorFacts, fileFacts)
+	facts, rejectedRules := graph.ValidateRuleFacts(
+		extract.Merge(sitterFacts, extractorFacts, fileFacts),
+	)
+	for _, reason := range rejectedRules {
+		sink.Emit(
+			ui.LogLine{Level: slog.LevelWarn, Message: "invalid rule fact dropped: " + reason},
+		)
+	}
 	byKind := map[string]int{}
 	for _, f := range facts {
 		byKind[f.Kind]++
@@ -292,7 +299,15 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		return err
 	}
 
-	// Chunk.
+	// Chunk. A domain fact from an extractor wins; otherwise the configured
+	// strategy (namespace or path) decides.
+	hints := extract.NewDomainHints(facts)
+	domainOf := func(namespace, path string, line int) string {
+		if domain := hints.At(path, line); domain != "" {
+			return domain
+		}
+		return resolver.Resolve(namespace, path)
+	}
 	var chunks []sitter.Chunk
 	for _, f := range files {
 		data, ok := fileData[f.Path]
@@ -301,7 +316,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		}
 		chunks = append(
 			chunks,
-			sitter.ChunkFile(f.Path, f.Language, data, fileInfo[f.Path], resolver.Resolve)...)
+			sitter.ChunkFile(f.Path, f.Language, data, fileInfo[f.Path], domainOf)...)
 	}
 	sort.SliceStable(chunks, func(i, j int) bool {
 		if chunks[i].Path != chunks[j].Path {
@@ -313,6 +328,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 
 	entities, endpointsByPath := allowedLists(facts)
 	symbolsByPath := preciseSymbols(facts)
+	mechanicalByPath := mechanicalRules(facts)
 	client := llm.NewClient(cfg.BaseURL, cfg.APIKey, cfg.Model, cfg.MaxTokens)
 
 	// MAP.
@@ -337,6 +353,9 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		},
 		SymbolsFor: func(path string) []mapper.SymbolContext {
 			return symbolsByPath[path]
+		},
+		RulesFor: func(path string) []mapper.MechanicalRule {
+			return mechanicalByPath[path]
 		},
 		OnUnit: func(out mapper.Output, usage llm.Usage) {
 			var done int
@@ -533,8 +552,10 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		CrosscheckUnsupported: checkTally.Unsupported,
 		CrosscheckRepaired:    checkTally.Repaired,
 		CrosscheckUnchecked:   checkTally.Unchecked,
+		CrosscheckMechanical:  checkTally.Mechanical,
 		DuplicatePairs:        consistency.FindDuplicates(nodes, consistency.DefaultThreshold),
 		Lang:                  cfg.Lang,
+		RuleFactsRejected:     len(rejectedRules),
 	}
 	for name, status := range extractorStatus {
 		if status != "ok" {
@@ -658,6 +679,27 @@ func preciseSymbols(facts []extract.Fact) map[string][]mapper.SymbolContext {
 			EndLine:   end,
 			Kind:      f.Attrs["kind"],
 			Signature: f.Attrs["signature"],
+		})
+	}
+	return byPath
+}
+
+// mechanicalRules indexes the (validated) rule facts by cited file, for the
+// map prompt's MECHANICAL_RULES section.
+func mechanicalRules(facts []extract.Fact) map[string][]mapper.MechanicalRule {
+	byPath := make(map[string][]mapper.MechanicalRule)
+	for _, f := range facts {
+		if f.Kind != extract.KindRule {
+			continue
+		}
+		start, end, err := extract.ParseLines(f.Source.Lines)
+		if err != nil {
+			continue // ValidateRuleFacts already dropped these
+		}
+		byPath[f.Source.Path] = append(byPath[f.Source.Path], mapper.MechanicalRule{
+			StartLine:   start,
+			EndLine:     end,
+			Requirement: f.Attrs[extract.AttrRequirement],
 		})
 	}
 	return byPath

@@ -322,3 +322,88 @@ func TestMapPromptUsesLanguageEARSPatterns(t *testing.T) {
 		})
 	}
 }
+
+func TestMapCacheReuseTakesCurrentDomain(t *testing.T) {
+	m := newMapper(t, chatFunc(func(context.Context, []llm.Message) (string, llm.Usage, error) {
+		return validMapReply, llm.Usage{}, nil
+	}))
+	if _, err := m.Run(context.Background(), []sitter.Chunk{testChunk()}); err != nil {
+		t.Fatalf("first Run: %v", err)
+	}
+	m.LLM = chatFunc(func(context.Context, []llm.Message) (string, llm.Usage, error) {
+		t.Fatal("a domain change alone must not re-map the chunk")
+		return "", llm.Usage{}, nil
+	})
+	moved := testChunk()
+	moved.Domain = "elsewhere"
+	outputs, err := m.Run(context.Background(), []sitter.Chunk{moved})
+	if err != nil {
+		t.Fatalf("second Run: %v", err)
+	}
+	if outputs[0].Domain != "elsewhere" {
+		t.Fatalf("cached output domain = %q, want the chunk's current domain", outputs[0].Domain)
+	}
+}
+
+// mechanicalReq is the requirement of the mechanical rules in these tests.
+const mechanicalReq = "IF x, THEN y."
+
+func TestMapPromptListsMechanicalRules(t *testing.T) {
+	cases := map[string]struct {
+		rule        MechanicalRule
+		wantSection bool
+	}{
+		"rule inside the chunk": {
+			MechanicalRule{StartLine: 12, EndLine: 14, Requirement: mechanicalReq},
+			true,
+		},
+		"rule outside the chunk": {
+			MechanicalRule{StartLine: 40, EndLine: 41, Requirement: mechanicalReq},
+			false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var user string
+			m := newMapper(
+				t,
+				chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+					user = msgs[1].Content
+					return validMapReply, llm.Usage{}, nil
+				}),
+			)
+			m.RulesFor = func(string) []MechanicalRule { return []MechanicalRule{tc.rule} }
+			if _, err := m.Run(context.Background(), []sitter.Chunk{testChunk()}); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if got := strings.Contains(user, "MECHANICAL_RULES"); got != tc.wantSection {
+				t.Fatalf("MECHANICAL_RULES present = %v, want %v:\n%s", got, tc.wantSection, user)
+			}
+		})
+	}
+}
+
+// TestMapCacheKeyedByMechanicalRules: the mechanical rules shown to the model
+// shape its reply, so a change to them re-maps the chunk.
+func TestMapCacheKeyedByMechanicalRules(t *testing.T) {
+	m := newMapper(t, chatFunc(func(context.Context, []llm.Message) (string, llm.Usage, error) {
+		return validMapReply, llm.Usage{}, nil
+	}))
+	if _, err := m.Run(context.Background(), []sitter.Chunk{testChunk()}); err != nil {
+		t.Fatalf("first Run: %v", err)
+	}
+	calls := 0
+	m.LLM = chatFunc(func(context.Context, []llm.Message) (string, llm.Usage, error) {
+		calls++
+		return validMapReply, llm.Usage{}, nil
+	})
+	m.RulesFor = func(string) []MechanicalRule {
+		return []MechanicalRule{{StartLine: 12, EndLine: 14, Requirement: mechanicalReq}}
+	}
+	if _, err := m.Run(context.Background(), []sitter.Chunk{testChunk()}); err != nil {
+		t.Fatalf("second Run: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("second Run made %d calls, want 1 (new mechanical rule in the prompt)", calls)
+	}
+}

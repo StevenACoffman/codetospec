@@ -134,6 +134,14 @@ type SymbolContext struct {
 	Signature string
 }
 
+// MechanicalRule is a rule an extractor already derived from the code,
+// located by its cited lines.
+type MechanicalRule struct {
+	StartLine   int
+	EndLine     int
+	Requirement string
+}
+
 // Mapper drives the map phase.
 type Mapper struct {
 	LLM          llm.Chatter
@@ -146,6 +154,9 @@ type Mapper struct {
 	// SymbolsFor returns the precise symbol definitions known for a file
 	// (empty when no SCIP index was provided). Optional.
 	SymbolsFor func(path string) []SymbolContext
+	// RulesFor returns the mechanical rules (extractor rule facts) of a
+	// file, shown to the model so it does not restate them. Optional.
+	RulesFor func(path string) []MechanicalRule
 	// OnUnit is called after each finished unit (cached or live) with the
 	// usage consumed by that unit; callers persist state there.
 	OnUnit func(out Output, usage llm.Usage)
@@ -222,15 +233,20 @@ feed:
 // mapChunk maps one chunk, reusing a cached output when present.
 func (m *Mapper) mapChunk(ctx context.Context, chunk sitter.Chunk) (Output, llm.Usage, error) {
 	// The file name keys the chunk content; PromptKey keys everything else
-	// that shapes the reply.
+	// that shapes the reply, including the chunk's context sections.
 	outPath := filepath.Join(m.OutDir, chunk.ID+".json")
-	promptKey := m.promptKey()
+	sections := m.symbolsSection(&chunk) + m.rulesSection(&chunk)
+	promptKey := m.promptKey(sections)
 	if data, err := os.ReadFile(outPath); err == nil {
 		var cached Output
 		switch unmarshalErr := json.Unmarshal(data, &cached); {
 		case unmarshalErr != nil:
 			slog.WarnContext(ctx, "corrupt map cache, re-mapping", "path", outPath)
 		case cached.PromptKey == promptKey:
+			// The domain is assignment metadata, not part of the reply: take
+			// the current one so a domain change regroups cached outputs
+			// instead of silently keeping the old grouping.
+			cached.Domain = chunk.Domain
 			return cached, llm.Usage{}, nil
 		}
 	}
@@ -244,7 +260,7 @@ func (m *Mapper) mapChunk(ctx context.Context, chunk sitter.Chunk) (Output, llm.
 		chunk.Path, chunk.StartLine, chunk.EndLine,
 		chunk.Language, namespace, chunk.Domain,
 		mustJSON(m.Entities), mustJSON(allowedEndpoints),
-		m.symbolsSection(chunk),
+		sections,
 		numberedContent(chunk),
 	)
 	msgs := []llm.Message{
@@ -289,15 +305,41 @@ func (m *Mapper) mapChunk(ctx context.Context, chunk sitter.Chunk) (Output, llm.
 }
 
 // promptKey covers everything besides the chunk content that shapes a map
-// reply: model, language and prompt templates.
-func (m *Mapper) promptKey() string {
-	return llm.PromptKey(m.Model, locale.For(m.Lang).Prompt(systemPrompt), userPromptFormat)
+// reply: model, language, prompt templates and the chunk's context sections
+// (precise symbols, mechanical rules). The allowed entity and endpoint lists
+// are left out on purpose: they change with every new table or route, and
+// re-mapping the whole tree for that would cost more than it improves.
+func (m *Mapper) promptKey(sections string) string {
+	return llm.PromptKey(
+		m.Model,
+		locale.For(m.Lang).Prompt(systemPrompt),
+		userPromptFormat,
+		sections,
+	)
+}
+
+// rulesSection lists the mechanical rules cited inside a chunk so the model
+// extracts only the remaining behavior. Returns "" when there are none.
+func (m *Mapper) rulesSection(chunk *sitter.Chunk) string {
+	if m.RulesFor == nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range m.RulesFor(chunk.Path) {
+		if r.StartLine <= chunk.EndLine && r.EndLine >= chunk.StartLine {
+			fmt.Fprintf(&b, "- lines %d-%d: %s\n", r.StartLine, r.EndLine, r.Requirement)
+		}
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return "\nMECHANICAL_RULES (already extracted deterministically from this code; do NOT restate them, extract only other behavior):\n" + b.String()
 }
 
 // symbolsSection renders the precise symbol definitions overlapping a chunk,
 // so the model cites their exact spans instead of guessing. Returns "" when
 // no SCIP index is available.
-func (m *Mapper) symbolsSection(chunk sitter.Chunk) string {
+func (m *Mapper) symbolsSection(chunk *sitter.Chunk) string {
 	if m.SymbolsFor == nil {
 		return ""
 	}

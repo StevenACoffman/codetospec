@@ -5,15 +5,15 @@
 #   e.g. ./scanwebapp.sh users
 #        ./scanwebapp.sh users --crosscheck
 #        DRY_RUN=1 ./scanwebapp.sh users      # build + extract only, no LLM call
-#        SCIP=1 ./scanwebapp.sh users         # also index with scip-go (precise spans)
-#        REDUCE_MODE=merge ./scanwebapp.sh users   # cheaper reduce
+#        SCIP=0 ./scanwebapp.sh users         # skip the scip-go index
+#        REDUCE_MODE=full ./scanwebapp.sh users    # LLM consolidates every rule
 #
 # Steps:
 #   1. build bin/codetospec and bin/webapp-extract (extractors/webapp);
 #   2. run the webapp extractor on $WEBAPP_DIR/services/<service>: mechanical
 #      authorization rules, schema-file domains, GraphQL endpoints, Datastore
 #      entities, numeric constants, schema docs and cross-service calls;
-#      with SCIP=1, also index the service with scip-go for precise symbols;
+#      and index the service with scip-go for precise symbols (SCIP=0 skips);
 #   3. run codetospec on the service with those facts, against Gemini's
 #      OpenAI-compatible endpoint, with the key from $GEMINI_API_KEY.
 #
@@ -26,10 +26,11 @@
 #   WORKERS          parallel LLM calls         (default: 4; lower on 429s)
 #   MAX_TOKENS       generation cap per call    (default: 16384; thinking models)
 #   EXCLUDE          comma-separated excludes   (default: see below)
-#   REDUCE_MODE      full|merge                 (default: full; merge sends only
-#                    near-duplicate candidates to the LLM — no acceptance
-#                    criteria for the others, much cheaper)
-#   SCIP=1           index with scip-go first (needs network once; slower)
+#   REDUCE_MODE      merge|full                 (default: merge — only
+#                    near-duplicate candidates go to the LLM, the others keep
+#                    no acceptance criteria; full: the LLM consolidates all)
+#   SCIP             1|0                        (default: 1 — index with scip-go
+#                    for precise citation spans; first run downloads it)
 #   DRY_RUN=1        stop before calling the LLM, print the command
 #
 # Note: codetospec counts prompt+completion tokens only; Gemini also bills
@@ -76,7 +77,8 @@ model=${LLM_MODEL:-gemini-3.8-flash}
 spec_lang=${SPEC_LANG:-en}
 workers=${WORKERS:-4}
 max_tokens=${MAX_TOKENS:-16384}
-reduce_mode=${REDUCE_MODE:-full}
+reduce_mode=${REDUCE_MODE:-merge}
+scip=${SCIP:-1}
 scip_go=github.com/scip-code/scip-go/cmd/scip-go@v0.2.7
 base_url=https://generativelanguage.googleapis.com/v1beta/openai
 
@@ -102,6 +104,7 @@ fi
     printf 'scanwebapp: warning: %s has no gqlgen.yml; resolvers keep their directory domain\n' "$service_dir" >&2
 case "$spec_lang" in fr | en) ;; *) die "SPEC_LANG must be fr or en, got '$spec_lang'" ;; esac
 case "$reduce_mode" in full | merge) ;; *) die "REDUCE_MODE must be full or merge, got '$reduce_mode'" ;; esac
+case "$scip" in 0 | 1) ;; *) die "SCIP must be 0 or 1, got '$scip'" ;; esac
 
 api_key=${LLM_API_KEY:-${GEMINI_API_KEY:-}}
 if [ -z "${DRY_RUN:-}" ] && [ -z "$api_key" ]; then
@@ -113,7 +116,7 @@ fi
 printf '==> building codetospec and the webapp extractor\n' >&2
 (cd "$repo_dir" && go build -o bin/codetospec ./cmd/codetospec)
 (cd "$repo_dir/extractors/webapp" && go build -o "$repo_dir/bin/webapp-extract" .)
-if [ -n "${SCIP:-}" ]; then
+if [ "$scip" = 1 ]; then
     (cd "$repo_dir/extractors/scip" && go build -o "$repo_dir/bin/scip2facts" .)
 fi
 
@@ -129,7 +132,7 @@ printf '    rules %s · domains %s · endpoints %s · entities %s · constants %
     "$(count constant)" "$(count doc)" "$(count dependency)" >&2
 facts_args=(--facts "$facts_file")
 
-if [ -n "${SCIP:-}" ]; then
+if [ "$scip" = 1 ]; then
     scip_index=$out_dir/.codetospec/index.scip
     scip_facts=$out_dir/.codetospec/scip.facts.json
     printf '==> indexing services/%s with scip-go (first run downloads it)\n' "$service" >&2
@@ -162,7 +165,8 @@ if [ -n "${DRY_RUN:-}" ]; then
     exit 0
 fi
 
-printf '==> running codetospec on %s with %s (output: %s)\n' "$service" "$model" "$out_dir" >&2
+printf '==> running codetospec on %s with %s (reduce: %s, scip: %s; output: %s)\n' \
+    "$service" "$model" "$reduce_mode" "$scip" "$out_dir" >&2
 LLM_BASE_URL=$base_url LLM_MODEL=$model LLM_API_KEY=$api_key "${cmd[@]}"
 
 printf '==> done\n' >&2

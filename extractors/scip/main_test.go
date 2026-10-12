@@ -88,3 +88,28 @@ func TestConvertFallsBackToIdentifierRange(t *testing.T) {
 		t.Fatalf("want fallback to identifier line 11-11, got %+v", facts)
 	}
 }
+
+func TestCitable(t *testing.T) {
+	const pkg = "scip-go gomod example.com/m v1 `example.com/m/billing`/"
+	cases := map[string]struct {
+		symbol string
+		want   bool
+	}{
+		"function":           {pkg + "Calculate().", true},
+		"method":             {pkg + "Invoice#Total().", true},
+		"type":               {pkg + "Invoice#", true},
+		"package-level term": {pkg + "maxRetries.", true},
+		"field":              {pkg + "Invoice#Amount.", false},
+		"parameter":          {pkg + "Calculate().(amount)", false},
+		"package":            {pkg, false},
+		"local":              {"local 12", false},
+		"unparsable":         {"not a symbol", false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := citable(tc.symbol); got != tc.want {
+				t.Fatalf("citable(%q) = %v, want %v", tc.symbol, got, tc.want)
+			}
+		})
+	}
+}

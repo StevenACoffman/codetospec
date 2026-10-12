@@ -329,6 +329,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 	entities, endpointsByPath := allowedLists(facts)
 	symbolsByPath := preciseSymbols(facts)
 	mechanicalByPath := mechanicalRules(facts)
+	docsByPath := docNotes(facts)
 	client := llm.NewClient(cfg.BaseURL, cfg.APIKey, cfg.Model, cfg.MaxTokens)
 
 	// MAP.
@@ -354,8 +355,11 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		SymbolsFor: func(path string) []mapper.SymbolContext {
 			return symbolsByPath[path]
 		},
-		RulesFor: func(path string) []mapper.MechanicalRule {
+		RulesFor: func(path string) []mapper.Note {
 			return mechanicalByPath[path]
+		},
+		DocsFor: func(path string) []mapper.Note {
+			return docsByPath[path]
 		},
 		OnUnit: func(out mapper.Output, usage llm.Usage) {
 			var done int
@@ -412,6 +416,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		Entities:  entities,
 		Endpoints: allEndpoints,
 		BatchSize: cfg.ReduceBatch,
+		Mode:      cfg.ReduceMode,
 		Workers:   cfg.Workers,
 		OnUnit: func(out reducer.Output, usage llm.Usage) {
 			var done int
@@ -499,7 +504,10 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 
 	// Check, without an LLM, that each rule's stated values occur in the code
 	// it cites (after crosscheck, whose repair may re-cite).
-	nodes = grounding.Annotate(os.DirFS(cfg.Src), nodes, locale.For(cfg.Lang).DecimalSeparator)
+	nodes = grounding.Annotate(os.DirFS(cfg.Src), nodes, grounding.Options{
+		DecimalSeparator: locale.For(cfg.Lang).DecimalSeparator,
+		Constants:        grounding.Constants(facts),
+	})
 
 	// Stamp each rule with a digest of its cited code, enabling later drift
 	// checks against an evolving source tree.
@@ -639,6 +647,11 @@ func allowedLists(facts []extract.Fact) (entities []string, endpointsByPath map[
 		if f.Kind != "route" {
 			continue
 		}
+		id := graph.EndpointID(f)
+		if handlerPath := f.Attrs[extract.AttrHandlerPath]; handlerPath != "" {
+			endpointsByPath[handlerPath] = append(endpointsByPath[handlerPath], id)
+			continue
+		}
 		target := f.Attrs["controller"]
 		if target == "" {
 			target = f.Attrs["handler"]
@@ -646,7 +659,6 @@ func allowedLists(facts []extract.Fact) (entities []string, endpointsByPath map[
 		if target == "" {
 			continue
 		}
-		id := graph.EndpointID(f)
 		for _, s := range symbols {
 			if strings.Contains(target, s.fqn) {
 				endpointsByPath[s.path] = append(endpointsByPath[s.path], id)
@@ -686,8 +698,8 @@ func preciseSymbols(facts []extract.Fact) map[string][]mapper.SymbolContext {
 
 // mechanicalRules indexes the (validated) rule facts by cited file, for the
 // map prompt's MECHANICAL_RULES section.
-func mechanicalRules(facts []extract.Fact) map[string][]mapper.MechanicalRule {
-	byPath := make(map[string][]mapper.MechanicalRule)
+func mechanicalRules(facts []extract.Fact) map[string][]mapper.Note {
+	byPath := make(map[string][]mapper.Note)
 	for _, f := range facts {
 		if f.Kind != extract.KindRule {
 			continue
@@ -696,10 +708,31 @@ func mechanicalRules(facts []extract.Fact) map[string][]mapper.MechanicalRule {
 		if err != nil {
 			continue // ValidateRuleFacts already dropped these
 		}
-		byPath[f.Source.Path] = append(byPath[f.Source.Path], mapper.MechanicalRule{
-			StartLine:   start,
-			EndLine:     end,
-			Requirement: f.Attrs[extract.AttrRequirement],
+		byPath[f.Source.Path] = append(byPath[f.Source.Path], mapper.Note{
+			StartLine: start,
+			EndLine:   end,
+			Text:      f.Attrs[extract.AttrRequirement],
+		})
+	}
+	return byPath
+}
+
+// docNotes indexes the doc facts by file, for the map prompt's SCHEMA_DOCS
+// section.
+func docNotes(facts []extract.Fact) map[string][]mapper.Note {
+	byPath := make(map[string][]mapper.Note)
+	for _, f := range facts {
+		if f.Kind != extract.KindDoc || f.Attrs[extract.AttrText] == "" {
+			continue
+		}
+		start, end, err := extract.ParseLines(f.Source.Lines)
+		if err != nil {
+			continue
+		}
+		byPath[f.Source.Path] = append(byPath[f.Source.Path], mapper.Note{
+			StartLine: start,
+			EndLine:   end,
+			Text:      f.Attrs[extract.AttrText],
 		})
 	}
 	return byPath

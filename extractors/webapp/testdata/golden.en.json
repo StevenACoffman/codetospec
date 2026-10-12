@@ -1,5 +1,130 @@
 [
   {
+    "kind": "constant",
+    "id": "constant.webapp.http.StatusBadRequest",
+    "attrs": {
+      "name": "http.StatusBadRequest",
+      "value": "400"
+    },
+    "source": {
+      "path": "",
+      "lines": ""
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "constant",
+    "id": "constant.webapp.http.StatusOK",
+    "attrs": {
+      "name": "http.StatusOK",
+      "value": "200"
+    },
+    "source": {
+      "path": "",
+      "lines": ""
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "constant",
+    "id": "constant.webapp.maxAttempts",
+    "attrs": {
+      "name": "maxAttempts",
+      "value": "3"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "64-64"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "constant",
+    "id": "constant.webapp.resolvers.maxAttempts",
+    "attrs": {
+      "name": "resolvers.maxAttempts",
+      "value": "3"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "64-64"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "constant",
+    "id": "constant.webapp.resolvers.tokenTTL",
+    "attrs": {
+      "name": "resolvers.tokenTTL",
+      "value": "16"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "67-67"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "constant",
+    "id": "constant.webapp.tokenTTL",
+    "attrs": {
+      "name": "tokenTTL",
+      "value": "16"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "67-67"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "dependency",
+    "id": "dependency.webapp.tasks/invite.go:4:assignments:Mutation.acceptInvitation",
+    "attrs": {
+      "operation": "Mutation.acceptInvitation",
+      "service": "assignments"
+    },
+    "source": {
+      "path": "tasks/invite.go",
+      "lines": "4-4"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "dependency",
+    "id": "dependency.webapp.tasks/invite.go:8:ai-guide:Query.guideStatus",
+    "attrs": {
+      "operation": "Query.guideStatus",
+      "service": "ai-guide"
+    },
+    "source": {
+      "path": "tasks/invite.go",
+      "lines": "8-8"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "doc",
+    "id": "doc.webapp.resolvers/guards.go:3",
+    "attrs": {
+      "text": "Mutation.addAuthEmail: Attach an auth email to a user (service admins only)."
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "3-10"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
     "kind": "domain",
     "id": "domain.webapp.resolvers/guards.go:3",
     "attrs": {
@@ -65,6 +190,70 @@
     "certainty": "static"
   },
   {
+    "kind": "route",
+    "id": "route.graphql.mutation.addAuthEmail",
+    "attrs": {
+      "handler": "mutationResolver.AddAuthEmail",
+      "handler_path": "resolvers/guards.go",
+      "method": "MUTATION",
+      "path": "addAuthEmail"
+    },
+    "source": {
+      "path": "auth_emails.graphql",
+      "lines": "3-3"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "route",
+    "id": "route.graphql.mutation.addCoachRole",
+    "attrs": {
+      "handler": "mutationResolver.AddCoachRole",
+      "handler_path": "resolvers/guards.go",
+      "method": "MUTATION",
+      "path": "addCoachRole"
+    },
+    "source": {
+      "path": "auth_emails.graphql",
+      "lines": "4-4"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "route",
+    "id": "route.graphql.query.checkUsername",
+    "attrs": {
+      "handler": "queryResolver.CheckUsername",
+      "handler_path": "resolvers/guards.go",
+      "method": "QUERY",
+      "path": "checkUsername"
+    },
+    "source": {
+      "path": "user.graphql",
+      "lines": "7-7"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "route",
+    "id": "route.graphql.query.deviceAuthRequestInfo",
+    "attrs": {
+      "handler": "queryResolver.DeviceAuthRequestInfo",
+      "handler_path": "resolvers/guards.go",
+      "method": "QUERY",
+      "path": "deviceAuthRequestInfo"
+    },
+    "source": {
+      "path": "user.graphql",
+      "lines": "8-8"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:6",
     "attrs": {
@@ -72,6 +261,7 @@
       "ears": "unwanted",
       "nature": "business",
       "requirement": "IF the request is not a service-admin query, THEN the system shall reject Mutation.addAuthEmail with the `Unauthorized` error.",
+      "route": "route.graphql.mutation.addAuthEmail",
       "slug": "authz-mutation-addauthemail",
       "title": "Access control: Mutation.addAuthEmail"
     },
@@ -90,6 +280,7 @@
       "ears": "unwanted",
       "nature": "business",
       "requirement": "IF the caller is not the user `kaid` AND the request is not a service-admin query, THEN the system shall reject Mutation.addCoachRole with the `Unauthorized` error.",
+      "route": "route.graphql.mutation.addCoachRole",
       "slug": "authz-mutation-addcoachrole",
       "title": "Access control: Mutation.addCoachRole"
     },
@@ -108,6 +299,7 @@
       "ears": "ubiquitous",
       "nature": "business",
       "requirement": "The system shall allow any caller to call Query.checkUsername.",
+      "route": "route.graphql.query.checkUsername",
       "slug": "authz-query-checkusername",
       "title": "Access control: Query.checkUsername"
     },
@@ -126,6 +318,7 @@
       "ears": "unwanted",
       "nature": "business",
       "requirement": "IF the caller is not logged in with a non-phantom account, THEN the system shall reject Query.deviceAuthRequestInfo with the `Unauthorized` error.",
+      "route": "route.graphql.query.deviceAuthRequestInfo",
       "slug": "authz-query-deviceauthrequestinfo",
       "title": "Access control: Query.deviceAuthRequestInfo"
     },
@@ -186,6 +379,20 @@
     "source": {
       "path": "resolvers/guards.go",
       "lines": "58-60"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "table",
+    "id": "table.webapp.UserNonce",
+    "attrs": {
+      "columns": "value:string, Kind:string, expires:time.Time, A:int64, B:int64",
+      "name": "UserNonce"
+    },
+    "source": {
+      "path": "models/nonce.go",
+      "lines": "8-17"
     },
     "origin": "webapp",
     "certainty": "static"

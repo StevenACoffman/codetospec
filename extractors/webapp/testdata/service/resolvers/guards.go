@@ -60,3 +60,10 @@ func (r *queryResolver) Orphan(ctx context.Context) (bool, error) {
 	}
 	return true, nil
 }
+
+const maxAttempts = 3
+
+const (
+	tokenTTL  = 0x10
+	unchecked = iota
+)

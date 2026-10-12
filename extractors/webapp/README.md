@@ -2,7 +2,7 @@
 
 Extracteur codetospec pour les services Go de `Khan/webapp` (GraphQL via
 gqlgen), sur le protocole `codetospec/facts/v1`. Il émet, sans LLM, ce qu'un
-modèle reproduit cher et approximativement :
+modèle reproduit cher et approximativement, ou pas du tout :
 
 - **Règles d'autorisation** (`rule`) : le garde d'accès de chaque méthode de
   resolver gqlgen (`acl.IsLoggedIn`, `acl.IsCurrentUser`,
@@ -18,6 +18,21 @@ modèle reproduit cher et approximativement :
   du fichier de schéma qui déclare son champ (`auth_emails.graphql` →
   `auth-emails`), d'après `gqlgen.yml` et `vektah/gqlparser/v2` (le parseur de
   gqlgen). Les schémas partagés hors service (`../../pkg/...`) sont ignorés.
+- **Endpoints** (`route`) : chaque champ racine (`Query`, `Mutation`,
+  `Subscription`) qui a une méthode de resolver, avec `handler_path` ; les
+  règles d'autorisation y sont reliées (`exposed_by`).
+- **Entités** (`table`) : chaque `datastore.RegisterKind("Kind", new(T))`,
+  colonnes = champs de `T` tels que Datastore les stocke (tag `datastore`).
+- **Constantes** (`constant`) : constantes numériques du service et
+  `http.Status*` (lus dans GOROOT), pour le grounding.
+- **Docs** (`doc`) : description GraphQL du champ et de ses arguments,
+  montrée au map pour la méthode qui le résout.
+- **Appels inter-services** (`dependency`) : chaque appel
+  `genqlient.<Op>(…)` dont un champ racine appartient à un autre subgraph
+  (`@join__field` du schéma composé `gengraphql/composed_schema.graphql`).
+  Options `-supergraph` (dossier du schéma composé, défaut
+  `<root>/../../gengraphql`) et `-graph` (subgraph du service, défaut : nom
+  du dossier en majuscules).
 
 ## Usage
 

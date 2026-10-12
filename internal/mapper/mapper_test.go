@@ -350,15 +350,15 @@ const mechanicalReq = "IF x, THEN y."
 
 func TestMapPromptListsMechanicalRules(t *testing.T) {
 	cases := map[string]struct {
-		rule        MechanicalRule
+		rule        Note
 		wantSection bool
 	}{
 		"rule inside the chunk": {
-			MechanicalRule{StartLine: 12, EndLine: 14, Requirement: mechanicalReq},
+			Note{StartLine: 12, EndLine: 14, Text: mechanicalReq},
 			true,
 		},
 		"rule outside the chunk": {
-			MechanicalRule{StartLine: 40, EndLine: 41, Requirement: mechanicalReq},
+			Note{StartLine: 40, EndLine: 41, Text: mechanicalReq},
 			false,
 		},
 	}
@@ -372,7 +372,7 @@ func TestMapPromptListsMechanicalRules(t *testing.T) {
 					return validMapReply, llm.Usage{}, nil
 				}),
 			)
-			m.RulesFor = func(string) []MechanicalRule { return []MechanicalRule{tc.rule} }
+			m.RulesFor = func(string) []Note { return []Note{tc.rule} }
 			if _, err := m.Run(context.Background(), []sitter.Chunk{testChunk()}); err != nil {
 				t.Fatalf("Run: %v", err)
 			}
@@ -397,13 +397,43 @@ func TestMapCacheKeyedByMechanicalRules(t *testing.T) {
 		calls++
 		return validMapReply, llm.Usage{}, nil
 	})
-	m.RulesFor = func(string) []MechanicalRule {
-		return []MechanicalRule{{StartLine: 12, EndLine: 14, Requirement: mechanicalReq}}
+	m.RulesFor = func(string) []Note {
+		return []Note{{StartLine: 12, EndLine: 14, Text: mechanicalReq}}
 	}
 	if _, err := m.Run(context.Background(), []sitter.Chunk{testChunk()}); err != nil {
 		t.Fatalf("second Run: %v", err)
 	}
 	if calls != 1 {
 		t.Fatalf("second Run made %d calls, want 1 (new mechanical rule in the prompt)", calls)
+	}
+}
+
+func TestMapPromptShowsSchemaDocs(t *testing.T) {
+	var user string
+	m := newMapper(
+		t,
+		chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+			user = msgs[1].Content
+			return validMapReply, llm.Usage{}, nil
+		}),
+	)
+	m.DocsFor = func(string) []Note {
+		return []Note{
+			{
+				StartLine: 11,
+				EndLine:   18,
+				Text:      "Mutation.addAuthEmail: attach an auth email (service admins only).",
+			},
+			{StartLine: 90, EndLine: 95, Text: "out of range note"},
+		}
+	}
+	if _, err := m.Run(context.Background(), []sitter.Chunk{testChunk()}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !strings.Contains(user, "SCHEMA_DOCS") || !strings.Contains(user, "service admins only") {
+		t.Fatalf("prompt lacks the overlapping doc:\n%s", user)
+	}
+	if strings.Contains(user, "out of range note") {
+		t.Fatalf("prompt shows a doc outside the chunk:\n%s", user)
 	}
 }

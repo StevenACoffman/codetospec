@@ -6,9 +6,9 @@ package consistency
 import (
 	"regexp"
 	"sort"
-	"strings"
 
 	"codetospec/internal/graph"
+	"codetospec/internal/textsim"
 )
 
 // DuplicatePair is two rules whose requirements are near-identical.
@@ -28,26 +28,33 @@ func FindDuplicates(nodes []graph.Node, threshold float64) []DuplicatePair {
 		threshold = DefaultThreshold
 	}
 	type rule struct {
-		id    string
-		words map[string]bool
+		id        string
+		words     map[string]bool
+		negations int
 	}
 	var rules []rule
 	for _, n := range nodes {
 		if n.Type != graph.TypeRule {
 			continue
 		}
-		words := tokenize(requirementOf(n.Body))
+		requirement := graph.RuleRequirement(n.Body)
+		words := textsim.Words(requirement)
 		if len(words) == 0 {
 			continue
 		}
-		rules = append(rules, rule{id: n.ID, words: words})
+		rules = append(rules, rule{id: n.ID, words: words, negations: negations(requirement)})
 	}
 	sort.SliceStable(rules, func(i, j int) bool { return rules[i].id < rules[j].id })
 
 	var pairs []DuplicatePair
 	for i := range rules {
 		for j := i + 1; j < len(rules); j++ {
-			sim := jaccard(rules[i].words, rules[j].words)
+			// Word overlap is blind to "is marked" vs "is not marked": rules
+			// that negate a different number of times state opposite things.
+			if rules[i].negations != rules[j].negations {
+				continue
+			}
+			sim := textsim.Jaccard(rules[i].words, rules[j].words)
 			if sim >= threshold {
 				pairs = append(
 					pairs,
@@ -68,44 +75,13 @@ func FindDuplicates(nodes []graph.Node, threshold float64) []DuplicatePair {
 	return pairs
 }
 
-var wordRe = regexp.MustCompile(`[\p{L}\p{N}]+`)
+// negationRe matches one negation event in English or French. French
+// "ne … pas/jamais/plus/aucun" is counted once, on "ne"/"n'".
+var negationRe = regexp.MustCompile(
+	`(?i)\b(?:not|no|never|without|cannot|none|nor|ne|sans)\b|n['’]t\b|\bn['’]`,
+)
 
-// tokenize lowercases and extracts the word set of a requirement, dropping
-// very short tokens (articles, glue words) that inflate similarity.
-func tokenize(s string) map[string]bool {
-	words := make(map[string]bool)
-	for _, w := range wordRe.FindAllString(strings.ToLower(s), -1) {
-		if len([]rune(w)) >= 3 {
-			words[w] = true
-		}
-	}
-	return words
-}
-
-func jaccard(a, b map[string]bool) float64 {
-	if len(a) == 0 || len(b) == 0 {
-		return 0
-	}
-	inter := 0
-	for w := range a {
-		if b[w] {
-			inter++
-		}
-	}
-	union := len(a) + len(b) - inter
-	if union == 0 {
-		return 0
-	}
-	return float64(inter) / float64(union)
-}
-
-// requirementOf extracts the EARS requirement line from a rule body.
-func requirementOf(body string) string {
-	for line := range strings.SplitSeq(body, "\n") {
-		if rest, ok := strings.CutPrefix(line, "**Exigence (EARS)** : "); ok {
-			return rest
-		}
-	}
-	first, _, _ := strings.Cut(body, "\n")
-	return first
+// negations counts the negation events of a requirement.
+func negations(s string) int {
+	return len(negationRe.FindAllString(s, -1))
 }

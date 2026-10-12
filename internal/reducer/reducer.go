@@ -89,6 +89,7 @@ type Reducer struct {
 	Endpoints []string // allowed endpoint ids
 	BatchSize int      // candidates per reduce call; 0 uses DefaultBatchSize
 	Workers   int      // parallel domains; 0 or 1 means sequential
+	Mode      string   // ModeFull (default when empty) or ModeMerge
 	// OnUnit is called after each finished domain with its token usage.
 	OnUnit func(out Output, usage llm.Usage)
 }
@@ -162,6 +163,27 @@ feed:
 // merged, so a huge domain never truncates its JSON and gets lost).
 const DefaultBatchSize = 30
 
+// consolidate sends rules to the LLM, in batches when they exceed the batch
+// size. A failure that is not a cancellation is recorded in the Output.
+func (r *Reducer) consolidate(
+	ctx context.Context,
+	domain string,
+	rules []mapper.Rule,
+) (Output, llm.Usage, error) {
+	batchSize := r.BatchSize
+	if batchSize <= 0 {
+		batchSize = DefaultBatchSize
+	}
+	if len(rules) > batchSize {
+		return r.reduceInBatches(ctx, domain, rules, batchSize)
+	}
+	payload, usage, err := r.reduceBatch(ctx, domain, rules, 2)
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return Output{}, usage, err
+	}
+	return outcomeFrom(domain, payload, err), usage, nil
+}
+
 // reduceDomain reduces one domain, reusing a cached output when present.
 // Domains larger than the batch size are reduced in batches and merged
 // deterministically.
@@ -189,26 +211,24 @@ func (r *Reducer) reduceDomain(
 		}
 	}
 
-	batchSize := r.BatchSize
-	if batchSize <= 0 {
-		batchSize = DefaultBatchSize
+	toLLM, asIsRules := rules, []mapper.Rule(nil)
+	if r.Mode == ModeMerge {
+		toLLM, asIsRules = splitClusters(rules)
 	}
-
-	var out Output
+	out := Output{Domain: domain}
 	var usage llm.Usage
-	if len(rules) <= batchSize {
-		payload, batchUsage, err := r.reduceBatch(ctx, domain, rules, 2)
-		usage = batchUsage
-		out = outcomeFrom(domain, payload, err)
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return Output{}, usage, err
-		}
-	} else {
+	if len(toLLM) > 0 {
 		var err error
-		out, usage, err = r.reduceInBatches(ctx, domain, rules, batchSize)
+		out, usage, err = r.consolidate(ctx, domain, toLLM)
 		if err != nil {
 			return Output{}, usage, err
 		}
+	}
+	if !out.Failed && len(asIsRules) > 0 {
+		for i := range asIsRules {
+			out.Rules = append(out.Rules, asIs(&asIsRules[i]))
+		}
+		out.Rules = mergeBatchRules(out.Rules)
 	}
 	out.CandidatesHash = hash
 
@@ -528,9 +548,15 @@ func uniqueSlug(slug string, taken map[string]bool) string {
 }
 
 // promptKey covers everything besides the candidates that shapes a reduce
-// reply: model, language and prompt templates.
+// output: model, language, prompt templates and a non-default mode.
 func (r *Reducer) promptKey() string {
-	return llm.PromptKey(r.Model, locale.For(r.Lang).Prompt(systemPrompt), userPromptFormat)
+	parts := []string{locale.For(r.Lang).Prompt(systemPrompt), userPromptFormat}
+	if r.Mode == ModeMerge {
+		// Only a non-default mode joins the key, so ModeFull caches written
+		// before modes existed stay valid.
+		parts = append(parts, r.Mode)
+	}
+	return llm.PromptKey(r.Model, parts...)
 }
 
 // candidatesHash is a stable content hash of a domain's candidate rules and

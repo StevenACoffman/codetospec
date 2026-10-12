@@ -71,8 +71,11 @@ func RuleCriteria(body string) []string {
 	return criteria
 }
 
-// EdgeBelongsTo links a rule to its domain.
-const EdgeBelongsTo = "belongs_to"
+// Edge types a rule node carries.
+const (
+	EdgeBelongsTo = "belongs_to" // rule → its domain
+	EdgeExposedBy = "exposed_by" // rule → an endpoint it guards or serves
+)
 
 // TypeRule is the Node.Type of a business rule.
 const TypeRule = "rule"
@@ -98,13 +101,19 @@ func Build(
 
 	ruleNodes, domainNodes := ruleAndDomainNodes(reduced, facts, text)
 	domainDeps := domainDependencies(facts, resolver, domainNodes)
+	namespaces := namespaceByPath(facts)
+	services, serviceDeps := serviceNodes(facts, func(path string) string {
+		return resolver.Resolve(namespaces[path], path)
+	}, text)
 	for i := range domainNodes {
 		slug := strings.TrimPrefix(domainNodes[i].ID, "domain.")
 		domainNodes[i].Edges = append(domainNodes[i].Edges, domainDeps[slug]...)
+		domainNodes[i].Edges = append(domainNodes[i].Edges, serviceDeps[slug]...)
 		sortEdges(domainNodes[i].Edges)
 	}
 	nodes = append(nodes, ruleNodes...)
 	nodes = append(nodes, domainNodes...)
+	nodes = append(nodes, services...)
 
 	sort.SliceStable(nodes, func(i, j int) bool { return nodes[i].ID < nodes[j].ID })
 	return nodes
@@ -226,6 +235,7 @@ func ruleAndDomainNodes(
 		return drafts[domain]
 	}
 	taken := make(map[string]bool)
+	routes := routesByID(facts)
 
 	for _, out := range reduced {
 		if out.Failed || len(out.Rules) == 0 {
@@ -247,7 +257,7 @@ func ruleAndDomainNodes(
 		domain := f.Attrs[extract.AttrDomain]
 		id := uniqueID("rule."+domain+"."+f.Attrs[extract.AttrSlug], taken)
 		taken[id] = true
-		draft(domain).rules = append(draft(domain).rules, mechanicalRuleNode(f, id, text))
+		draft(domain).rules = append(draft(domain).rules, mechanicalRuleNode(f, id, routes, text))
 	}
 
 	var rules, domains []Node
@@ -286,7 +296,7 @@ func reducedRuleNode(domain string, rule *reducer.Rule, text *locale.Text) Node 
 		edges = append(edges, Edge{Type: "touches", To: e})
 	}
 	for _, e := range dedupSorted(rule.Endpoints) {
-		edges = append(edges, Edge{Type: "exposed_by", To: e})
+		edges = append(edges, Edge{Type: EdgeExposedBy, To: e})
 	}
 	sortEdges(edges)
 
@@ -414,7 +424,7 @@ func domainDependencies(
 	for from, targets := range deps {
 		var list []Edge
 		for to := range targets {
-			list = append(list, Edge{Type: "depends_on", To: "domain." + to})
+			list = append(list, Edge{Type: EdgeDependsOn, To: "domain." + to})
 		}
 		sortEdges(list)
 		edges[from] = list
@@ -464,7 +474,7 @@ func edgeTypeRank(t string) int {
 		return 0
 	case "touches":
 		return 1
-	case "exposed_by":
+	case EdgeExposedBy:
 		return 2
 	default: // depends_on
 		return 3
@@ -502,7 +512,7 @@ func ComputeCoverage(nodes []Node) Coverage {
 			continue
 		}
 		for _, e := range n.Edges {
-			if e.Type == "touches" || e.Type == "exposed_by" {
+			if e.Type == "touches" || e.Type == EdgeExposedBy {
 				referenced[e.To] = true
 			}
 		}

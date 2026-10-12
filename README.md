@@ -200,6 +200,10 @@ output README also lists near-duplicate rule candidates (a deterministic
 consistency check, split into intra- and cross-domain) for a reviewer to
 reconcile.
 
+`--reduce-mode merge` makes reduce much cheaper: only candidates with a
+near-duplicate (similar requirement or overlapping citation) go to the LLM;
+the others are kept as mapped, without rationale or acceptance criteria.
+
 Useful flags: `--crosscheck` (adversarial review pass), `--repair` (fix
 flagged citations, needs a SCIP index), `--domain-depth N` (split a repo that
 lives under one root namespace into `core-controller`, `core-server`… instead
@@ -268,8 +272,22 @@ Two more kinds let an extractor contribute beyond structure (contract in
   with `extracted_by: <extractor>` and `crosscheck: mechanical` (never sent to
   the LLM reviewer), are listed to the map prompt as `MECHANICAL_RULES` so the
   model does not restate them, and are grounded like any rule.
+  An optional attr `route` (a route fact id) links the rule to that
+  endpoint (`exposed_by`).
 - `domain` — attr `domain` assigns the code in `source` to a domain,
   overriding the domain strategy for chunks starting there.
+- `constant` — attrs `name` (as written in code, e.g.
+  `http.StatusBadRequest`) and `value`: grounding then finds a stated `400`
+  behind the constant's name.
+- `doc` — attr `text`: authored documentation (e.g. a GraphQL field
+  description) shown to the map prompt for the chunks overlapping `source`.
+- `dependency` — attrs `service` and `operation`: the code at `source`
+  calls an operation another service owns. Each service becomes a
+  `service` node listing the calls, and calling domains get `depends_on`
+  edges to it.
+
+A `route` fact may carry `handler_path` (the handler's file): its chunks may
+then cite the endpoint, without matching handler names to symbols.
 
 ## Limitations (v0.1)
 

@@ -25,12 +25,18 @@ func ValidateRuleFacts(facts []extract.Fact) ([]extract.Fact, []string) {
 		kept     []extract.Fact
 		rejected []string
 	)
+	routes := routesByID(facts)
 	for _, f := range facts {
 		if f.Kind != extract.KindRule {
 			kept = append(kept, f)
 			continue
 		}
-		if reason := invalidRuleFact(&f); reason != "" {
+		reason := invalidRuleFact(&f)
+		if route := f.Attrs[extract.AttrRoute]; reason == "" && route != "" &&
+			routes[route] == nil {
+			reason = fmt.Sprintf("unknown route %q", route)
+		}
+		if reason != "" {
 			rejected = append(rejected, f.ID+": "+reason)
 			continue
 		}
@@ -64,15 +70,36 @@ func invalidRuleFact(f *extract.Fact) string {
 	return ""
 }
 
+// routesByID indexes the route facts by fact ID.
+func routesByID(facts []extract.Fact) map[string]*extract.Fact {
+	routes := make(map[string]*extract.Fact)
+	for i := range facts {
+		if facts[i].Kind == "route" {
+			routes[facts[i].ID] = &facts[i]
+		}
+	}
+	return routes
+}
+
 // mechanicalRuleNode turns a valid rule fact into a rule node; id is its
-// final, collision-free node id.
-func mechanicalRuleNode(f *extract.Fact, id string, text *locale.Text) Node {
+// final, collision-free node id, and routes resolves its optional route.
+func mechanicalRuleNode(
+	f *extract.Fact,
+	id string,
+	routes map[string]*extract.Fact,
+	text *locale.Text,
+) Node {
+	edges := []Edge{{Type: EdgeBelongsTo, To: "domain." + f.Attrs[extract.AttrDomain]}}
+	if route := routes[f.Attrs[extract.AttrRoute]]; route != nil {
+		edges = append(edges, Edge{Type: EdgeExposedBy, To: EndpointID(*route)})
+		sortEdges(edges)
+	}
 	return Node{
 		ID:      id,
 		Type:    TypeRule,
 		Status:  StatusGenerated,
 		Sources: []extract.Ref{f.Source},
-		Edges:   []Edge{{Type: EdgeBelongsTo, To: "domain." + f.Attrs[extract.AttrDomain]}},
+		Edges:   edges,
 		Title:   f.Attrs[extract.AttrTitle],
 		Body:    text.Requirement + f.Attrs[extract.AttrRequirement],
 		Extra: map[string]string{

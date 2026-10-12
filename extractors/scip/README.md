@@ -7,6 +7,11 @@ plus précises que tree-sitter. C'est tout l'intérêt : des localisations de
 symboles exactes permettent au map de citer les bonnes lignes au lieu de
 deviner (lignes vides, déclarations de types sans logique).
 
+Seules les définitions citables sont émises : fonctions, méthodes, types et
+termes de niveau paquet. Variables locales, paramètres, paramètres de type,
+paquets et champs de struct sont écartés (sur `webapp/services/users` :
+46 991 → 9 056 symboles) — le map les listerait dans chaque prompt.
+
 Les facts portent `certainty: proved` et un attribut `precise: true` ; le
 binaire injecte ces définitions (nom, bornes, signature) dans le contexte du
 chunk pendant le map.

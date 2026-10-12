@@ -54,7 +54,7 @@ func Write(outDir string, nodes []graph.Node, meta Meta) error {
 	if err := os.RemoveAll(nodesDir); err != nil {
 		return fmt.Errorf("clear nodes dir: %w", err)
 	}
-	for _, sub := range []string{"domains", "entities", "endpoints", "rules"} {
+	for _, sub := range []string{"domains", "entities", "endpoints", "rules", "services"} {
 		if err := os.MkdirAll(filepath.Join(nodesDir, sub), 0o755); err != nil {
 			return fmt.Errorf("create nodes dir: %w", err)
 		}
@@ -94,6 +94,8 @@ func NodeFile(n graph.Node) string {
 		return "nodes/entities/" + strings.TrimPrefix(n.ID, "entity.") + ".md"
 	case "endpoint":
 		return "nodes/endpoints/" + strings.TrimPrefix(n.ID, "endpoint.") + ".md"
+	case graph.TypeService:
+		return "nodes/services/" + strings.TrimPrefix(n.ID, graph.TypeService+".") + ".md"
 	default:
 		return "nodes/rules/" + strings.TrimPrefix(n.ID, "rule.") + ".md"
 	}
@@ -199,6 +201,9 @@ func edgeLink(e graph.Edge, text *locale.Text) string {
 		return fmt.Sprintf("[%s](../endpoints/%s.md)", e.To, strings.TrimPrefix(e.To, "endpoint."))
 	case strings.HasPrefix(e.To, "rule."):
 		return fmt.Sprintf("[%s](../rules/%s.md)", e.To, strings.TrimPrefix(e.To, "rule."))
+	case strings.HasPrefix(e.To, graph.TypeService+"."):
+		slug := strings.TrimPrefix(e.To, graph.TypeService+".")
+		return fmt.Sprintf("[%s](../services/%s.md)", fmt.Sprintf(text.ServiceTitleFmt, slug), slug)
 	default:
 		return e.To
 	}
@@ -268,6 +273,9 @@ func readme(nodes []graph.Node, meta Meta, text *locale.Text) string {
 	fmt.Fprintf(&b, text.EntitiesFmt+"\n", counts["entity"])
 	fmt.Fprintf(&b, text.EndpointsFmt+"\n", counts["endpoint"])
 	fmt.Fprintf(&b, text.RulesFmt+"\n", counts[graph.TypeRule])
+	if n := counts[graph.TypeService]; n > 0 {
+		fmt.Fprintf(&b, text.ServicesFmt+"\n", n)
+	}
 
 	byNature := countByExtra(nodes, "nature")
 	if total := byNature["business"] + byNature["presentation"] + byNature["technical"]; total > 0 {
@@ -371,7 +379,9 @@ func readme(nodes []graph.Node, meta Meta, text *locale.Text) string {
 		}
 		from := mermaidID(strings.TrimPrefix(n.ID, "domain."))
 		for _, e := range n.Edges {
-			if e.Type == "depends_on" {
+			// The diagram is the domain map; external services are listed
+			// as nodes of their own.
+			if e.Type == graph.EdgeDependsOn && strings.HasPrefix(e.To, "domain.") {
 				fmt.Fprintf(
 					&b,
 					"  %s --> %s\n",
@@ -445,7 +455,7 @@ func llmsTxt(nodes []graph.Node, text *locale.Text) string {
 	var b strings.Builder
 	b.WriteString("# codetospec knowledge graph\n\n")
 	b.WriteString(text.LLMsPreamble + "\n")
-	for _, nodeType := range []string{"domain", "entity", "endpoint", "rule"} {
+	for _, nodeType := range []string{"domain", "entity", "endpoint", "rule", graph.TypeService} {
 		var lines []string
 		for _, n := range nodes {
 			if n.Type == nodeType {

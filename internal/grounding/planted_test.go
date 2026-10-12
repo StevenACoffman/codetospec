@@ -59,7 +59,11 @@ func TestPlantedFaults(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Load: %v", err)
 			}
-			got := grounding.Check(tc.requirement, citations, ',') // French requirements
+			got := grounding.Check(
+				tc.requirement,
+				citations,
+				grounding.Options{DecimalSeparator: ','},
+			) // French requirements
 			if got.Status != tc.want {
 				t.Fatalf("status = %q, want %q (missing: %q)", got.Status, tc.want, got.Summary())
 			}

@@ -110,19 +110,42 @@ func Load(fsys fs.FS, refs []extract.Ref) ([]Citation, error) {
 	return citations, nil
 }
 
+// Options tune how Check reads requirements and code.
+type Options struct {
+	// DecimalSeparator is how the requirement's language writes decimals
+	// (see locale.Text.DecimalSeparator): with ',' a "1,000" reads 1.000,
+	// with '.' it reads one thousand.
+	DecimalSeparator byte
+	// Constants maps identifiers as written in code to their numeric value
+	// (see Constants), so "400" is found behind http.StatusBadRequest.
+	Constants map[string]float64
+}
+
+// Constants indexes the numeric extract.KindConstant facts by name;
+// non-numeric values are skipped.
+func Constants(facts []extract.Fact) map[string]float64 {
+	constants := make(map[string]float64)
+	for _, f := range facts {
+		if f.Kind != extract.KindConstant {
+			continue
+		}
+		if v, err := strconv.ParseFloat(f.Attrs[extract.AttrValue], 64); err == nil {
+			constants[f.Attrs[extract.AttrName]] = v
+		}
+	}
+	return constants
+}
+
 // Check verifies that every number and quoted string stated in requirement
 // occurs in the cited lines.
 //
-// decimalSeparator is how the requirement's language writes decimals (see
-// locale.Text.DecimalSeparator): with ',' a "1,000" reads 1.000, with '.' it
-// reads one thousand.
-//
-// Requires: decimalSeparator is ',' or '.'; empty inputs yield StatusUnchecked.
+// Requires: opts.DecimalSeparator is ',' or '.'; empty inputs yield
+// StatusUnchecked.
 // Ensures:  Status is StatusUnchecked iff requirement states no literal or
 // no citation is given; otherwise Missing lists, in order of appearance, each
 // literal not found in any cited range.
-func Check(requirement string, citations []Citation, decimalSeparator byte) Result {
-	literals := extractLiterals(requirement, decimalSeparator)
+func Check(requirement string, citations []Citation, opts Options) Result {
+	literals := extractLiterals(requirement, opts.DecimalSeparator)
 	if len(literals) == 0 || len(citations) == 0 {
 		return Result{Status: StatusUnchecked}
 	}
@@ -131,14 +154,15 @@ func Check(requirement string, citations []Citation, decimalSeparator byte) Resu
 		cited = append(cited, c.File[c.Start-1:c.End]...)
 	}
 	result := Result{Status: StatusGrounded}
-	for _, lit := range literals {
-		if lit.foundIn(cited) {
+	for i := range literals {
+		lit := &literals[i]
+		if lit.foundIn(cited, opts.Constants) {
 			continue
 		}
 		result.Status = StatusUngrounded
 		result.Missing = append(result.Missing, Miss{
 			Literal:   lit.text,
-			Elsewhere: elsewhere(lit, citations),
+			Elsewhere: elsewhere(lit, citations, opts.Constants),
 		})
 	}
 	return result
@@ -146,7 +170,7 @@ func Check(requirement string, citations []Citation, decimalSeparator byte) Resu
 
 // elsewhere returns up to maxElsewhere "path:line" locations in the cited
 // files, outside every cited range, whose line contains lit.
-func elsewhere(lit literal, citations []Citation) []string {
+func elsewhere(lit *literal, citations []Citation, constants map[string]float64) []string {
 	var locations []string
 	seenFile := make(map[string]bool)
 	for _, c := range citations {
@@ -156,7 +180,7 @@ func elsewhere(lit literal, citations []Citation) []string {
 		seenFile[c.Path] = true
 		for i, line := range c.File {
 			n := i + 1
-			if insideAny(c.Path, n, citations) || !lit.foundIn([]string{line}) {
+			if insideAny(c.Path, n, citations) || !lit.foundIn([]string{line}, constants) {
 				continue
 			}
 			locations = append(locations, c.Path+":"+strconv.Itoa(n))
@@ -184,6 +208,9 @@ type literal struct {
 	value   float64 // numeric value
 	percent bool    // written with a % sign: the code may hold value/100
 	folded  string  // string literal, folded for matching
+	// parts are the folded fixed parts of a string literal written with
+	// <placeholders> ("fbsr_<appID>" → ["fbsr_"]); they must occur in order.
+	parts []string
 }
 
 var (
@@ -211,6 +238,11 @@ var (
 	// codeNumber matches a numeric literal in source code, including digit
 	// separators ("1_000") and decimals.
 	codeNumber = regexp.MustCompile(`\d[\d_]*(?:\.\d+)?`)
+	// codeIdent matches an identifier in source code, optionally qualified
+	// by one package or receiver ("http.StatusBadRequest").
+	codeIdent = regexp.MustCompile(`[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)?`)
+	// placeholder matches a <name> slot in a quoted template string.
+	placeholder = regexp.MustCompile(`<[^<>]+>`)
 )
 
 // located is a literal and its byte offset in the requirement.
@@ -248,15 +280,20 @@ func quotedLiterals(text string) ([]located, [][]int) {
 	for _, m := range claimQuoted.FindAllStringSubmatchIndex(text, -1) {
 		spans = append(spans, m[:2])
 		for g := 2; g < len(m); g += 2 {
-			if m[g] >= 0 {
-				found = append(found, located{m[0], quoted(text[m[0]:m[1]], text[m[g]:m[g+1]])})
+			if m[g] < 0 {
+				continue
+			}
+			if lit, ok := quoted(text[m[0]:m[1]], text[m[g]:m[g+1]]); ok {
+				found = append(found, located{m[0], lit})
 			}
 		}
 	}
 	for _, m := range claimSingleQuoted.FindAllStringSubmatchIndex(text, -1) {
 		inner := text[m[2]:m[3]]
 		spans = append(spans, m[2:4])
-		found = append(found, located{m[2], quoted("'"+inner+"'", inner)})
+		if lit, ok := quoted("'"+inner+"'", inner); ok {
+			found = append(found, located{m[2], lit})
+		}
 	}
 	return found, spans
 }
@@ -283,8 +320,23 @@ func numberLiterals(text string, quoteSpans [][]int, decimalSeparator byte) []lo
 	return found
 }
 
-func quoted(asWritten, inner string) literal {
-	return literal{text: asWritten, folded: fold(inner)}
+// minPartLen is the shortest fixed part of a <placeholder> template worth
+// checking; shorter ones ("-", ".") match almost anything.
+const minPartLen = 2
+
+// quoted builds a string literal. A template with <placeholders> is checked
+// through its fixed parts; ok is false when none is long enough to check.
+func quoted(asWritten, inner string) (literal, bool) {
+	lit := literal{text: asWritten, folded: fold(inner)}
+	if !placeholder.MatchString(inner) {
+		return lit, true
+	}
+	for _, part := range placeholder.Split(inner, -1) {
+		if part = fold(part); len(part) >= minPartLen {
+			lit.parts = append(lit.parts, part)
+		}
+	}
+	return lit, len(lit.parts) > 0
 }
 
 // number builds a numeric literal from a claimNumber submatch index m: the
@@ -315,23 +367,47 @@ func number(text string, m []int) (literal, bool) {
 	return lit, true
 }
 
-// foundIn reports whether lit occurs in any of lines.
-func (l literal) foundIn(lines []string) bool {
+// foundIn reports whether lit occurs in any of lines; a number also occurs
+// as an identifier that constants binds to its value.
+func (l *literal) foundIn(lines []string, constants map[string]float64) bool {
 	if !l.number {
-		return strings.Contains(fold(strings.Join(lines, "\n")), l.folded)
+		return l.textIn(fold(strings.Join(lines, "\n")))
 	}
 	for _, line := range lines {
 		for _, tok := range codeNumber.FindAllString(line, -1) {
 			v, err := strconv.ParseFloat(strings.ReplaceAll(tok, "_", ""), 64)
-			if err != nil {
-				continue
+			if err == nil && l.matches(v) {
+				return true
 			}
-			if sameNumber(v, l.value) || (l.percent && sameNumber(v*percentScale, l.value)) {
+		}
+		for _, ident := range codeIdent.FindAllString(line, -1) {
+			if v, ok := constants[ident]; ok && l.matches(v) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// matches reports whether the code value v is the stated number.
+func (l *literal) matches(v float64) bool {
+	return sameNumber(v, l.value) || (l.percent && sameNumber(v*percentScale, l.value))
+}
+
+// textIn reports whether a string literal occurs in folded code: verbatim, or
+// for a template, its fixed parts in order.
+func (l *literal) textIn(code string) bool {
+	if len(l.parts) == 0 {
+		return strings.Contains(code, l.folded)
+	}
+	for _, part := range l.parts {
+		i := strings.Index(code, part)
+		if i < 0 {
+			return false
+		}
+		code = code[i+len(part):]
+	}
+	return true
 }
 
 // percentScale converts a ratio in code (0.1) to the percentage a
@@ -352,18 +428,18 @@ func fold(s string) string {
 }
 
 // Annotate checks every rule node's requirement against its cited code in
-// fsys, reading numbers with decimalSeparator (see Check), and records the outcome in Extra["grounding"] (a Status) and, for an
+// fsys with opts (see Check), and records the outcome in Extra["grounding"] (a Status) and, for an
 // ungrounded rule, Extra["grounding_missing"] (Result.Summary). A rule whose
 // citations cannot be read is StatusUnchecked; verify reports the broken
 // citation itself.
-func Annotate(fsys fs.FS, nodes []graph.Node, decimalSeparator byte) []graph.Node {
+func Annotate(fsys fs.FS, nodes []graph.Node, opts Options) []graph.Node {
 	for i := range nodes {
 		if nodes[i].Type != graph.TypeRule {
 			continue
 		}
 		result := Result{Status: StatusUnchecked}
 		if citations, err := Load(fsys, nodes[i].Sources); err == nil {
-			result = Check(graph.RuleRequirement(nodes[i].Body), citations, decimalSeparator)
+			result = Check(graph.RuleRequirement(nodes[i].Body), citations, opts)
 		}
 		if nodes[i].Extra == nil {
 			nodes[i].Extra = map[string]string{}

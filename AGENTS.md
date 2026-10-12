@@ -69,6 +69,13 @@ de dépendances verrouillé (yaml, tree-sitter, charm) — les extracteurs viven
 hors de ce jeu. Le convertisseur SCIP émet des facts `symbol` avec
 `precise: true` que le map injecte comme ancres de citation.
 
+Faits `constant` (grounding : `400` ↔ `http.StatusBadRequest`), `doc`
+(section `SCHEMA_DOCS` du map), `dependency` (nœuds `service` +
+`depends_on`) et `route.handler_path` complètent le contrat. Le reduce a un
+mode `--reduce-mode merge` (`reducer.ModeMerge`) : seuls les candidats en
+cluster (Jaccard ≥ 0,6 ou citations chevauchantes, `internal/textsim`) vont
+au LLM.
+
 Faits `rule` et `domain` (contrat : constantes de `internal/extract`) : un
 extracteur peut fournir des règles déterministes (validées par
 `graph.ValidateRuleFacts`, rendues `extracted_by` + `crosscheck: mechanical`,

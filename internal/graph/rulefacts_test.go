@@ -129,3 +129,44 @@ func nodeIDs(nodes []graph.Node) []string {
 	}
 	return ids
 }
+
+func TestMechanicalRuleRoute(t *testing.T) {
+	route := extract.Fact{
+		Kind: "route",
+		ID:   "route.graphql.mutation.addCoachRole",
+		Attrs: map[string]string{
+			"method":                "MUTATION",
+			"path":                  "addCoachRole",
+			extract.AttrHandlerPath: "resolvers/add_coach_role.go",
+		},
+		Source: extract.Ref{Path: "role.graphql", Lines: "4-4"},
+	}
+	guarded := ruleFact("rule.x")
+	guarded.Attrs[extract.AttrRoute] = route.ID
+	dangling := ruleFact("rule.y")
+	dangling.Attrs[extract.AttrRoute] = "route.graphql.mutation.nope"
+
+	kept, rejected := graph.ValidateRuleFacts([]extract.Fact{route, guarded, dangling})
+	if len(rejected) != 1 || !strings.Contains(rejected[0], "unknown route") {
+		t.Fatalf("rejected = %v, want the dangling route", rejected)
+	}
+	var rule, endpoint graph.Node
+	for _, n := range graph.Build(kept, nil, extract.DomainResolver{}, "en") {
+		switch n.Type {
+		case graph.TypeRule:
+			rule = n
+		case "endpoint":
+			endpoint = n
+		}
+	}
+	if endpoint.ID != "endpoint.mutation-addcoachrole" {
+		t.Fatalf("endpoint node = %q", endpoint.ID)
+	}
+	found := false
+	for _, e := range rule.Edges {
+		found = found || (e.Type == "exposed_by" && e.To == endpoint.ID)
+	}
+	if !found {
+		t.Fatalf("rule edges %v lack exposed_by %s", rule.Edges, endpoint.ID)
+	}
+}

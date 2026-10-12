@@ -80,3 +80,54 @@ func TestFindDuplicatesDeterministicOrder(t *testing.T) {
 		t.Errorf("pair not ordered by id: %+v", p1[0])
 	}
 }
+
+func TestFindDuplicatesNegationAware(t *testing.T) {
+	cases := map[string]struct {
+		a, b string
+		want int
+	}{
+		"opposite french conditions are not duplicates": {
+			"SI un utilisateur n'a pas de date de naissance et est marqué sous l'âge limite, ALORS le systeme doit le traiter comme mineur.",
+			"SI un utilisateur n'a pas de date de naissance et n'est pas marqué sous l'âge limite, ALORS le systeme doit le traiter comme mineur.",
+			0,
+		},
+		"opposite english conditions are not duplicates": {
+			"IF a user has not set a birthdate and is marked as potentially under the age gate, THEN the system shall determine that the user is under the age gate.",
+			"IF a user has not set a birthdate and is not marked as potentially under the age gate, THEN the system shall determine that the user is under the age gate.",
+			0,
+		},
+		"same negation count still pairs": {
+			"IF the request is not a service-admin query, THEN the system shall return an unauthorized error.",
+			"IF the request isn't a service-admin query, THEN the system shall return an unauthorized error.",
+			1,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			pairs := FindDuplicates(
+				[]graph.Node{rule("rule.d.a", tc.a), rule("rule.d.b", tc.b)},
+				0.7,
+			)
+			if len(pairs) != tc.want {
+				t.Fatalf("got %d pairs %v, want %d", len(pairs), pairs, tc.want)
+			}
+		})
+	}
+}
+
+func TestFindDuplicatesReadsEnglishRules(t *testing.T) {
+	en := func(id, requirement string) graph.Node {
+		return graph.Node{
+			ID:   id,
+			Type: graph.TypeRule,
+			Body: "**Requirement (EARS)**: " + requirement,
+		}
+	}
+	pairs := FindDuplicates([]graph.Node{
+		en("rule.d.a", "WHEN an order is paid, the system shall send a receipt."),
+		en("rule.d.b", "WHEN an invoice is overdue, the system shall lock the account."),
+	}, 0.5)
+	if len(pairs) != 0 {
+		t.Fatalf("distinct English rules paired through their shared label: %v", pairs)
+	}
+}

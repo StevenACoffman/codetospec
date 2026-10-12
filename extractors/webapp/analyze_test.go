@@ -8,14 +8,37 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
+
+// testGOROOT() stands in for a Go installation: two net/http status codes.
+func testGOROOT() fstest.MapFS {
+	return fstest.MapFS{httpStatusFile: {Data: []byte(`package http
+
+const (
+	StatusOK         = 200 // RFC 9110, 15.3.1
+	StatusBadRequest = 400 // RFC 9110, 15.5.1
+)
+`)}}
+}
+
+// testInputs analyzes testdata/service against a small supergraph.
+func testInputs(lang string) *Inputs {
+	return &Inputs{
+		Service:      os.DirFS(filepath.Join("testdata", "service")),
+		GOROOT:       testGOROOT(),
+		Supergraph:   os.DirFS(filepath.Join("testdata", "supergraph")),
+		ServiceGraph: "USERS",
+		Lang:         lang,
+	}
+}
 
 // TestAnalyzeGolden pins the facts derived from testdata/service, in both
 // languages. Regenerate with UPDATE_GOLDEN=1 go test ./... and review.
 func TestAnalyzeGolden(t *testing.T) {
 	for _, lang := range []string{"fr", "en"} {
 		t.Run(lang, func(t *testing.T) {
-			facts, _, err := Analyze(os.DirFS(filepath.Join("testdata", "service")), lang)
+			facts, _, err := Analyze(testInputs(lang))
 			if err != nil {
 				t.Fatalf("Analyze: %v", err)
 			}
@@ -43,7 +66,7 @@ func TestAnalyzeGolden(t *testing.T) {
 }
 
 func TestAnalyzeWarnings(t *testing.T) {
-	_, warnings, err := Analyze(os.DirFS(filepath.Join("testdata", "service")), "en")
+	_, warnings, err := Analyze(testInputs("en"))
 	if err != nil {
 		t.Fatalf("Analyze: %v", err)
 	}
@@ -51,6 +74,7 @@ func TestAnalyzeWarnings(t *testing.T) {
 	cases := map[string]string{
 		"unparsable file is skipped":      "skip resolvers/broken.go",
 		"field-less resolver is reported": "Query.Orphan matches no schema field",
+		"kind without its struct":         "kind Orphan: struct Missing not found",
 	}
 	for name, want := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -62,7 +86,7 @@ func TestAnalyzeWarnings(t *testing.T) {
 }
 
 func TestAnalyzeFacts(t *testing.T) {
-	facts, _, err := Analyze(os.DirFS(filepath.Join("testdata", "service")), "en")
+	facts, _, err := Analyze(testInputs("en"))
 	if err != nil {
 		t.Fatalf("Analyze: %v", err)
 	}

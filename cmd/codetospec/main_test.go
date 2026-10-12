@@ -412,6 +412,9 @@ func TestEndToEndMechanicalRule(t *testing.T) {
  "attrs":{"slug":"reject-negative-amount","title":"Reject negative amounts",
   "requirement":"IF the monthly amount is negative, THEN the system shall throw InvalidArgumentException.",
   "ears":"unwanted","nature":"business","domain":"billing"}},
+{"kind":"dependency","id":"dependency.prorata","origin":"webapp","certainty":"static",
+ "source":{"path":"app/Services/Billing/ProrataCalculator.php","lines":"14-14"},
+ "attrs":{"service":"assignments","operation":"Mutation.acceptInvitation"}},
 {"kind":"domain","id":"domain.prorata","origin":"webapp","certainty":"static",
  "source":{"path":"app/Services/Billing/ProrataCalculator.php","lines":"7-25"},
  "attrs":{"domain":"pricing"}},
@@ -445,7 +448,14 @@ func TestEndToEndMechanicalRule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"1 mechanical", "Extractor rules rejected (malformed, see the logs): 1"} {
+	if _, statErr := fs.Stat(outFS, "nodes/services/assignments.md"); statErr != nil {
+		t.Errorf("dependency fact did not create the service node: %v", statErr)
+	}
+	for _, want := range []string{
+		"1 mechanical",
+		"Extractor rules rejected (malformed, see the logs): 1",
+		"External services called: 1",
+	} {
 		if !strings.Contains(string(readme), want) {
 			t.Errorf("README.md lacks %q:\n%s", want, readme)
 		}
@@ -456,5 +466,25 @@ func TestEndToEndMechanicalRule(t *testing.T) {
 	}
 	if violations := verify.Run(nodes, cfg.Src); len(violations) != 0 {
 		t.Fatalf("verify violations: %v", violations)
+	}
+}
+
+// TestAllowedListsHandlerPath: a route naming its handler's file is allowed
+// in that file's chunks without any symbol matching.
+func TestAllowedListsHandlerPath(t *testing.T) {
+	_, byPath := allowedLists([]extract.Fact{
+		{
+			Kind: "route",
+			ID:   "route.graphql.mutation.addAuthEmail",
+			Attrs: map[string]string{
+				"method":                "MUTATION",
+				"path":                  "addAuthEmail",
+				extract.AttrHandlerPath: "resolvers/add_auth_email.go",
+			},
+		},
+	})
+	if got := byPath["resolvers/add_auth_email.go"]; len(got) != 1 ||
+		got[0] != "endpoint.mutation-addauthemail" {
+		t.Fatalf("endpoints for the handler file = %v", got)
 	}
 }

@@ -16,8 +16,11 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"go/build"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 )
 
 func main() {
@@ -40,6 +43,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	root := flags.String("root", "", "webapp service directory to analyze (required)")
 	lang := flags.String("lang", "fr", "requirement language: fr or en")
+	supergraph := flags.String("supergraph", "",
+		"directory holding composed_schema.graphql (default: <root>/../../gengraphql)")
+	graph := flags.String(
+		"graph",
+		"",
+		"this service's subgraph name (default: upper-cased root name)",
+	)
 	if err := flags.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -48,7 +58,23 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 
-	facts, warnings, err := Analyze(os.DirFS(*root), *lang)
+	in := Inputs{
+		Service:      os.DirFS(*root),
+		GOROOT:       os.DirFS(build.Default.GOROOT),
+		ServiceGraph: *graph,
+		Lang:         *lang,
+	}
+	if in.ServiceGraph == "" {
+		in.ServiceGraph = strings.ToUpper(strings.ReplaceAll(filepath.Base(*root), "-", "_"))
+	}
+	dir := *supergraph
+	if dir == "" {
+		dir = filepath.Join(*root, "..", "..", "gengraphql")
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, composedSchemaFile)); statErr == nil {
+		in.Supergraph = os.DirFS(dir)
+	}
+	facts, warnings, err := Analyze(&in)
 	for _, w := range warnings {
 		logf("%s", w)
 	}

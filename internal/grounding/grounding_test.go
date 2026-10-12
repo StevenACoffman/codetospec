@@ -130,7 +130,11 @@ func runCheckCases(t *testing.T, decimalSeparator byte, cases map[string]checkCa
 			if err != nil {
 				t.Fatalf("Load: %v", err)
 			}
-			got := grounding.Check(tc.requirement, citations, decimalSeparator)
+			got := grounding.Check(
+				tc.requirement,
+				citations,
+				grounding.Options{DecimalSeparator: decimalSeparator},
+			)
 			if got.Status != tc.wantStatus {
 				t.Errorf(
 					"status = %q, want %q (missing: %s)",
@@ -174,7 +178,7 @@ func TestLoadClampsToFileLength(t *testing.T) {
 	if got := grounding.Check(
 		"Le systeme doit renvoyer 42.",
 		citations,
-		',',
+		grounding.Options{DecimalSeparator: ','},
 	); got.Status != grounding.StatusGrounded {
 		t.Fatalf("status = %q, want grounded", got.Status)
 	}

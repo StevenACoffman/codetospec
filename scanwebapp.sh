@@ -5,11 +5,15 @@
 #   e.g. ./scanwebapp.sh users
 #        ./scanwebapp.sh users --crosscheck
 #        DRY_RUN=1 ./scanwebapp.sh users      # build + extract only, no LLM call
+#        SCIP=1 ./scanwebapp.sh users         # also index with scip-go (precise spans)
+#        REDUCE_MODE=merge ./scanwebapp.sh users   # cheaper reduce
 #
 # Steps:
 #   1. build bin/codetospec and bin/webapp-extract (extractors/webapp);
 #   2. run the webapp extractor on $WEBAPP_DIR/services/<service>: mechanical
-#      authorization rules for gqlgen resolvers + schema-file domains;
+#      authorization rules, schema-file domains, GraphQL endpoints, Datastore
+#      entities, numeric constants, schema docs and cross-service calls;
+#      with SCIP=1, also index the service with scip-go for precise symbols;
 #   3. run codetospec on the service with those facts, against Gemini's
 #      OpenAI-compatible endpoint, with the key from $GEMINI_API_KEY.
 #
@@ -22,6 +26,10 @@
 #   WORKERS          parallel LLM calls         (default: 4; lower on 429s)
 #   MAX_TOKENS       generation cap per call    (default: 16384; thinking models)
 #   EXCLUDE          comma-separated excludes   (default: see below)
+#   REDUCE_MODE      full|merge                 (default: full; merge sends only
+#                    near-duplicate candidates to the LLM — no acceptance
+#                    criteria for the others, much cheaper)
+#   SCIP=1           index with scip-go first (needs network once; slower)
 #   DRY_RUN=1        stop before calling the LLM, print the command
 #
 # Note: codetospec counts prompt+completion tokens only; Gemini also bills
@@ -68,6 +76,8 @@ model=${LLM_MODEL:-gemini-3.8-flash}
 spec_lang=${SPEC_LANG:-en}
 workers=${WORKERS:-4}
 max_tokens=${MAX_TOKENS:-16384}
+reduce_mode=${REDUCE_MODE:-full}
+scip_go=github.com/scip-code/scip-go/cmd/scip-go@v0.2.7
 base_url=https://generativelanguage.googleapis.com/v1beta/openai
 
 # Excluded from the LLM map phase. --exclude replaces codetospec's defaults,
@@ -91,6 +101,7 @@ fi
 [ -f "$service_dir/gqlgen.yml" ] ||
     printf 'scanwebapp: warning: %s has no gqlgen.yml; resolvers keep their directory domain\n' "$service_dir" >&2
 case "$spec_lang" in fr | en) ;; *) die "SPEC_LANG must be fr or en, got '$spec_lang'" ;; esac
+case "$reduce_mode" in full | merge) ;; *) die "REDUCE_MODE must be full or merge, got '$reduce_mode'" ;; esac
 
 api_key=${LLM_API_KEY:-${GEMINI_API_KEY:-}}
 if [ -z "${DRY_RUN:-}" ] && [ -z "$api_key" ]; then
@@ -102,6 +113,9 @@ fi
 printf '==> building codetospec and the webapp extractor\n' >&2
 (cd "$repo_dir" && go build -o bin/codetospec ./cmd/codetospec)
 (cd "$repo_dir/extractors/webapp" && go build -o "$repo_dir/bin/webapp-extract" .)
+if [ -n "${SCIP:-}" ]; then
+    (cd "$repo_dir/extractors/scip" && go build -o "$repo_dir/bin/scip2facts" .)
+fi
 
 # --- 2. extract ------------------------------------------------------------
 
@@ -109,9 +123,22 @@ mkdir -p "$out_dir/.codetospec"
 facts_file=$out_dir/.codetospec/webapp-extractor.facts.json
 printf '==> extracting %s → %s\n' "$service_dir" "$facts_file" >&2
 "$repo_dir/bin/webapp-extract" -root "$service_dir" -lang "$spec_lang" >"$facts_file"
-rules=$(grep -o '"kind":"rule"' "$facts_file" | wc -l | tr -d ' ')
-domains=$(grep -o '"kind":"domain"' "$facts_file" | wc -l | tr -d ' ')
-printf '    %s mechanical rules, %s resolver methods mapped to schema-file domains\n' "$rules" "$domains" >&2
+count() { grep -o "\"kind\":\"$1\"" "$facts_file" | wc -l | tr -d ' '; }
+printf '    rules %s · domains %s · endpoints %s · entities %s · constants %s · docs %s · cross-service calls %s\n' \
+    "$(count rule)" "$(count domain)" "$(count route)" "$(count table)" \
+    "$(count constant)" "$(count doc)" "$(count dependency)" >&2
+facts_args=(--facts "$facts_file")
+
+if [ -n "${SCIP:-}" ]; then
+    scip_index=$out_dir/.codetospec/index.scip
+    scip_facts=$out_dir/.codetospec/scip.facts.json
+    printf '==> indexing services/%s with scip-go (first run downloads it)\n' "$service" >&2
+    (cd "$webapp_dir" && go run "$scip_go" index --quiet --skip-tests \
+        --output "$scip_index" "./services/$service/...")
+    "$repo_dir/bin/scip2facts" --index "$scip_index" --root "services/$service" >"$scip_facts"
+    printf '    %s precise symbols\n' "$(grep -o '"kind":"symbol"' "$scip_facts" | wc -l | tr -d ' ')" >&2
+    facts_args+=(--facts "$scip_facts")
+fi
 
 # --- 3. run codetospec -----------------------------------------------------
 
@@ -123,7 +150,8 @@ cmd=(
     --max-tokens "$max_tokens"
     --workers "$workers"
     --exclude "$exclude"
-    --facts "$facts_file"
+    --reduce-mode "$reduce_mode"
+    "${facts_args[@]}"
     "$@"
 )
 

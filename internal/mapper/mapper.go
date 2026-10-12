@@ -134,12 +134,12 @@ type SymbolContext struct {
 	Signature string
 }
 
-// MechanicalRule is a rule an extractor already derived from the code,
-// located by its cited lines.
-type MechanicalRule struct {
-	StartLine   int
-	EndLine     int
-	Requirement string
+// Note is text an extractor attached to a line span: a mechanical rule's
+// requirement, or authored documentation.
+type Note struct {
+	StartLine int
+	EndLine   int
+	Text      string
 }
 
 // Mapper drives the map phase.
@@ -155,8 +155,12 @@ type Mapper struct {
 	// (empty when no SCIP index was provided). Optional.
 	SymbolsFor func(path string) []SymbolContext
 	// RulesFor returns the mechanical rules (extractor rule facts) of a
-	// file, shown to the model so it does not restate them. Optional.
-	RulesFor func(path string) []MechanicalRule
+	// file — Text is the requirement — shown to the model so it does not
+	// restate them. Optional.
+	RulesFor func(path string) []Note
+	// DocsFor returns authored documentation (extractor doc facts) located
+	// in a file, shown for the chunks it overlaps. Optional.
+	DocsFor func(path string) []Note
 	// OnUnit is called after each finished unit (cached or live) with the
 	// usage consumed by that unit; callers persist state there.
 	OnUnit func(out Output, usage llm.Usage)
@@ -235,7 +239,7 @@ func (m *Mapper) mapChunk(ctx context.Context, chunk sitter.Chunk) (Output, llm.
 	// The file name keys the chunk content; PromptKey keys everything else
 	// that shapes the reply, including the chunk's context sections.
 	outPath := filepath.Join(m.OutDir, chunk.ID+".json")
-	sections := m.symbolsSection(&chunk) + m.rulesSection(&chunk)
+	sections := m.symbolsSection(&chunk) + m.rulesSection(&chunk) + m.docsSection(&chunk)
 	promptKey := m.promptKey(sections)
 	if data, err := os.ReadFile(outPath); err == nil {
 		var cached Output
@@ -318,22 +322,42 @@ func (m *Mapper) promptKey(sections string) string {
 	)
 }
 
+// docsSection shows the authored documentation of the code in a chunk, so
+// the model uses its authors' vocabulary.
+func (m *Mapper) docsSection(chunk *sitter.Chunk) string {
+	if m.DocsFor == nil {
+		return ""
+	}
+	return noteSection(chunk, m.DocsFor(chunk.Path),
+		"SCHEMA_DOCS (documentation written by the code's authors; context only, never a citation)")
+}
+
 // rulesSection lists the mechanical rules cited inside a chunk so the model
-// extracts only the remaining behavior. Returns "" when there are none.
+// extracts only the remaining behavior.
 func (m *Mapper) rulesSection(chunk *sitter.Chunk) string {
 	if m.RulesFor == nil {
 		return ""
 	}
+	return noteSection(
+		chunk,
+		m.RulesFor(chunk.Path),
+		"MECHANICAL_RULES (already extracted deterministically from this code; do NOT restate them, extract only other behavior)",
+	)
+}
+
+// noteSection renders the notes overlapping chunk under header, one line
+// each; "" when none overlaps.
+func noteSection(chunk *sitter.Chunk, notes []Note, header string) string {
 	var b strings.Builder
-	for _, r := range m.RulesFor(chunk.Path) {
-		if r.StartLine <= chunk.EndLine && r.EndLine >= chunk.StartLine {
-			fmt.Fprintf(&b, "- lines %d-%d: %s\n", r.StartLine, r.EndLine, r.Requirement)
+	for _, n := range notes {
+		if n.StartLine <= chunk.EndLine && n.EndLine >= chunk.StartLine {
+			fmt.Fprintf(&b, "- lines %d-%d: %s\n", n.StartLine, n.EndLine, n.Text)
 		}
 	}
 	if b.Len() == 0 {
 		return ""
 	}
-	return "\nMECHANICAL_RULES (already extracted deterministically from this code; do NOT restate them, extract only other behavior):\n" + b.String()
+	return "\n" + header + ":\n" + b.String()
 }
 
 // symbolsSection renders the precise symbol definitions overlapping a chunk,

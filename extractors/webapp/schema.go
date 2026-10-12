@@ -19,6 +19,39 @@ type schemaIndex map[string][]schemaField
 type schemaField struct {
 	name string // as declared, e.g. "addAuthEmail"
 	file string // e.g. "auth_emails.graphql"
+	line int    // 1-based line of the declaration
+	doc  string // description and argument descriptions, one line; "" if none
+}
+
+// maxDocLen caps a field's documentation in the map prompt: enough for the
+// authors' intent, not a manual.
+const maxDocLen = 400
+
+// fieldDoc renders a field's description and its arguments' descriptions as
+// one line, capped at maxDocLen runes.
+func fieldDoc(f *ast.FieldDefinition) string {
+	parts := []string{}
+	if d := oneLine(f.Description); d != "" {
+		parts = append(parts, d)
+	}
+	var args []string
+	for _, a := range f.Arguments {
+		if d := oneLine(a.Description); d != "" {
+			args = append(args, a.Name+" — "+d)
+		}
+	}
+	if len(args) > 0 {
+		parts = append(parts, "Arguments: "+strings.Join(args, "; "))
+	}
+	doc := strings.Join(parts, " ")
+	if runes := []rune(doc); len(runes) > maxDocLen {
+		doc = string(runes[:maxDocLen-1]) + "…"
+	}
+	return doc
+}
+
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // gqlgenConfig is the part of gqlgen.yml the extractor reads.
@@ -77,7 +110,11 @@ func (idx schemaIndex) add(fsys fs.FS, name string) string {
 	for _, defs := range []ast.DefinitionList{doc.Definitions, doc.Extensions} {
 		for _, def := range defs {
 			for _, f := range def.Fields {
-				idx[def.Name] = append(idx[def.Name], schemaField{name: f.Name, file: name})
+				field := schemaField{name: f.Name, file: name, doc: fieldDoc(f)}
+				if f.Position != nil {
+					field.line = f.Position.Line
+				}
+				idx[def.Name] = append(idx[def.Name], field)
 			}
 		}
 	}
@@ -86,14 +123,13 @@ func (idx schemaIndex) add(fsys fs.FS, name string) string {
 
 // lookup finds the field a resolver method implements. gqlgen derives Go
 // method names from field names with initialism rules (userID → UserID), so
-// the match ignores case. It returns the field name and the declaring schema
-// file; without a match, the method name with a lower-case first letter and
-// "".
-func (idx schemaIndex) lookup(typeName, method string) (string, string) {
+// the match ignores case. Without a match, it returns a field named after
+// the method (lower-case first letter) with no file.
+func (idx schemaIndex) lookup(typeName, method string) schemaField {
 	for _, f := range idx[typeName] {
 		if strings.EqualFold(f.name, method) {
-			return f.name, f.file
+			return f
 		}
 	}
-	return strings.ToLower(method[:1]) + method[1:], ""
+	return schemaField{name: strings.ToLower(method[:1]) + method[1:]}
 }

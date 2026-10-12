@@ -65,6 +65,7 @@ type Config struct {
 	Crosscheck     bool
 	Repair         bool
 	ReduceBatch    int
+	ReduceMode     string // "full" or "merge" (see reducer.ModeMerge)
 	Format         string // drift output format: "text" | "json"
 }
 
@@ -135,6 +136,13 @@ func ParseRun(args []string) (*Config, error) {
 		"reduce-batch",
 		30,
 		"max candidate rules per reduce call; larger domains are batched then merged",
+	)
+	fs.StringVar(
+		&cfg.ReduceMode,
+		"reduce-mode",
+		"full",
+		"full: the LLM consolidates every rule (rationale, acceptance criteria); "+
+			"merge: only candidates with a near-duplicate go to the LLM, the rest are kept as mapped (much cheaper)",
 	)
 	fs.IntVar(
 		&cfg.DomainDepth,
@@ -246,6 +254,9 @@ func (c *Config) validateRun() error {
 	}
 	if c.Lang != "fr" && c.Lang != "en" {
 		return fmt.Errorf("--lang %q must be fr or en", c.Lang)
+	}
+	if c.ReduceMode != "full" && c.ReduceMode != "merge" {
+		return fmt.Errorf("--reduce-mode %q must be full or merge", c.ReduceMode)
 	}
 	if c.Workers < 1 {
 		return fmt.Errorf("--workers %d must be >= 1", c.Workers)

@@ -28,11 +28,25 @@ const (
 	// the code: Source is its exact citation, and the attributes AttrSlug,
 	// AttrTitle, AttrRequirement (EARS text in the output language), AttrEARS
 	// (EARS kind), AttrNature and AttrDomain describe it. The graph turns
-	// valid rule facts into rule nodes that skip the LLM crosscheck.
+	// valid rule facts into rule nodes that skip the LLM crosscheck. The
+	// optional AttrRoute names the route fact (by ID) of the endpoint the rule
+	// guards; it becomes an exposed_by edge.
 	KindRule = "rule"
 	// KindDomain assigns the code in Source to the domain AttrDomain,
 	// overriding the configured domain strategy for chunks starting there.
 	KindDomain = "domain"
+	// KindConstant binds the identifier AttrName (as written in code, e.g.
+	// "http.StatusBadRequest" or "maxRetries") to the numeric AttrValue, so
+	// grounding finds a stated "400" behind the constant's name.
+	KindConstant = "constant"
+	// KindDoc attaches authored documentation AttrText (e.g. an API schema
+	// description) to the code in Source; the map prompt shows it for the
+	// chunks it overlaps.
+	KindDoc = "doc"
+	// KindDependency records that the code at Source calls AttrOperation,
+	// owned by the external service AttrService (a slug). The graph gets one
+	// service node per service and depends_on edges from calling domains.
+	KindDependency = "dependency"
 )
 
 // Attribute names of KindRule and KindDomain facts.
@@ -43,6 +57,16 @@ const (
 	AttrEARS        = "ears"
 	AttrNature      = "nature"
 	AttrDomain      = "domain"
+	AttrName        = "name"
+	AttrValue       = "value"
+	AttrRoute       = "route"
+	AttrText        = "text"
+	AttrService     = "service"
+	AttrOperation   = "operation"
+	// AttrHandlerPath, on a "route" fact, is the file holding the endpoint's
+	// handler: its chunks may cite the endpoint. It beats matching the handler
+	// name against symbols.
+	AttrHandlerPath = "handler_path"
 )
 
 // Ref pins a fact to a file location.

@@ -9,6 +9,7 @@ import (
 // resolverMethod is one gqlgen resolver method and the access guards found
 // at the top level of its body.
 type resolverMethod struct {
+	recv       string // Go receiver type, e.g. "mutationResolver"
 	typeName   string // GraphQL type, e.g. "Mutation" for mutationResolver
 	method     string // Go method name, e.g. "AddAuthEmail"
 	start, end int    // method span, 1-based inclusive
@@ -37,11 +38,12 @@ func resolverMethods(fset *token.FileSet, file *ast.File) []resolverMethod {
 		if !ok || fn.Body == nil {
 			continue
 		}
-		typeName := resolverType(fn)
+		recv, typeName := resolverType(fn)
 		if typeName == "" {
 			continue
 		}
 		methods = append(methods, resolverMethod{
+			recv:     recv,
 			typeName: typeName,
 			method:   fn.Name.Name,
 			start:    fset.Position(fn.Pos()).Line,
@@ -52,25 +54,26 @@ func resolverMethods(fset *token.FileSet, file *ast.File) []resolverMethod {
 	return methods
 }
 
-// resolverType maps a method's receiver to its GraphQL type name
-// (mutationResolver → Mutation); "" for anything that is not a resolver.
-func resolverType(fn *ast.FuncDecl) string {
+// resolverType returns a method's receiver type and the GraphQL type it
+// resolves (mutationResolver → Mutation); both are "" for anything that is
+// not a resolver.
+func resolverType(fn *ast.FuncDecl) (string, string) {
 	if fn.Recv == nil || len(fn.Recv.List) != 1 {
-		return ""
+		return "", ""
 	}
-	recv := fn.Recv.List[0].Type
-	if star, ok := recv.(*ast.StarExpr); ok {
-		recv = star.X
+	expr := fn.Recv.List[0].Type
+	if star, ok := expr.(*ast.StarExpr); ok {
+		expr = star.X
 	}
-	ident, ok := recv.(*ast.Ident)
+	ident, ok := expr.(*ast.Ident)
 	if !ok {
-		return ""
+		return "", ""
 	}
 	name := strings.TrimSuffix(ident.Name, resolverSuffix)
 	if name == ident.Name || name == "" {
-		return ""
+		return "", ""
 	}
-	return strings.ToUpper(name[:1]) + name[1:]
+	return ident.Name, strings.ToUpper(name[:1]) + name[1:]
 }
 
 // predicate is a local bound to an access check (allowed := acl.IsLoggedIn(…)).

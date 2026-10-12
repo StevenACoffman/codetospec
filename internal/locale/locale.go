@@ -39,6 +39,8 @@ type Labels struct {
 	Table, Columns          string
 	Method, Path, Handler   string
 	DomainTitleFmt          string // %s: domain slug
+	ServiceTitleFmt         string // %s: external service slug
+	OperationsCalled        string // heading over a service's called operations
 	RulesHeading            string // markdown heading over a domain's rule list
 	SourcesLabel, LinksLead string // node file footer
 }
@@ -54,6 +56,7 @@ type Readme struct {
 type ReadmeCounts struct {
 	Title, Intro            string
 	DomainsFmt, EntitiesFmt string // %d
+	ServicesFmt             string // %d external services called
 	EndpointsFmt, RulesFmt  string // %d
 	NatureFmt               string // %d business, presentation, technical
 	OriginFmt               string // %d explicit, implicit
@@ -166,6 +169,8 @@ func newLabels(tr translate) Labels {
 			"**Handler** : ",
 			"**Handler**: ",
 		),
+		ServiceTitleFmt:  tr("Service %s", "Service %s"),
+		OperationsCalled: tr("## Opérations appelées", "## Operations called"),
 		DomainTitleFmt: tr(
 			"Domaine %s",
 			"Domain %s",
@@ -203,6 +208,7 @@ func newReadmeCounts(tr translate) ReadmeCounts {
 			"Graphe de connaissances des règles métier, extrait du code source par codetospec.",
 			"Knowledge graph of business rules, extracted from the source code by codetospec.",
 		),
+		ServicesFmt: tr("- Services externes appelés : %d", "- External services called: %d"),
 		DomainsFmt: tr(
 			"- Domaines : %d",
 			"- Domains: %d",

@@ -432,3 +432,141 @@ func TestReduceCacheKeyedByModelAndPrompt(t *testing.T) {
 		})
 	}
 }
+
+// Fixture values reused across the merge-mode tests.
+const (
+	sharedLines    = "1-10"
+	natureBusiness = "business"
+	originExplicit = "explicit"
+	fileA          = "a.go"
+	repliedLines   = "12-15" // the lines validReduceReply cites
+)
+
+// mergeCandidates: two near-duplicates (same requirement, overlapping
+// citations) and one distinct rule.
+func mergeCandidates() map[string][]mapper.Rule {
+	rule := func(title, requirement, lines string) mapper.Rule {
+		return mapper.Rule{
+			Title: title, EarsKind: "event", Requirement: requirement,
+			Citations: []extract.Ref{{Path: "app/X.php", Lines: lines}},
+			Nature:    natureBusiness, Origin: originExplicit, Confidence: 0.8,
+		}
+	}
+	return map[string][]mapper.Rule{"billing": {
+		rule("Prorata", "QUAND x, le systeme doit y.", repliedLines),
+		rule("Prorata bis", "QUAND x, le systeme doit y.", "13-14"),
+		rule(
+			"Refund window",
+			"QUAND un remboursement est demandé, le systeme doit vérifier la fenêtre.",
+			"40-44",
+		),
+	}}
+}
+
+func TestSplitClusters(t *testing.T) {
+	cases := map[string]struct {
+		rules         []mapper.Rule
+		wantClustered int
+		wantSingles   int
+	}{
+		"duplicates cluster, distinct stays single": {mergeCandidates()["billing"], 2, 1},
+		"citation overlap alone clusters": {
+			[]mapper.Rule{
+				{
+					Requirement: "alpha beta gamma",
+					Citations:   []extract.Ref{{Path: fileA, Lines: sharedLines}},
+				},
+				{
+					Requirement: "delta epsilon zeta",
+					Citations:   []extract.Ref{{Path: fileA, Lines: "10-12"}},
+				},
+			},
+			2,
+			0,
+		},
+		"same lines in another file do not cluster": {
+			[]mapper.Rule{
+				{
+					Requirement: "alpha beta gamma",
+					Citations:   []extract.Ref{{Path: fileA, Lines: sharedLines}},
+				},
+				{
+					Requirement: "delta epsilon zeta",
+					Citations:   []extract.Ref{{Path: "b.go", Lines: sharedLines}},
+				},
+			},
+			0,
+			2,
+		},
+		"empty": {nil, 0, 0},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			clustered, singles := splitClusters(tc.rules)
+			if len(clustered) != tc.wantClustered || len(singles) != tc.wantSingles {
+				t.Fatalf("clustered=%d singles=%d, want %d and %d",
+					len(clustered), len(singles), tc.wantClustered, tc.wantSingles)
+			}
+		})
+	}
+}
+
+func TestReduceMergeModeSendsOnlyClusters(t *testing.T) {
+	var prompts []string
+	r := newReducer(
+		t,
+		chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+			prompts = append(prompts, msgs[1].Content)
+			return validReduceReply, llm.Usage{}, nil
+		}),
+	)
+	r.Mode = ModeMerge
+	outputs, err := r.Run(context.Background(), mergeCandidates())
+	if err != nil || len(outputs) != 1 || outputs[0].Failed {
+		t.Fatalf("Run: outputs=%+v err=%v", outputs, err)
+	}
+	if len(prompts) != 1 || strings.Contains(prompts[0], "Refund window") {
+		t.Fatalf(
+			"LLM saw %d prompts; the distinct candidate must not be sent:\n%s",
+			len(prompts),
+			strings.Join(prompts, "\n---\n"),
+		)
+	}
+	var kept *Rule
+	for i := range outputs[0].Rules {
+		if outputs[0].Rules[i].Title == "Refund window" {
+			kept = &outputs[0].Rules[i]
+		}
+	}
+	if kept == nil {
+		t.Fatalf("distinct candidate missing from %+v", outputs[0].Rules)
+	}
+	if kept.Slug != "refund-window" || len(kept.AcceptanceCriteria) != 0 ||
+		kept.Nature != natureBusiness {
+		t.Errorf(
+			"kept rule = %+v, want slug refund-window, no criteria, nature carried over",
+			*kept,
+		)
+	}
+}
+
+func TestReduceCacheKeyedByMode(t *testing.T) {
+	r := newReducer(t, chatFunc(func(context.Context, []llm.Message) (string, llm.Usage, error) {
+		return validReduceReply, llm.Usage{}, nil
+	}))
+	if _, err := r.Run(context.Background(), mergeCandidates()); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	r.LLM = chatFunc(func(context.Context, []llm.Message) (string, llm.Usage, error) {
+		calls++
+		return validReduceReply, llm.Usage{}, nil
+	})
+	r.Mode = ModeMerge
+	if _, err := r.Run(context.Background(), mergeCandidates()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("switching to merge mode made %d calls, want 1 (cache keyed by mode)", calls)
+	}
+}

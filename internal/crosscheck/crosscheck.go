@@ -26,6 +26,7 @@ import (
 	"codetospec/internal/extract"
 	"codetospec/internal/graph"
 	"codetospec/internal/llm"
+	"codetospec/internal/locale"
 	"codetospec/internal/mapper"
 	"codetospec/internal/state"
 )
@@ -222,7 +223,7 @@ func (c *Checker) checkRule(ctx context.Context, rule graph.Node) (Verdict, llm.
 	}
 
 	criteria := "-"
-	if lines := acceptanceCriteria(rule.Body); len(lines) > 0 {
+	if lines := graph.RuleCriteria(rule.Body); len(lines) > 0 {
 		criteria = strings.Join(lines, "\n")
 	}
 	userPrompt := fmt.Sprintf(userPromptFormat,
@@ -230,7 +231,7 @@ func (c *Checker) checkRule(ctx context.Context, rule graph.Node) (Verdict, llm.
 	msgs := []llm.Message{
 		{
 			Role:    "system",
-			Content: strings.ReplaceAll(systemPrompt, "<LANG>", mapper.LangName(c.Lang)),
+			Content: locale.For(c.Lang).Prompt(systemPrompt),
 		},
 		{Role: "user", Content: userPrompt},
 	}
@@ -325,7 +326,7 @@ func (c *Checker) repairRule(
 	msgs := []llm.Message{
 		{
 			Role:    "system",
-			Content: strings.ReplaceAll(repairSystemPrompt, "<LANG>", mapper.LangName(c.Lang)),
+			Content: locale.For(c.Lang).Prompt(repairSystemPrompt),
 		},
 		{Role: "user", Content: userPrompt},
 	}
@@ -523,8 +524,10 @@ func Count(nodes []graph.Node) Tally {
 // promptKey covers everything besides the rule and its cited code that
 // shapes a verdict: model, language, both prompts and whether repair runs.
 func (c *Checker) promptKey() string {
-	return llm.PromptKey(c.Model, mapper.LangName(c.Lang),
-		systemPrompt, userPromptFormat, repairSystemPrompt, repairUserPromptFormat,
+	text := locale.For(c.Lang)
+	return llm.PromptKey(c.Model,
+		text.Prompt(systemPrompt), userPromptFormat,
+		text.Prompt(repairSystemPrompt), repairUserPromptFormat,
 		strconv.FormatBool(c.Repair))
 }
 
@@ -535,24 +538,4 @@ func inputHash(promptKey string, rule graph.Node, excerpt string) string {
 		fmt.Appendf(nil, "%s\n%s\n%s\n%s\n%s", promptKey, rule.ID, rule.Title, rule.Body, excerpt),
 	)
 	return hex.EncodeToString(sum[:])[:16]
-}
-
-// acceptanceCriteria extracts the numbered criteria lines from a rule body.
-func acceptanceCriteria(body string) []string {
-	var criteria []string
-	inList := false
-	for line := range strings.SplitSeq(body, "\n") {
-		if strings.HasPrefix(line, "**Critères d'acceptation**") {
-			inList = true
-			continue
-		}
-		if inList {
-			trimmed := strings.TrimSpace(line)
-			if trimmed == "" || (trimmed[0] < '0' || trimmed[0] > '9') {
-				break
-			}
-			criteria = append(criteria, trimmed)
-		}
-	}
-	return criteria
 }

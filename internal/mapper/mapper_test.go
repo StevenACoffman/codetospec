@@ -289,3 +289,36 @@ func TestMapCacheKeyedByModelAndPrompt(t *testing.T) {
 		})
 	}
 }
+
+func TestMapPromptUsesLanguageEARSPatterns(t *testing.T) {
+	cases := map[string]struct {
+		lang, want, notWant string
+	}{
+		"french":  {lang: "fr", want: "QUAND <trigger>", notWant: "WHEN <trigger>"},
+		"english": {lang: "en", want: "WHEN <trigger>", notWant: "QUAND <trigger>"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var system string
+			m := newMapper(
+				t,
+				chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+					system = msgs[0].Content
+					return validMapReply, llm.Usage{}, nil
+				}),
+			)
+			m.Lang = tc.lang
+			if _, err := m.Run(context.Background(), []sitter.Chunk{testChunk()}); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if !strings.Contains(system, tc.want) || strings.Contains(system, tc.notWant) {
+				t.Fatalf(
+					"system prompt should contain %q and not %q:\n%s",
+					tc.want,
+					tc.notWant,
+					system,
+				)
+			}
+		})
+	}
+}

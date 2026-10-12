@@ -39,11 +39,18 @@ Pipeline : `extract → chunk → map → reduce → crosscheck(+repair) → bui
 - `internal/{graph,verify,render}` — assemblage déterministe, contrôles, écriture.
 - `internal/drift` — digest du code cité par règle (frontmatter `digest:`) ;
   commande `drift` = re-hache et signale les règles périmées (déterministe).
+- `internal/locale` — toutes les chaînes fixes de sortie, FR et EN côte à
+  côte (`tr(fr, en)`), y compris les patrons EARS des prompts. Les écrivains
+  prennent `locale.For(--lang)` ; les parseurs (`graph.RuleRequirement`,
+  `graph.RuleCriteria`) acceptent les libellés de toutes les langues.
 - `internal/grounding` — contrôle mécanique (sans LLM) : chaque nombre /
   chaîne citée de l'exigence EARS doit apparaître dans les lignes citées.
   `grounded | ungrounded | unchecked` en frontmatter ; « unchecked » n'est
   jamais un succès. Seule l'exigence est vérifiée (les critères d'acceptation
-  contiennent des exemples de test absents du code).
+  contiennent des exemples de test absents du code). Les nombres sont lus
+  avec le séparateur décimal de `--lang` (`locale.Text.DecimalSeparator`) :
+  une seule lecture, jamais les deux — accepter « 1,000 = 1 » ferait passer
+  à tort toute règle anglaise dont le code contient un `1`.
 - `internal/consistency` — détection de règles quasi-doublons (Jaccard sur
   les exigences), listées dans le README de sortie.
 - `cmd/codetospec/main.go` — séquence complète.

@@ -113,12 +113,16 @@ func Load(fsys fs.FS, refs []extract.Ref) ([]Citation, error) {
 // Check verifies that every number and quoted string stated in requirement
 // occurs in the cited lines.
 //
-// Requires: nothing; empty inputs yield StatusUnchecked.
+// decimalSeparator is how the requirement's language writes decimals (see
+// locale.Text.DecimalSeparator): with ',' a "1,000" reads 1.000, with '.' it
+// reads one thousand.
+//
+// Requires: decimalSeparator is ',' or '.'; empty inputs yield StatusUnchecked.
 // Ensures:  Status is StatusUnchecked iff requirement states no literal or
 // no citation is given; otherwise Missing lists, in order of appearance, each
 // literal not found in any cited range.
-func Check(requirement string, citations []Citation) Result {
-	literals := extractLiterals(requirement)
+func Check(requirement string, citations []Citation, decimalSeparator byte) Result {
+	literals := extractLiterals(requirement, decimalSeparator)
 	if len(literals) == 0 || len(citations) == 0 {
 		return Result{Status: StatusUnchecked}
 	}
@@ -183,11 +187,20 @@ type literal struct {
 }
 
 var (
-	// claimNumber matches a number in prose: "30", "1 000" (any space as a
-	// thousands separator), "1,5" or "1.5", optionally followed by "%". The
-	// leading group keeps digits glued to a word ("SHA256", "v2") out.
-	claimNumber = regexp.MustCompile(
+	// claimNumberDecimalComma matches a number in prose that writes decimals
+	// with a comma (French): "30", "1 000" (any space as a thousands
+	// separator), "1,5" or "1.5", optionally followed by "%". The leading
+	// group keeps digits glued to a word ("SHA256", "v2") out.
+	claimNumberDecimalComma = regexp.MustCompile(
 		`(?:^|[^\p{L}\p{N}_.,])(\d{1,3}(?:[ \x{00A0}\x{202F}]\d{3})+|\d+)([.,]\d+)?(\s*%)?`,
+	)
+	// claimNumberDecimalPoint matches a number in prose that writes decimals
+	// with a point (English): "30", "1,000" or "1 000" (thousands
+	// separators), "1.5", optionally followed by "%".
+	claimNumberDecimalPoint = regexp.MustCompile(
+		`(?:^|[^\p{L}\p{N}_.,])` +
+			`(\d{1,3}(?:,\d{3})+|\d{1,3}(?:[ \x{00A0}\x{202F}]\d{3})+|\d+)` +
+			`(\.\d+)?(\s*%)?`,
 	)
 	// claimQuoted matches text in double quotes, curly quotes, guillemets or
 	// backticks.
@@ -208,9 +221,9 @@ type located struct {
 
 // extractLiterals returns the numbers and quoted strings stated in text, in
 // order of appearance, without duplicates.
-func extractLiterals(text string) []literal {
+func extractLiterals(text string, decimalSeparator byte) []literal {
 	found, quoteSpans := quotedLiterals(text)
-	found = append(found, numberLiterals(text, quoteSpans)...)
+	found = append(found, numberLiterals(text, quoteSpans, decimalSeparator)...)
 	// The requirement reads left to right, and so should the report.
 	slices.SortStableFunc(found, func(a, b located) int { return a.at - b.at })
 
@@ -250,7 +263,11 @@ func quotedLiterals(text string) ([]located, [][]int) {
 
 // numberLiterals returns the numbers in text outside quoteSpans: a number
 // inside a quoted string is checked as part of that string.
-func numberLiterals(text string, quoteSpans [][]int) []located {
+func numberLiterals(text string, quoteSpans [][]int, decimalSeparator byte) []located {
+	claimNumber := claimNumberDecimalComma
+	if decimalSeparator == '.' {
+		claimNumber = claimNumberDecimalPoint
+	}
 	var found []located
 	for _, m := range claimNumber.FindAllStringSubmatchIndex(text, -1) {
 		inQuote := slices.ContainsFunc(quoteSpans, func(span []int) bool {
@@ -270,22 +287,23 @@ func quoted(asWritten, inner string) literal {
 	return literal{text: asWritten, folded: fold(inner)}
 }
 
-// number builds a numeric literal from a claimNumber submatch index m; ok is
-// false if the digits do not parse (out of float range).
+// number builds a numeric literal from a claimNumber submatch index m: the
+// integer part (m[2:4], thousands separators dropped), an optional decimal
+// part (m[4:6], separator included) and an optional percent sign (m[6:8]).
+// ok is false if the digits do not parse (out of float range).
 func number(text string, m []int) (literal, bool) {
-	intPart := strings.Map(func(r rune) rune {
-		if r == ' ' || r == ' ' || r == ' ' {
+	asWritten := text[m[2]:m[3]]
+	digits := strings.Map(func(r rune) rune {
+		if r == ' ' || r == '\u00A0' || r == '\u202F' || r == ',' {
 			return -1
 		}
 		return r
-	}, text[m[2]:m[3]])
-	asWritten := text[m[2]:m[3]]
-	frac := ""
+	}, asWritten)
 	if m[4] >= 0 {
-		frac = "." + text[m[4]+1:m[5]]
 		asWritten += text[m[4]:m[5]]
+		digits += "." + text[m[4]+1:m[5]]
 	}
-	value, err := strconv.ParseFloat(intPart+frac, 64)
+	value, err := strconv.ParseFloat(digits, 64)
 	if err != nil {
 		return literal{}, false
 	}
@@ -334,18 +352,18 @@ func fold(s string) string {
 }
 
 // Annotate checks every rule node's requirement against its cited code in
-// fsys and records the outcome in Extra["grounding"] (a Status) and, for an
+// fsys, reading numbers with decimalSeparator (see Check), and records the outcome in Extra["grounding"] (a Status) and, for an
 // ungrounded rule, Extra["grounding_missing"] (Result.Summary). A rule whose
 // citations cannot be read is StatusUnchecked; verify reports the broken
 // citation itself.
-func Annotate(fsys fs.FS, nodes []graph.Node) []graph.Node {
+func Annotate(fsys fs.FS, nodes []graph.Node, decimalSeparator byte) []graph.Node {
 	for i := range nodes {
 		if nodes[i].Type != graph.TypeRule {
 			continue
 		}
 		result := Result{Status: StatusUnchecked}
 		if citations, err := Load(fsys, nodes[i].Sources); err == nil {
-			result = Check(graph.RuleRequirement(nodes[i].Body), citations)
+			result = Check(graph.RuleRequirement(nodes[i].Body), citations, decimalSeparator)
 		}
 		if nodes[i].Extra == nil {
 			nodes[i].Extra = map[string]string{}

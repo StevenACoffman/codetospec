@@ -4,11 +4,13 @@ package graph
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
 	"codetospec/internal/extract"
+	"codetospec/internal/locale"
 	"codetospec/internal/reducer"
 )
 
@@ -30,20 +32,42 @@ type Edge struct {
 	To   string `json:"to"`
 }
 
-// requirementLabel opens the EARS requirement line of a rule body; written
-// by Build and read back by RuleRequirement.
-const requirementLabel = "**Exigence (EARS)** : "
-
-// RuleRequirement returns the EARS requirement of a rule body, falling back
-// to the body's first line when the body has no requirement line.
+// RuleRequirement returns the EARS requirement of a rule body written in any
+// supported language, falling back to the body's first line when the body
+// has no requirement line.
 func RuleRequirement(body string) string {
+	texts := locale.All()
 	for line := range strings.SplitSeq(body, "\n") {
-		if rest, ok := strings.CutPrefix(line, requirementLabel); ok {
-			return rest
+		for _, text := range texts {
+			if rest, ok := strings.CutPrefix(line, text.Requirement); ok {
+				return rest
+			}
 		}
 	}
 	first, _, _ := strings.Cut(body, "\n")
 	return first
+}
+
+// RuleCriteria returns the numbered acceptance criteria lines ("1. ...") of
+// a rule body written in any supported language.
+func RuleCriteria(body string) []string {
+	texts := locale.All()
+	var criteria []string
+	inList := false
+	for line := range strings.SplitSeq(body, "\n") {
+		if !inList {
+			inList = slices.ContainsFunc(texts, func(text *locale.Text) bool {
+				return strings.HasPrefix(line, text.Criteria)
+			})
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || trimmed[0] < '0' || trimmed[0] > '9' {
+			break
+		}
+		criteria = append(criteria, trimmed)
+	}
+	return criteria
 }
 
 // TypeRule is the Node.Type of a business rule.
@@ -55,12 +79,19 @@ const StatusGenerated = "generated"
 // Build assembles the node set: entities from table facts, endpoints from
 // route facts, rules and domains from the reduce outputs, and domain
 // depends_on edges computed from cross-domain import facts (never by the LLM).
-func Build(facts []extract.Fact, reduced []reducer.Output, resolver extract.DomainResolver) []Node {
+// Node bodies use the labels of the --lang code lang.
+func Build(
+	facts []extract.Fact,
+	reduced []reducer.Output,
+	resolver extract.DomainResolver,
+	lang string,
+) []Node {
+	text := locale.For(lang)
 	var nodes []Node
-	nodes = append(nodes, entityNodes(facts)...)
-	nodes = append(nodes, endpointNodes(facts)...)
+	nodes = append(nodes, entityNodes(facts, text)...)
+	nodes = append(nodes, endpointNodes(facts, text)...)
 
-	ruleNodes, domainNodes := ruleAndDomainNodes(reduced)
+	ruleNodes, domainNodes := ruleAndDomainNodes(reduced, text)
 	domainDeps := domainDependencies(facts, resolver, domainNodes)
 	for i := range domainNodes {
 		slug := strings.TrimPrefix(domainNodes[i].ID, "domain.")
@@ -107,7 +138,7 @@ func routeHandler(f extract.Fact) string {
 	return handler
 }
 
-func entityNodes(facts []extract.Fact) []Node {
+func entityNodes(facts []extract.Fact, text *locale.Text) []Node {
 	var nodes []Node
 	for _, f := range facts {
 		if f.Kind != "table" {
@@ -118,7 +149,7 @@ func entityNodes(facts []extract.Fact) []Node {
 			name = strings.TrimPrefix(f.ID, "table.")
 		}
 		var body strings.Builder
-		body.WriteString("**Table** : `" + name + "`\n\n**Colonnes** :\n")
+		body.WriteString(text.Table + "`" + name + "`\n\n" + text.Columns + "\n")
 		for _, col := range splitColumns(f.Attrs["columns"]) {
 			body.WriteString("- `" + col + "`\n")
 		}
@@ -144,7 +175,7 @@ func splitColumns(columns string) []string {
 	return cols
 }
 
-func endpointNodes(facts []extract.Fact) []Node {
+func endpointNodes(facts []extract.Fact, text *locale.Text) []Node {
 	var nodes []Node
 	for _, f := range facts {
 		if f.Kind != "route" {
@@ -152,9 +183,9 @@ func endpointNodes(facts []extract.Fact) []Node {
 		}
 		verb := strings.ToUpper(routeVerb(f))
 		path := f.Attrs["path"]
-		body := fmt.Sprintf("**Méthode** : %s\n\n**Path** : `%s`", verb, path)
+		body := text.Method + verb + "\n\n" + text.Path + "`" + path + "`"
 		if handler := routeHandler(f); handler != "" {
-			body += fmt.Sprintf("\n\n**Handler** : `%s`", handler)
+			body += "\n\n" + text.Handler + "`" + handler + "`"
 		}
 		nodes = append(nodes, Node{
 			ID:      EndpointID(f),
@@ -168,7 +199,7 @@ func endpointNodes(facts []extract.Fact) []Node {
 	return nodes
 }
 
-func ruleAndDomainNodes(reduced []reducer.Output) (rules, domains []Node) {
+func ruleAndDomainNodes(reduced []reducer.Output, text *locale.Text) (rules, domains []Node) {
 	for _, out := range reduced {
 		if out.Failed || len(out.Rules) == 0 {
 			continue
@@ -200,12 +231,12 @@ func ruleAndDomainNodes(reduced []reducer.Output) (rules, domains []Node) {
 			})
 
 			var body strings.Builder
-			body.WriteString(requirementLabel + rule.Requirement)
+			body.WriteString(text.Requirement + rule.Requirement)
 			if rule.Rationale != "" {
-				body.WriteString("\n\n**Justification** : " + rule.Rationale)
+				body.WriteString("\n\n" + text.Rationale + rule.Rationale)
 			}
 			if len(rule.AcceptanceCriteria) > 0 {
-				body.WriteString("\n\n**Critères d'acceptation** :")
+				body.WriteString("\n\n" + text.Criteria)
 				for i, criterion := range rule.AcceptanceCriteria {
 					fmt.Fprintf(&body, "\n%d. %s", i+1, criterion)
 				}
@@ -232,13 +263,13 @@ func ruleAndDomainNodes(reduced []reducer.Output) (rules, domains []Node) {
 
 		body := out.DomainSummary
 		if ruleList.Len() > 0 {
-			body += "\n\n## Règles\n\n" + strings.TrimRight(ruleList.String(), "\n")
+			body += "\n\n" + text.RulesHeading + "\n\n" + strings.TrimRight(ruleList.String(), "\n")
 		}
 		domains = append(domains, Node{
 			ID:     "domain." + out.Domain,
 			Type:   "domain",
 			Status: StatusGenerated,
-			Title:  "Domaine " + out.Domain,
+			Title:  fmt.Sprintf(text.DomainTitleFmt, out.Domain),
 			Body:   strings.TrimSpace(body),
 		})
 	}

@@ -24,6 +24,7 @@ import (
 	"codetospec/internal/graph"
 	"codetospec/internal/grounding"
 	"codetospec/internal/llm"
+	"codetospec/internal/locale"
 	"codetospec/internal/mapper"
 	"codetospec/internal/reducer"
 	"codetospec/internal/render"
@@ -426,7 +427,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 	if err := st.Update(func(s *state.State) { s.Phase = "build" }); err != nil {
 		return err
 	}
-	nodes := graph.Build(facts, reduced, resolver)
+	nodes := graph.Build(facts, reduced, resolver, cfg.Lang)
 
 	var checkTally crosscheck.Tally
 	if cfg.Crosscheck {
@@ -479,7 +480,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 
 	// Check, without an LLM, that each rule's stated values occur in the code
 	// it cites (after crosscheck, whose repair may re-cite).
-	nodes = grounding.Annotate(os.DirFS(cfg.Src), nodes)
+	nodes = grounding.Annotate(os.DirFS(cfg.Src), nodes, locale.For(cfg.Lang).DecimalSeparator)
 
 	// Stamp each rule with a digest of its cited code, enabling later drift
 	// checks against an evolving source tree.
@@ -533,6 +534,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		CrosscheckRepaired:    checkTally.Repaired,
 		CrosscheckUnchecked:   checkTally.Unchecked,
 		DuplicatePairs:        consistency.FindDuplicates(nodes, consistency.DefaultThreshold),
+		Lang:                  cfg.Lang,
 	}
 	for name, status := range extractorStatus {
 		if status != "ok" {

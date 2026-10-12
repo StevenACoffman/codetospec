@@ -101,7 +101,7 @@ func checkCitation(srcRoot, path, lines string, lineCounts map[string]int) strin
 // checkRoundTrip re-renders the node and re-parses its frontmatter,
 // verifying that nothing is lost or altered.
 func checkRoundTrip(n graph.Node) string {
-	parsed, err := render.ParseNode(render.NodeMarkdown(n))
+	parsed, err := render.ParseNode(render.Frontmatter(n))
 	if err != nil {
 		return fmt.Sprintf("regenerated frontmatter is not parsable: %v", err)
 	}

@@ -93,8 +93,9 @@ the LLM inside a loop it does not control:
   silently dropped; a rule the reviewer never judged is marked `unchecked`,
   so it cannot pass for a supported one.
 - **Stated values are checked against the code, without an LLM**: every
-  number (`30`, `1 000`, `10 %` ↔ `0.1`) and quoted string in a rule's
-  requirement must occur in its cited lines. A rule that states a value its
+  number (`30`, `1 000`, `10 %` ↔ `0.1`, read with the `--lang` decimal
+  separator: `1,5` in French, `1,000` = one thousand in English) and quoted
+  string in a rule's requirement must occur in its cited lines. A rule that states a value its
   citation lacks is marked `grounding: ungrounded` and listed in the output
   README, with where the value does appear in the file (usually where the
   citation should point). A rule with nothing checkable is `unchecked`,
@@ -200,7 +201,8 @@ flagged citations, needs a SCIP index), `--domain-depth N` (split a repo that
 lives under one root namespace into `core-controller`, `core-server`… instead
 of one mega-domain), `--workers N` (map
 parallelism), `--max-tokens N` (raise it if a large domain truncates its
-reduce output), `--lang fr|en` (requirements language),
+reduce output), `--lang fr|en` (output language: EARS requirements, node labels, README and
+llms.txt; default `fr`),
 `--exclude 'vendor,node_modules,*.md,*.csv'` (directory names and
 file globs), `--facts extra.facts.json` (inject facts from anywhere).
 

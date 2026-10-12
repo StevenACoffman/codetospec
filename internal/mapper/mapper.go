@@ -16,6 +16,7 @@ import (
 
 	"codetospec/internal/extract"
 	"codetospec/internal/llm"
+	"codetospec/internal/locale"
 	"codetospec/internal/sitter"
 	"codetospec/internal/state"
 )
@@ -38,11 +39,7 @@ Hard rules:
 - When PRECISE_SYMBOLS is present, cite the exact line span of the symbol whose logic a rule describes; do not cite blank lines, import blocks or type declarations that carry no behavior.
 - entities MUST be a subset of ALLOWED_ENTITIES. endpoints MUST be a subset of ALLOWED_ENDPOINTS. When unsure, use [].
 - Write the requirement in <LANG> using one EARS pattern:
-  ubiquitous: "Le systeme doit <response>."
-  event: "QUAND <trigger>, le systeme doit <response>."
-  state: "TANT QUE <state>, le systeme doit <response>."
-  unwanted: "SI <condition>, ALORS le systeme doit <response>."
-  optional: "LA OU <feature>, le systeme doit <response>."
+<EARS>
 - Focus on business behavior: validation, calculation, state transitions, side effects, authorization. Ignore framework plumbing.
 - Classify each rule:
   - nature: "business" (domain behavior: validation, calculation, pricing, authorization), "presentation" (display, formatting, UI text, rendering), or "technical" (framework wiring, logging, serialization, infrastructure).
@@ -84,14 +81,6 @@ func numberedContent(chunk sitter.Chunk) string {
 		fmt.Fprintf(&b, "%d\t%s\n", chunk.StartLine+i, line)
 	}
 	return strings.TrimRight(b.String(), "\n")
-}
-
-// LangName expands a --lang code into the word substituted for <LANG>.
-func LangName(lang string) string {
-	if lang == "en" {
-		return "English"
-	}
-	return "French"
 }
 
 // Rule is one candidate business rule produced by the map phase.
@@ -259,7 +248,7 @@ func (m *Mapper) mapChunk(ctx context.Context, chunk sitter.Chunk) (Output, llm.
 		numberedContent(chunk),
 	)
 	msgs := []llm.Message{
-		{Role: "system", Content: strings.ReplaceAll(systemPrompt, "<LANG>", LangName(m.Lang))},
+		{Role: "system", Content: locale.For(m.Lang).Prompt(systemPrompt)},
 		{Role: "user", Content: userPrompt},
 	}
 
@@ -302,7 +291,7 @@ func (m *Mapper) mapChunk(ctx context.Context, chunk sitter.Chunk) (Output, llm.
 // promptKey covers everything besides the chunk content that shapes a map
 // reply: model, language and prompt templates.
 func (m *Mapper) promptKey() string {
-	return llm.PromptKey(m.Model, LangName(m.Lang), systemPrompt, userPromptFormat)
+	return llm.PromptKey(m.Model, locale.For(m.Lang).Prompt(systemPrompt), userPromptFormat)
 }
 
 // symbolsSection renders the precise symbol definitions overlapping a chunk,

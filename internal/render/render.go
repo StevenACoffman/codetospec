@@ -16,6 +16,7 @@ import (
 	"codetospec/internal/consistency"
 	"codetospec/internal/extract"
 	"codetospec/internal/graph"
+	"codetospec/internal/locale"
 	"gopkg.in/yaml.v3"
 )
 
@@ -37,12 +38,15 @@ type Meta struct {
 	CrosscheckUnchecked   int // rules the review never judged
 	// Near-duplicate rule pairs (deterministic consistency check).
 	DuplicatePairs []consistency.DuplicatePair
+	// Lang is the --lang code selecting the output text (see locale).
+	Lang string
 }
 
 // Write renders the whole graph into outDir: nodes/, graph.json, README.md
 // and llms.txt. nodes/ is emptied then rewritten; .codetospec/ is never
 // touched.
 func Write(outDir string, nodes []graph.Node, meta Meta) error {
+	text := locale.For(meta.Lang)
 	nodesDir := filepath.Join(outDir, "nodes")
 	if err := os.RemoveAll(nodesDir); err != nil {
 		return fmt.Errorf("clear nodes dir: %w", err)
@@ -54,7 +58,7 @@ func Write(outDir string, nodes []graph.Node, meta Meta) error {
 	}
 	for _, n := range nodes {
 		path := filepath.Join(outDir, filepath.FromSlash(NodeFile(n)))
-		if err := os.WriteFile(path, []byte(NodeMarkdown(n)), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(NodeMarkdown(n, text)), 0o644); err != nil {
 			return fmt.Errorf("write node %s: %w", n.ID, err)
 		}
 	}
@@ -63,14 +67,14 @@ func Write(outDir string, nodes []graph.Node, meta Meta) error {
 	}
 	if err := os.WriteFile(
 		filepath.Join(outDir, "README.md"),
-		[]byte(readme(nodes, meta)),
+		[]byte(readme(nodes, meta, text)),
 		0o644,
 	); err != nil {
 		return fmt.Errorf("write README.md: %w", err)
 	}
 	if err := os.WriteFile(
 		filepath.Join(outDir, "llms.txt"),
-		[]byte(llmsTxt(nodes)),
+		[]byte(llmsTxt(nodes, text)),
 		0o644,
 	); err != nil {
 		return fmt.Errorf("write llms.txt: %w", err)
@@ -147,8 +151,8 @@ func Frontmatter(n graph.Node) string {
 }
 
 // NodeMarkdown renders one full node file: frontmatter, title, body,
-// sources line and inline links for every edge.
-func NodeMarkdown(n graph.Node) string {
+// sources line and inline links for every edge, labelled in text's language.
+func NodeMarkdown(n graph.Node, text *locale.Text) string {
 	var b strings.Builder
 	b.WriteString(Frontmatter(n))
 	b.WriteString("\n# " + n.Title + "\n")
@@ -160,29 +164,29 @@ func NodeMarkdown(n graph.Node) string {
 		for i, s := range n.Sources {
 			parts[i] = fmt.Sprintf("`%s:%s`", s.Path, s.Lines)
 		}
-		b.WriteString("\n**Sources** : " + strings.Join(parts, " · ") + "\n")
+		b.WriteString("\n" + text.SourcesLabel + strings.Join(parts, " · ") + "\n")
 	}
 	if len(n.Edges) > 0 {
 		links := make([]string, len(n.Edges))
 		for i, e := range n.Edges {
-			links[i] = edgeLink(e)
+			links[i] = edgeLink(e, text)
 		}
-		b.WriteString("\nLiens : " + strings.Join(links, " · ") + "\n")
+		b.WriteString("\n" + text.LinksLead + strings.Join(links, " · ") + "\n")
 	}
 	return b.String()
 }
 
 // edgeLink renders one inline markdown link with a correct relative path
 // (every node lives one level under nodes/).
-func edgeLink(e graph.Edge) string {
+func edgeLink(e graph.Edge, text *locale.Text) string {
 	switch {
 	case strings.HasPrefix(e.To, "domain."):
 		slug := strings.TrimPrefix(e.To, "domain.")
-		text := "Domaine " + slug
+		label := fmt.Sprintf(text.DomainTitleFmt, slug)
 		if e.Type == "depends_on" {
-			text = e.To
+			label = e.To
 		}
-		return fmt.Sprintf("[%s](../domains/%s.md)", text, slug)
+		return fmt.Sprintf("[%s](../domains/%s.md)", label, slug)
 	case strings.HasPrefix(e.To, "entity."):
 		return fmt.Sprintf("[%s](../entities/%s.md)", e.To, strings.TrimPrefix(e.To, "entity."))
 	case strings.HasPrefix(e.To, "endpoint."):
@@ -250,74 +254,71 @@ func percent(part, total int) string {
 	return strconv.Itoa(part*100/total) + "%"
 }
 
-func readme(nodes []graph.Node, meta Meta) string {
+func readme(nodes []graph.Node, meta Meta, text *locale.Text) string {
 	counts := countByType(nodes)
 	var b strings.Builder
-	b.WriteString("# Spécification générée\n\n")
-	b.WriteString(
-		"Graphe de connaissances des règles métier, extrait du code source par codetospec.\n\n",
-	)
-	fmt.Fprintf(&b, "- Domaines : %d\n", counts["domain"])
-	fmt.Fprintf(&b, "- Entités : %d\n", counts["entity"])
-	fmt.Fprintf(&b, "- Endpoints : %d\n", counts["endpoint"])
-	fmt.Fprintf(&b, "- Règles : %d\n", counts[graph.TypeRule])
+	b.WriteString(text.Title + "\n\n" + text.Intro + "\n\n")
+	fmt.Fprintf(&b, text.DomainsFmt+"\n", counts["domain"])
+	fmt.Fprintf(&b, text.EntitiesFmt+"\n", counts["entity"])
+	fmt.Fprintf(&b, text.EndpointsFmt+"\n", counts["endpoint"])
+	fmt.Fprintf(&b, text.RulesFmt+"\n", counts[graph.TypeRule])
 
 	byNature := countByExtra(nodes, "nature")
 	if total := byNature["business"] + byNature["presentation"] + byNature["technical"]; total > 0 {
-		fmt.Fprintf(&b, "  - métier : %d · présentation : %d · technique : %d\n",
+		fmt.Fprintf(&b, text.NatureFmt+"\n",
 			byNature["business"], byNature["presentation"], byNature["technical"])
 	}
 	byOrigin := countByExtra(nodes, "origin")
 	if byOrigin["explicit"]+byOrigin["implicit"] > 0 {
 		fmt.Fprintf(
 			&b,
-			"  - explicites : %d · implicites : %d\n",
+			text.OriginFmt+"\n",
 			byOrigin["explicit"],
 			byOrigin["implicit"],
 		)
 	}
 
-	b.WriteString("\n## Couverture\n\n")
-	fmt.Fprintf(&b, "- Endpoints référencés par au moins une règle : %d/%d (%s)\n",
+	b.WriteString("\n" + text.CoverageHeading + "\n\n")
+	fmt.Fprintf(&b, text.EndpointsCoveredFmt+"\n",
 		meta.Coverage.EndpointsReferenced, meta.Coverage.EndpointsTotal,
 		percent(meta.Coverage.EndpointsReferenced, meta.Coverage.EndpointsTotal))
-	fmt.Fprintf(&b, "- Entités touchées par au moins une règle : %d/%d (%s)\n",
+	fmt.Fprintf(&b, text.EntitiesCoveredFmt+"\n",
 		meta.Coverage.EntitiesTouched, meta.Coverage.EntitiesTotal,
 		percent(meta.Coverage.EntitiesTouched, meta.Coverage.EntitiesTotal))
-	fmt.Fprintf(&b, "- Chunks en échec : %d/%d\n", meta.ChunksFailed, meta.ChunksTotal)
-	fmt.Fprintf(&b, "- Domaines en échec : %d/%d\n", meta.DomainsFailed, meta.DomainsTotal)
+	fmt.Fprintf(&b, text.ChunksFailedFmt+"\n", meta.ChunksFailed, meta.ChunksTotal)
+	fmt.Fprintf(&b, text.DomainsFailedFmt+"\n", meta.DomainsFailed, meta.DomainsTotal)
 	if len(meta.FilesNoGrammar) > 0 {
 		files := append([]string(nil), meta.FilesNoGrammar...)
 		sort.Strings(files)
 		fmt.Fprintf(
 			&b,
-			"- Fichiers sans grammaire (fallback lignes) : %s\n",
+			text.NoGrammarFmt+"\n",
 			strings.Join(files, ", "),
 		)
 	}
 	if len(meta.ExtractorsFailed) > 0 {
 		names := append([]string(nil), meta.ExtractorsFailed...)
 		sort.Strings(names)
-		fmt.Fprintf(&b, "- Extracteurs en échec : %s\n", strings.Join(names, ", "))
+		fmt.Fprintf(&b, text.ExtractorsFailedFmt+"\n", strings.Join(names, ", "))
 	}
 	if meta.Crosschecked {
 		fmt.Fprintf(
 			&b,
-			"- Contre-vérification adversariale : %d supported, %d partial, %d unsupported",
+			text.CrosscheckFmt,
 			meta.CrosscheckSupported,
 			meta.CrosscheckPartial,
 			meta.CrosscheckUnsupported,
 		)
 		if meta.CrosscheckRepaired > 0 {
-			fmt.Fprintf(&b, ", %d réparés", meta.CrosscheckRepaired)
+			fmt.Fprintf(&b, text.RepairedFmt, meta.CrosscheckRepaired)
 		}
 		if meta.CrosscheckUnchecked > 0 {
-			fmt.Fprintf(&b, ", %d non vérifiées", meta.CrosscheckUnchecked)
+			fmt.Fprintf(&b, text.UncheckedFmt, meta.CrosscheckUnchecked)
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString(groundingSummary(nodes))
-	b.WriteString(ungroundedSection(nodes))
+	b.WriteString(groundingSummary(nodes, text))
+	b.WriteString(ungroundedSection(nodes, text))
 
 	if len(meta.DuplicatePairs) > 0 {
 		intra, cross := 0, 0
@@ -328,10 +329,10 @@ func readme(nodes []graph.Node, meta Meta) string {
 				cross++
 			}
 		}
-		b.WriteString("\n## Doublons candidates\n\n")
+		b.WriteString("\n" + text.DuplicatesHeading + "\n\n")
 		fmt.Fprintf(
 			&b,
-			"%d paires de règles à l'exigence quasi identique (à réconcilier) — %d intra-domaine, %d cross-domaine :\n\n",
+			text.DuplicatesIntroFmt+"\n\n",
 			len(meta.DuplicatePairs),
 			intra,
 			cross,
@@ -341,11 +342,11 @@ func readme(nodes []graph.Node, meta Meta) string {
 			fmt.Fprintf(&b, "- `%s` ↔ `%s` (%.0f%%)\n", p.A, p.B, p.Similarity*100)
 		}
 		if len(meta.DuplicatePairs) > len(shown) {
-			fmt.Fprintf(&b, "- … et %d autres\n", len(meta.DuplicatePairs)-len(shown))
+			fmt.Fprintf(&b, text.AndMoreFmt+"\n", len(meta.DuplicatePairs)-len(shown))
 		}
 	}
 
-	b.WriteString("\n## Domaines\n\n```mermaid\ngraph TD\n")
+	b.WriteString("\n" + text.DomainsHeading + "\n\n```mermaid\ngraph TD\n")
 	for _, n := range nodes {
 		if n.Type == "domain" {
 			slug := strings.TrimPrefix(n.ID, "domain.")
@@ -377,13 +378,13 @@ const maxListed = 20
 
 // groundingSummary is the README coverage line tallying the mechanical
 // grounding check (see package grounding); empty when no rule was checked.
-func groundingSummary(nodes []graph.Node) string {
+func groundingSummary(nodes []graph.Node, text *locale.Text) string {
 	byStatus := countByExtra(nodes, "grounding")
 	if len(byStatus) == 0 {
 		return ""
 	}
 	return fmt.Sprintf(
-		"- Ancrage mécanique (valeurs citées présentes dans le code) : %d ancrées, %d non ancrées, %d sans valeur vérifiable\n",
+		text.GroundingFmt+"\n",
 		byStatus["grounded"],
 		byStatus["ungrounded"],
 		byStatus["unchecked"],
@@ -392,7 +393,7 @@ func groundingSummary(nodes []graph.Node) string {
 
 // ungroundedSection lists the rules whose stated values are missing from
 // their cited code, for review; empty when there are none.
-func ungroundedSection(nodes []graph.Node) string {
+func ungroundedSection(nodes []graph.Node, text *locale.Text) string {
 	var listed []graph.Node
 	for _, n := range nodes {
 		if n.Type == graph.TypeRule && n.Extra["grounding"] == "ungrounded" {
@@ -403,15 +404,13 @@ func ungroundedSection(nodes []graph.Node) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("\n## Règles non ancrées\n\n")
-	fmt.Fprintf(&b, "%d règles énoncent des valeurs absentes des lignes citées "+
-		"(valeur inventée ou citation décalée ; `@` indique où la valeur apparaît hors citation) :\n\n",
-		len(listed))
+	b.WriteString("\n" + text.UngroundedHeading + "\n\n")
+	fmt.Fprintf(&b, text.UngroundedIntroFmt+"\n\n", len(listed))
 	for _, n := range listed[:min(len(listed), maxListed)] {
 		fmt.Fprintf(&b, "- `%s` : %s\n", n.ID, n.Extra["grounding_missing"])
 	}
 	if len(listed) > maxListed {
-		fmt.Fprintf(&b, "- … et %d autres\n", len(listed)-maxListed)
+		fmt.Fprintf(&b, text.AndMoreFmt+"\n", len(listed)-maxListed)
 	}
 	return b.String()
 }
@@ -430,20 +429,10 @@ func ruleDomain(ruleID string) string {
 	return ""
 }
 
-func llmsTxt(nodes []graph.Node) string {
+func llmsTxt(nodes []graph.Node, text *locale.Text) string {
 	var b strings.Builder
 	b.WriteString("# codetospec knowledge graph\n\n")
-	b.WriteString("> Spécification des règles métier extraite automatiquement du code source.\n")
-	b.WriteString(
-		"> Chaque nœud est un fichier markdown avec un frontmatter YAML portant des edges typés.\n\n",
-	)
-	b.WriteString(
-		"Navigation : commencer par nodes/domains/, puis suivre les edges du frontmatter\n",
-	)
-	b.WriteString(
-		"(belongs_to, touches, exposed_by, depends_on). graph.json contient le graphe complet\n",
-	)
-	b.WriteString("au format machine ; les citations `path:lines` pointent dans le dépôt source.\n")
+	b.WriteString(text.LLMsPreamble + "\n")
 	for _, nodeType := range []string{"domain", "entity", "endpoint", "rule"} {
 		var lines []string
 		for _, n := range nodes {

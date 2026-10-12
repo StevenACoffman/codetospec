@@ -3,6 +3,7 @@ package render
 import (
 	"bytes"
 	"flag"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,6 +12,7 @@ import (
 
 	"codetospec/internal/extract"
 	"codetospec/internal/graph"
+	"codetospec/internal/locale"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -109,7 +111,7 @@ func TestWriteGolden(t *testing.T) {
 		"nodes/endpoints/post-api-activate.md",
 		"graph.json",
 		"README.md",
-		"llms.txt",
+		llmsFile,
 	}
 	for _, rel := range goldenFiles {
 		got, err := os.ReadFile(filepath.Join(outDir, filepath.FromSlash(rel)))
@@ -167,7 +169,7 @@ func TestWriteRelativeLinksResolve(t *testing.T) {
 
 func TestParseNodeRoundTrip(t *testing.T) {
 	for _, n := range testNodes() {
-		parsed, err := ParseNode(NodeMarkdown(n))
+		parsed, err := ParseNode(NodeMarkdown(n, locale.For("fr")))
 		if err != nil {
 			t.Fatalf("ParseNode(%s): %v", n.ID, err)
 		}
@@ -222,5 +224,61 @@ func TestFrontmatterExactShape(t *testing.T) {
 		if !strings.Contains(front, want) {
 			t.Errorf("frontmatter missing %q:\n%s", want, front)
 		}
+	}
+}
+
+// llmsFile is the agent-facing index Write produces.
+const llmsFile = "llms.txt"
+
+// TestWriteEnglish checks that --lang en output carries no French
+// scaffolding: README, llms.txt and node footers are all in English.
+func TestWriteEnglish(t *testing.T) {
+	outDir := t.TempDir()
+	meta := testMeta()
+	meta.Lang = "en"
+	if err := Write(outDir, testNodes(), meta); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	cases := map[string]struct {
+		file    string
+		want    []string
+		notWant []string
+	}{
+		"readme": {
+			file: "README.md",
+			want: []string{
+				"# Generated specification", "## Coverage", "- Adversarial crosscheck:",
+				", 1 unchecked", "## Ungrounded rules", "## Domains",
+			},
+			notWant: []string{"Spécification", "Couverture", "Domaines", "non vérifiées"},
+		},
+		"llms": {
+			file:    llmsFile,
+			want:    []string{"Navigation: start at nodes/domains/"},
+			notWant: []string{"Navigation :"},
+		},
+		"rule node footer": {
+			file:    filepath.Join("nodes", "rules", "billing.prorata-activation.md"),
+			want:    []string{"\n**Sources**: ", "\nLinks: [Domain billing]"},
+			notWant: []string{"Liens", "Domaine"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			data, err := fs.ReadFile(os.DirFS(outDir), filepath.ToSlash(tc.file))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(string(data), w) {
+					t.Errorf("missing %q", w)
+				}
+			}
+			for _, w := range tc.notWant {
+				if strings.Contains(string(data), w) {
+					t.Errorf("unexpected French %q", w)
+				}
+			}
+		})
 	}
 }

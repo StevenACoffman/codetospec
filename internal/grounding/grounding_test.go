@@ -29,17 +29,19 @@ class Billing
 }
 `
 
-func TestCheck(t *testing.T) {
-	fsys := fstest.MapFS{billingPath: {Data: []byte(billing)}}
-	cases := map[string]struct {
-		requirement string
-		lines       string
-		wantStatus  grounding.Status
-		wantSummary string
-	}{
+// checkCase is one requirement checked against billing.
+type checkCase struct {
+	requirement string
+	lines       string
+	wantStatus  grounding.Status
+	wantSummary string
+}
+
+func TestCheckFrench(t *testing.T) {
+	runCheckCases(t, ',', map[string]checkCase{
 		"no literal": {
 			requirement: "QUAND un abonné active, le systeme doit facturer.",
-			lines:       "7-13",
+			lines:       "1-14",
 			wantStatus:  grounding.StatusUnchecked,
 		},
 		"threshold with thousands separator": {
@@ -80,12 +82,45 @@ func TestCheck(t *testing.T) {
 			wantStatus:  grounding.StatusUngrounded,
 			wantSummary: `"GOLD"`,
 		},
+		"french three-digit decimal comma": {
+			requirement: "Le systeme doit multiplier le montant par 1,500.",
+			lines:       "12-13",
+			wantStatus:  grounding.StatusGrounded, // 1,500 reads 1.5 in French
+		},
 		"digits glued to a word are not values": {
 			requirement: "Le systeme doit hacher en SHA256 selon ISO8601.",
 			lines:       "4-4",
 			wantStatus:  grounding.StatusUnchecked,
 		},
-	}
+	})
+}
+
+func TestCheckEnglish(t *testing.T) {
+	runCheckCases(t, '.', map[string]checkCase{
+		"english comma thousands separator": {
+			requirement: "IF the amount exceeds 1,000, THEN the system shall charge a 10% fee.",
+			lines:       "9-11",
+			wantStatus:  grounding.StatusGrounded,
+		},
+		"english wrong value with comma separator": {
+			requirement: "IF the amount exceeds 1,500, THEN the system shall charge a fee.",
+			lines:       "7-13",
+			wantStatus:  grounding.StatusUngrounded,
+			wantSummary: "1,500", // one thousand five hundred: not the 1.5 on line 12
+		},
+		"english possessive is not a quote": {
+			requirement: "WHEN the customer's plan is 'PRO', the system shall apply the customer's discount.",
+			lines:       "3-4",
+			wantStatus:  grounding.StatusGrounded,
+		},
+	})
+}
+
+// runCheckCases checks each case against billing, reading numbers with
+// decimalSeparator.
+func runCheckCases(t *testing.T, decimalSeparator byte, cases map[string]checkCase) {
+	t.Helper()
+	fsys := fstest.MapFS{billingPath: {Data: []byte(billing)}}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			citations, err := grounding.Load(
@@ -95,7 +130,7 @@ func TestCheck(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Load: %v", err)
 			}
-			got := grounding.Check(tc.requirement, citations)
+			got := grounding.Check(tc.requirement, citations, decimalSeparator)
 			if got.Status != tc.wantStatus {
 				t.Errorf(
 					"status = %q, want %q (missing: %s)",
@@ -139,6 +174,7 @@ func TestLoadClampsToFileLength(t *testing.T) {
 	if got := grounding.Check(
 		"Le systeme doit renvoyer 42.",
 		citations,
+		',',
 	); got.Status != grounding.StatusGrounded {
 		t.Fatalf("status = %q, want grounded", got.Status)
 	}

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"codetospec/internal/extract"
+	"codetospec/internal/locale"
 	"codetospec/internal/reducer"
 )
 
@@ -90,7 +91,7 @@ func fixtureReduced() []reducer.Output {
 }
 
 func TestBuildProducesAllNodeTypes(t *testing.T) {
-	nodes := Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{})
+	nodes := Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr")
 	byID := make(map[string]Node, len(nodes))
 	for _, n := range nodes {
 		byID[n.ID] = n
@@ -171,6 +172,7 @@ func TestBuildDomainDependsOnGoStyleImports(t *testing.T) {
 		facts,
 		[]reducer.Output{rule("billing"), rule("invoice")},
 		extract.DomainResolver{},
+		"fr",
 	)
 	for _, n := range nodes {
 		if n.ID != "domain.invoice" {
@@ -190,7 +192,7 @@ func TestBuildDomainDependsOnGoStyleImports(t *testing.T) {
 }
 
 func TestBuildDomainDependsOnFromImports(t *testing.T) {
-	nodes := Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{})
+	nodes := Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr")
 	for _, n := range nodes {
 		if n.ID != "domain.http" {
 			continue
@@ -206,8 +208,8 @@ func TestBuildDomainDependsOnFromImports(t *testing.T) {
 }
 
 func TestBuildIsDeterministic(t *testing.T) {
-	a := Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{})
-	b := Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{})
+	a := Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr")
+	b := Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr")
 	if len(a) != len(b) {
 		t.Fatalf("node counts differ: %d vs %d", len(a), len(b))
 	}
@@ -219,7 +221,7 @@ func TestBuildIsDeterministic(t *testing.T) {
 }
 
 func TestComputeCoverage(t *testing.T) {
-	nodes := Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{})
+	nodes := Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr")
 	cov := ComputeCoverage(nodes)
 	if cov.EndpointsTotal != 1 || cov.EndpointsReferenced != 1 {
 		t.Errorf(
@@ -239,11 +241,13 @@ func TestRuleRequirement(t *testing.T) {
 		want string
 	}{
 		"requirement line": {
-			body: requirementLabel + "QUAND a, le systeme doit b.\n\n**Justification** : z",
+			body: locale.For(
+				"fr",
+			).Requirement + "QUAND a, le systeme doit b.\n\n**Justification** : z",
 			want: "QUAND a, le systeme doit b.",
 		},
 		"requirement after other lines": {
-			body: "intro\n" + requirementLabel + "Le systeme doit y.",
+			body: "intro\n" + locale.For("fr").Requirement + "Le systeme doit y.",
 			want: "Le systeme doit y.",
 		},
 		"no requirement line": {body: "first line\nsecond", want: "first line"},
@@ -253,6 +257,37 @@ func TestRuleRequirement(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if got := RuleRequirement(tc.body); got != tc.want {
 				t.Fatalf("RuleRequirement = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRuleBodyRoundTripsInEveryLanguage builds a rule with each language's
+// labels and parses its requirement and criteria back.
+func TestRuleBodyRoundTripsInEveryLanguage(t *testing.T) {
+	for _, text := range locale.All() {
+		t.Run(text.Lang, func(t *testing.T) {
+			nodes := Build(nil, fixtureReduced(), extract.DomainResolver{}, text.Lang)
+			var rule Node
+			for _, n := range nodes {
+				if n.Type == TypeRule {
+					rule = n
+				}
+			}
+			want := fixtureReduced()[0].Rules[0]
+			if got := RuleRequirement(rule.Body); got != want.Requirement {
+				t.Errorf(
+					"RuleRequirement = %q, want %q\nbody:\n%s",
+					got,
+					want.Requirement,
+					rule.Body,
+				)
+			}
+			if got := RuleCriteria(rule.Body); len(got) != len(want.AcceptanceCriteria) {
+				t.Errorf("RuleCriteria = %q, want %d criteria", got, len(want.AcceptanceCriteria))
+			}
+			if !strings.HasPrefix(rule.Body, text.Requirement) {
+				t.Errorf("body does not use %s labels:\n%s", text.Lang, rule.Body)
 			}
 		})
 	}

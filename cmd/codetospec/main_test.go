@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -358,4 +359,38 @@ func snapshotOutput(t *testing.T, outDir string) map[string]string {
 		t.Fatal(err)
 	}
 	return files
+}
+
+// TestEndToEndEnglish checks that --lang en reaches every writer: the
+// README and rule bodies come out with English labels.
+func TestEndToEndEnglish(t *testing.T) {
+	server := mockLLM(t)
+	defer server.Close()
+	outDir := t.TempDir()
+	cfg := e2eConfig(t, server.URL, outDir)
+	cfg.Lang = "en"
+
+	if err := runPipeline(context.Background(), cfg, ui.Discard{}); err != nil {
+		t.Fatalf("runPipeline: %v", err)
+	}
+	readme, err := fs.ReadFile(os.DirFS(outDir), "README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(readme), "## Coverage") ||
+		strings.Contains(string(readme), "Couverture") {
+		t.Errorf("README.md is not in English:\n%s", readme)
+	}
+	nodes, err := render.LoadDir(outDir)
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	for _, n := range nodes {
+		if n.Type == graph.TypeRule && !strings.Contains(n.Body, "**Requirement (EARS)**: ") {
+			t.Errorf("rule %s body lacks the English requirement label:\n%s", n.ID, n.Body)
+		}
+	}
+	if violations := verify.Run(nodes, cfg.Src); len(violations) != 0 {
+		t.Fatalf("verify violations: %v", violations)
+	}
 }

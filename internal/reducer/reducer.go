@@ -19,6 +19,7 @@ import (
 
 	"codetospec/internal/extract"
 	"codetospec/internal/llm"
+	"codetospec/internal/locale"
 	"codetospec/internal/mapper"
 	"codetospec/internal/state"
 )
@@ -29,7 +30,8 @@ Hard rules:
 - Output ONLY a valid JSON object matching the schema. No markdown fences, no prose.
 - Merge duplicates and near-duplicates. Keep the union of their citations verbatim; never invent or alter citations.
 - entities and endpoints MUST be subsets of the provided allowed lists.
-- Keep requirements in <LANG>, EARS patterns, one behavior per rule.
+- Keep requirements in <LANG>, one behavior per rule, each in one of these EARS patterns:
+<EARS>
 - slug: lowercase ascii, words separated by "-", max 5 words, unique within the domain.
 - acceptance_criteria: 2 to 5 concrete, testable checks per rule, each restating a behavior the requirement and its cited code actually establish. Do NOT invent error cases, edge cases, thresholds, defaults or inputs the requirement does not state — a criterion that reaches beyond the cited behavior gets the whole rule rejected at review. Written in <LANG>.
 - nature ("business"|"presentation"|"technical") and origin ("explicit"|"implicit"): carry over from the merged candidates; when they disagree, pick the dominant one.
@@ -239,7 +241,7 @@ func (r *Reducer) reduceBatch(
 	msgs := []llm.Message{
 		{
 			Role:    "system",
-			Content: strings.ReplaceAll(systemPrompt, "<LANG>", mapper.LangName(r.Lang)),
+			Content: locale.For(r.Lang).Prompt(systemPrompt),
 		},
 		{Role: "user", Content: userPrompt},
 	}
@@ -528,7 +530,7 @@ func uniqueSlug(slug string, taken map[string]bool) string {
 // promptKey covers everything besides the candidates that shapes a reduce
 // reply: model, language and prompt templates.
 func (r *Reducer) promptKey() string {
-	return llm.PromptKey(r.Model, mapper.LangName(r.Lang), systemPrompt, userPromptFormat)
+	return llm.PromptKey(r.Model, locale.For(r.Lang).Prompt(systemPrompt), userPromptFormat)
 }
 
 // candidatesHash is a stable content hash of a domain's candidate rules and

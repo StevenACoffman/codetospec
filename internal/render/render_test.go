@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"codetospec/internal/communities"
 	"codetospec/internal/extract"
 	"codetospec/internal/graph"
 	"codetospec/internal/locale"
@@ -236,6 +237,7 @@ func TestWriteEnglish(t *testing.T) {
 	outDir := t.TempDir()
 	meta := testMeta()
 	meta.Lang = "en"
+	meta.DomainSplits = []communities.Split{{Domain: "main", Communities: 2, Files: 6}}
 	if err := Write(outDir, testNodes(), meta); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -249,6 +251,7 @@ func TestWriteEnglish(t *testing.T) {
 			want: []string{
 				"# Generated specification", "## Coverage", "- Adversarial crosscheck:",
 				", 1 unchecked", "## Ungrounded rules", "## Domains",
+				"## Scattered domains", "- `main`: 6 files in 2 communities",
 			},
 			notWant: []string{"Spécification", "Couverture", "Domaines", "non vérifiées"},
 		},

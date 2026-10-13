@@ -104,6 +104,19 @@ func (r *userResolver) Bio(ctx context.Context, user *User) (*string, error) {
 	return nil, nil
 }
 
+func (r *userResolver) Partner(ctx context.Context, user *User) (*string, error) {
+	ktx := kacontext.Upgrade(ctx)
+	// Ends in a successful return: only the nested check is a guard.
+	if user.Kaid != nil {
+		actor, err := ktx.RequestUser()
+		if err != nil {
+			return nil, errors.Unauthorized()
+		}
+		return &actor.Kaid, nil
+	}
+	return nil, nil
+}
+
 // Not a resolver: no guard facts, no domain fact.
 func helper(ctx context.Context) bool {
 	return acl.IsLoggedIn(ctx, acl.PhantomProhibited)

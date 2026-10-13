@@ -500,12 +500,20 @@ func allZero(exprs []ast.Expr) bool {
 	return true
 }
 
-// errorName returns X for the first errors.X(…) call in block, so a guard
-// can say which error it returns; "" when there is none.
+// errorName returns X for the first errors.X(…) call on block's own path,
+// so a guard can say which error it returns; "" when there is none. Nested
+// if, switch and select statements and function literals are skipped: they
+// return on another path (if ok { …; if err != nil { return errors.X() };
+// return result } succeeds). A loop is on the path: a guard may build one
+// error per item.
 func errorName(block *ast.BlockStmt) string {
 	name := ""
 	ast.Inspect(block, func(n ast.Node) bool {
 		if name != "" {
+			return false
+		}
+		switch n.(type) {
+		case *ast.IfStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt, *ast.FuncLit:
 			return false
 		}
 		call, ok := n.(*ast.CallExpr)

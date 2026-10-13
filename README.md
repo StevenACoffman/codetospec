@@ -95,11 +95,15 @@ the LLM inside a loop it does not control:
 - **Stated values are checked against the code, without an LLM**: every
   number (`30`, `1 000`, `10 %` ↔ `0.1`, read with the `--lang` decimal
   separator: `1,5` in French, `1,000` = one thousand in English) and quoted
-  string in a rule's requirement must occur in its cited lines. A rule that states a value its
-  citation lacks is marked `grounding: ungrounded` and listed in the output
-  README, with where the value does appear in the file (usually where the
-  citation should point). A rule with nothing checkable is `unchecked`,
-  never counted as a pass.
+  string in a rule's requirement must occur in its cited lines (a call quoted
+  on one line matches the same call split over several). The map step checks
+  this as it goes: a reply with ungrounded rules gets one correction
+  exchange, kept only if it is valid, keeps every rule and grounds more of
+  them (cached map outputs are not re-asked). A rule that still states a
+  value its citation lacks is marked `grounding: ungrounded` and listed in
+  the output README, with where the value does appear in the file (usually
+  where the citation should point). A rule with nothing checkable is
+  `unchecked`, never counted as a pass.
 - **Flagged rules are repaired, not just flagged** (`--repair`, needs a SCIP
   index): a rule the reviewer rejected gets one chance to re-cite the exact
   span of a precise symbol that implements it. The new citation is accepted
@@ -167,7 +171,7 @@ and shown live.
 
 ## Quick start
 
-Requirements: Go ≥ 1.26, a C toolchain (CGo for tree-sitter), an
+Requirements: Go ≥ 1.27, a C toolchain (CGo for tree-sitter), an
 OpenAI-compatible endpoint.
 
 ```sh
@@ -199,7 +203,11 @@ on drift, so it drops straight into CI (see `examples/spec-drift.yml`). The
 output README also lists near-duplicate rule candidates (a deterministic
 consistency check, split into intra- and cross-domain) for a reviewer to
 reconcile; two extractor rules are never paired, since they come from one
-template and name different operations.
+template and name different operations. It also lists **scattered domains**:
+domains whose files fall into several communities of the import graph
+(gonum's Louvain, split into connected parts, fixed seed), a sign a domain
+lumps unrelated code together (every Go `main` package, a catch-all schema
+file).
 
 `--reduce-mode merge` makes reduce much cheaper: only candidates with a
 near-duplicate (similar requirement or overlapping citation) go to the LLM;

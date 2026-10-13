@@ -123,7 +123,7 @@ func (g *grammar) compile() (*tree_sitter.Language, *tree_sitter.Query, error) {
 		g.lang = g.language()
 		query, queryErr := tree_sitter.NewQuery(g.lang, string(src))
 		if queryErr != nil {
-			g.err = fmt.Errorf("compile query %s: %w", g.queryFile, queryErr)
+			g.err = fmt.Errorf("compile query %s: %w", g.queryFile, *queryErr)
 			return
 		}
 		g.query = query

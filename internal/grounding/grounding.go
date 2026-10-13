@@ -421,10 +421,16 @@ func sameNumber(a, b float64) bool {
 }
 
 // fold lowercases s, unifies typographic quotes and collapses whitespace, so
-// a quoted string matches code regardless of case and layout.
+// a quoted string matches code regardless of case and layout. Space inside
+// brackets and before a comma goes, and so does a trailing comma: a call
+// split over lines ("f(\n\tktx,\n\tx,\n)") reads as written on one
+// ("f(ktx, x)").
 func fold(s string) string {
 	s = strings.NewReplacer("’", "'", "‘", "'", "“", `"`, "”", `"`).Replace(strings.ToLower(s))
-	return strings.Join(strings.Fields(s), " ")
+	s = strings.Join(strings.Fields(s), " ")
+	s = strings.NewReplacer("( ", "(", "[ ", "[", "{ ", "{", " )", ")", " ]", "]", " }", "}", " ,", ",").
+		Replace(s)
+	return strings.NewReplacer(",)", ")", ",]", "]", ",}", "}").Replace(s)
 }
 
 // Annotate checks every rule node's requirement against its cited code in

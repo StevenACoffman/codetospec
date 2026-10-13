@@ -53,7 +53,16 @@ Pipeline : `extract → chunk → map → reduce → crosscheck(+repair) → bui
   contiennent des exemples de test absents du code). Les nombres sont lus
   avec le séparateur décimal de `--lang` (`locale.Text.DecimalSeparator`) :
   une seule lecture, jamais les deux — accepter « 1,000 = 1 » ferait passer
-  à tort toute règle anglaise dont le code contient un `1`.
+  à tort toute règle anglaise dont le code contient un `1`. Le map
+  l'applique aussi en cours de route (`mapper.Ungrounded`, injecté par
+  `main` pour éviter le cycle grounding → graph → mapper) : une réponse aux
+  règles non fondées reçoit un échange de correction, adopté seulement s'il
+  est meilleur (jamais pire ; `mapper/ground.go`). Ce texte de correction
+  n'entre pas dans `promptKey` : le cache map reste valide.
+- `internal/communities` — domaines « dispersés » : communautés du graphe
+  d'imports (Louvain de gonum + composantes connexes, graine fixe), section
+  du README de sortie. gonum est épinglé : une montée de version peut
+  changer les communautés.
 - `internal/consistency` — détection de règles quasi-doublons (Jaccard sur
   les exigences), listées dans le README de sortie.
 - `cmd/codetospec/main.go` — séquence complète.

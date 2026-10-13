@@ -183,3 +183,43 @@ func TestLoadClampsToFileLength(t *testing.T) {
 		t.Fatalf("status = %q, want grounded", got.Status)
 	}
 }
+
+// TestCheckCodeLayout: a call quoted on one line matches the same call split
+// over several lines of code, and only that call.
+func TestCheckCodeLayout(t *testing.T) {
+	const path = "resolvers/classroom.go"
+	code := "isTeacher, err := cross_service.IsTeacherForClassroom(\n" +
+		"\tktx, currentUser.Kaid, classroom.Descriptor)\n" +
+		"ok := acl.ActorHasPermission(\n\tktx,\n\tcapabilities.CanEditContent,\n)\n"
+	fsys := fstest.MapFS{path: {Data: []byte(code)}}
+	citations, err := grounding.Load(fsys, []extract.Ref{{Path: path, Lines: "1-6"}})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	cases := map[string]struct {
+		quoted string
+		want   grounding.Status
+	}{
+		"arguments on the next line": {
+			"cross_service.IsTeacherForClassroom(ktx, currentUser.Kaid, classroom.Descriptor)",
+			grounding.StatusGrounded,
+		},
+		"one argument per line, trailing comma": {
+			"acl.ActorHasPermission(ktx, capabilities.CanEditContent)",
+			grounding.StatusGrounded,
+		},
+		"a different argument": {
+			"acl.ActorHasPermission(ktx, capabilities.CanViewContent)",
+			grounding.StatusUngrounded,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			requirement := "IF `" + tc.quoted + "` does not hold, THEN the system shall reject X."
+			got := grounding.Check(requirement, citations, grounding.Options{DecimalSeparator: '.'})
+			if got.Status != tc.want {
+				t.Fatalf("status = %q, want %q (missing: %s)", got.Status, tc.want, got.Summary())
+			}
+		})
+	}
+}

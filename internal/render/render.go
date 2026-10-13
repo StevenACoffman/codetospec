@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"codetospec/internal/communities"
 	"codetospec/internal/consistency"
 	"codetospec/internal/extract"
 	"codetospec/internal/graph"
@@ -37,6 +38,9 @@ type Meta struct {
 	CrosscheckRepaired    int
 	CrosscheckUnchecked   int // rules the review never judged
 	CrosscheckMechanical  int // extractor rules, not sent to the reviewer
+	// DomainSplits are the domains whose files fall into several import-graph
+	// communities (see communities.Splits).
+	DomainSplits []communities.Split
 	// Near-duplicate rule pairs (deterministic consistency check).
 	DuplicatePairs []consistency.DuplicatePair
 	// RuleFactsRejected counts extractor rule facts dropped as malformed.
@@ -339,6 +343,7 @@ func readme(nodes []graph.Node, meta Meta, text *locale.Text) string {
 	}
 	b.WriteString(groundingSummary(nodes, text))
 	b.WriteString(ungroundedSection(nodes, text))
+	b.WriteString(splitSection(meta.DomainSplits, text))
 
 	if len(meta.DuplicatePairs) > 0 {
 		intra, cross := 0, 0
@@ -587,4 +592,23 @@ func LoadDir(outDir string) ([]graph.Node, error) {
 		nodes = append(nodes, n)
 	}
 	return nodes, nil
+}
+
+// splitSection lists the domains whose files fall into several code
+// communities; "" when there are none.
+func splitSection(splits []communities.Split, text *locale.Text) string {
+	if len(splits) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n" + text.SplitsHeading + "\n\n")
+	fmt.Fprintf(&b, text.SplitsIntroFmt+"\n\n", len(splits))
+	shown := splits[:min(len(splits), maxListed)]
+	for _, s := range shown {
+		fmt.Fprintf(&b, "- `%s`: "+text.SplitFmt+"\n", s.Domain, s.Files, s.Communities)
+	}
+	if len(splits) > len(shown) {
+		fmt.Fprintf(&b, text.AndMoreFmt+"\n", len(splits)-len(shown))
+	}
+	return b.String()
 }

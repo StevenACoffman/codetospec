@@ -18,7 +18,10 @@ modèle reproduit cher et approximativement, ou pas du tout :
   ou via un prédicat auxiliaire du paquet (`func _isActor(…) bool { return
   acl.IsCurrentUser(…) }`) ; et tout `if` dont le bloc renvoie une erreur
   d'autorisation (`errors.Unauthorized`, `NotAllowed`, `Forbidden`,
-  `PermissionDenied`), quelle que soit sa condition (`if underAgeGate {…}`).
+  `PermissionDenied`) sur son propre chemin, quelle que soit sa condition
+  (`if underAgeGate {…}`) : une erreur dans un `if`/`switch` imbriqué est un
+  autre chemin (`if ok { …; if err != nil { return Unauthorized }; return
+  result }` réussit et n'est pas un garde ; seul l'`if` imbriqué l'est).
   Le bloc doit **finir** par un `return` : un bloc qui retombe dans la suite
   (`if hasAny { … if err != nil { return … } … }`) n'est pas un garde. Un
   garde imbriqué d'un niveau (`if C1 { …; if C2 { … return … } }`, sans

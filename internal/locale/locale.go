@@ -79,6 +79,8 @@ type ReadmeCoverage struct {
 type ReadmeReview struct {
 	UngroundedHeading, UngroundedIntroFmt string // %d rules
 	DuplicatesHeading, DuplicatesIntroFmt string // %d pairs, intra, cross
+	SplitsHeading, SplitsIntroFmt         string // %d split domains
+	SplitFmt                              string // %d files, %d communities
 	AndMoreFmt                            string // %d omitted entries
 	DomainsHeading                        string
 }
@@ -302,6 +304,18 @@ func newReadmeReview(tr translate) ReadmeReview {
 		UngroundedIntroFmt: tr(
 			"%d règles énoncent des valeurs absentes des lignes citées "+"(valeur inventée ou citation décalée ; `@` indique où la valeur apparaît hors citation) :",
 			"%d rules state values missing from their cited lines "+"(invented value or shifted citation; `@` shows where the value appears outside the citation):",
+		),
+		SplitsHeading: tr(
+			"## Domaines dispersés",
+			"## Scattered domains",
+		),
+		SplitsIntroFmt: tr(
+			"%d domaines regroupent des fichiers de plusieurs communautés du graphe d'imports "+"(code sans lien entre lui : à scinder, ou startégie de domaine à revoir) :",
+			"%d domains group files from several communities of the import graph "+"(code unrelated to itself: split it, or revisit the domain strategy):",
+		),
+		SplitFmt: tr(
+			"%d fichiers dans %d communautés",
+			"%d files in %d communities",
 		),
 		DuplicatesHeading: tr(
 			"## Doublons candidates",

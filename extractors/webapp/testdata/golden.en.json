@@ -36,7 +36,7 @@
     },
     "source": {
       "path": "resolvers/guards.go",
-      "lines": "121-121"
+      "lines": "134-134"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -50,7 +50,7 @@
     },
     "source": {
       "path": "resolvers/guards.go",
-      "lines": "121-121"
+      "lines": "134-134"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -64,7 +64,7 @@
     },
     "source": {
       "path": "resolvers/guards.go",
-      "lines": "124-124"
+      "lines": "137-137"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -78,7 +78,7 @@
     },
     "source": {
       "path": "resolvers/guards.go",
-      "lines": "124-124"
+      "lines": "137-137"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -230,26 +230,39 @@
   },
   {
     "kind": "domain",
-    "id": "domain.webapp.resolvers/guards.go:133-145",
+    "id": "domain.webapp.resolvers/guards.go:107-118",
     "attrs": {
       "domain": "user"
     },
     "source": {
       "path": "resolvers/guards.go",
-      "lines": "133-145"
+      "lines": "107-118"
     },
     "origin": "webapp",
     "certainty": "static"
   },
   {
     "kind": "domain",
-    "id": "domain.webapp.resolvers/guards.go:147-156",
+    "id": "domain.webapp.resolvers/guards.go:146-158",
+    "attrs": {
+      "domain": "user"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "146-158"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "domain",
+    "id": "domain.webapp.resolvers/guards.go:160-169",
     "attrs": {
       "domain": "auth-emails"
     },
     "source": {
       "path": "resolvers/guards.go",
-      "lines": "147-156"
+      "lines": "160-169"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -339,7 +352,7 @@
     },
     "source": {
       "path": "user.graphql",
-      "lines": "10-10"
+      "lines": "11-11"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -355,7 +368,7 @@
     },
     "source": {
       "path": "user.graphql",
-      "lines": "11-11"
+      "lines": "12-12"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -371,7 +384,7 @@
     },
     "source": {
       "path": "user.graphql",
-      "lines": "12-12"
+      "lines": "13-13"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -562,7 +575,25 @@
   },
   {
     "kind": "rule",
-    "id": "rule.webapp.authz.resolvers/guards.go:115-117",
+    "id": "rule.webapp.authz.resolvers/guards.go:110-114",
+    "attrs": {
+      "domain": "user",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "IF `user.Kaid != nil` holds AND `ktx.RequestUser()` fails, THEN the system shall reject User.partner with the `Unauthorized` error.",
+      "slug": "authz-user-partner",
+      "title": "Access control: User.partner"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "110-114"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:128-130",
     "attrs": {
       "domain": "resolvers",
       "ears": "unwanted",
@@ -573,14 +604,14 @@
     },
     "source": {
       "path": "resolvers/guards.go",
-      "lines": "115-117"
+      "lines": "128-130"
     },
     "origin": "webapp",
     "certainty": "static"
   },
   {
     "kind": "rule",
-    "id": "rule.webapp.authz.resolvers/guards.go:134-136",
+    "id": "rule.webapp.authz.resolvers/guards.go:147-149",
     "attrs": {
       "domain": "user",
       "ears": "unwanted",
@@ -592,14 +623,14 @@
     },
     "source": {
       "path": "resolvers/guards.go",
-      "lines": "134-136"
+      "lines": "147-149"
     },
     "origin": "webapp",
     "certainty": "static"
   },
   {
     "kind": "rule",
-    "id": "rule.webapp.authz.resolvers/guards.go:148-154",
+    "id": "rule.webapp.authz.resolvers/guards.go:161-167",
     "attrs": {
       "domain": "auth-emails",
       "ears": "unwanted",
@@ -611,7 +642,7 @@
     },
     "source": {
       "path": "resolvers/guards.go",
-      "lines": "148-154"
+      "lines": "161-167"
     },
     "origin": "webapp",
     "certainty": "static"

@@ -103,7 +103,7 @@ fi
 if has_cmd go; then
     :
 else
-    die "go is not on PATH; install Go >= 1.26 first"
+    die "go is not on PATH; install Go >= 1.27 first"
 fi
 [ -d "$service_dir" ] || die "no such service: $service_dir"
 [ -f "$service_dir/gqlgen.yml" ] ||

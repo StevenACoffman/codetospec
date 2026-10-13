@@ -4,6 +4,7 @@ type User {
   emails: [String]
   nickname: String
   bio: String
+  partner: String
 }
 
 extend type Query {

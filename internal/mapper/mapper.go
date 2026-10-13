@@ -161,6 +161,10 @@ type Mapper struct {
 	// DocsFor returns authored documentation (extractor doc facts) located
 	// in a file, shown for the chunks it overlaps. Optional.
 	DocsFor func(path string) []Note
+	// Ungrounded, when set, checks each mapped requirement against its cited
+	// lines; a reply with ungrounded rules gets one correction exchange,
+	// adopted only when it improves (see reground). Optional.
+	Ungrounded Ungrounded
 	// OnUnit is called after each finished unit (cached or live) with the
 	// usage consumed by that unit; callers persist state there.
 	OnUnit func(out Output, usage llm.Usage)
@@ -273,10 +277,15 @@ func (m *Mapper) mapChunk(ctx context.Context, chunk sitter.Chunk) (Output, llm.
 	}
 
 	var usage llm.Usage
-	payload, err := llm.ChatJSON(ctx, m.LLM, msgs, 2, func(u llm.Usage) { usage.Add(u) },
-		func(reply string) (mapPayload, error) {
-			return validateMapReply(reply, chunk, m.Entities, allowedEndpoints)
-		})
+	validate := func(reply string) (mapPayload, error) {
+		return validateMapReply(reply, chunk, m.Entities, allowedEndpoints)
+	}
+	payload, err := llm.ChatJSON(ctx, m.LLM, msgs, 2, func(u llm.Usage) { usage.Add(u) }, validate)
+	if err == nil && m.Ungrounded != nil {
+		var regroundUsage llm.Usage
+		payload, regroundUsage = m.reground(ctx, msgs, payload, &chunk, validate)
+		usage.Add(regroundUsage)
+	}
 
 	out := Output{
 		ChunkID:   chunk.ID,

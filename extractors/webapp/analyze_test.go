@@ -110,9 +110,10 @@ func TestAnalyzeFacts(t *testing.T) {
 	}{
 		// addAuthEmail, addCoachRole, enableTotp
 		"auth_emails.graphql operations": {"auth-emails", 3},
-		// bio (nested), checkUsername, deviceAuthRequestInfo, emails,
-		// recoveryCodes, 2 guards each of nickname and pendingEmailVerifications
-		"user.graphql operations": {"user", 9},
+		// bio and partner (nested), checkUsername, deviceAuthRequestInfo,
+		// emails, recoveryCodes, 2 guards each of nickname and
+		// pendingEmailVerifications
+		"user.graphql operations": {"user", 10},
 		"field-less resolver":     {"resolvers", 1},
 	}
 	for name, tc := range cases {
@@ -128,10 +129,10 @@ func TestAnalyzeFacts(t *testing.T) {
 			}
 		})
 	}
-	// 11 resolver methods with a schema field (not helpers, not Orphan), plus
+	// 12 resolver methods with a schema field (not helpers, not Orphan), plus
 	// the whole of kaid.go, whose methods share one domain.
-	if domainFacts != 12 {
-		t.Errorf("got %d domain facts, want 12", domainFacts)
+	if domainFacts != 13 {
+		t.Errorf("got %d domain facts, want 13", domainFacts)
 	}
 	wholeFile := map[string]bool{}
 	for _, f := range facts {

@@ -12,10 +12,12 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
 
+	"codetospec/internal/communities"
 	"codetospec/internal/config"
 	"codetospec/internal/consistency"
 	"codetospec/internal/crosscheck"
@@ -343,7 +345,23 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 	}); err != nil {
 		return err
 	}
+	groundingOpts := grounding.Options{
+		DecimalSeparator: locale.For(cfg.Lang).DecimalSeparator,
+		Constants:        grounding.Constants(facts),
+	}
 	m := &mapper.Mapper{
+		Ungrounded: func(requirement string, cited []string) []string {
+			result := grounding.Check(
+				requirement,
+				[]grounding.Citation{{Start: 1, End: len(cited), File: cited}},
+				groundingOpts,
+			)
+			values := make([]string, len(result.Missing))
+			for i, miss := range result.Missing {
+				values[i] = miss.Literal
+			}
+			return values
+		},
 		LLM:      client,
 		Model:    cfg.Model,
 		Lang:     cfg.Lang,
@@ -502,10 +520,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 
 	// Check, without an LLM, that each rule's stated values occur in the code
 	// it cites (after crosscheck, whose repair may re-cite).
-	nodes = grounding.Annotate(os.DirFS(cfg.Src), nodes, grounding.Options{
-		DecimalSeparator: locale.For(cfg.Lang).DecimalSeparator,
-		Constants:        grounding.Constants(facts),
-	})
+	nodes = grounding.Annotate(os.DirFS(cfg.Src), nodes, groundingOpts)
 
 	// Stamp each rule with a digest of its cited code, enabling later drift
 	// checks against an evolving source tree.
@@ -546,6 +561,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 
 	snapshot := st.Snapshot()
 	meta := render.Meta{
+		DomainSplits:          communities.Splits(codeFiles(chunks), importsOf(facts)),
 		Coverage:              graph.ComputeCoverage(nodes),
 		ChunksFailed:          snapshot.ChunksFailed,
 		ChunksTotal:           snapshot.ChunksTotal,
@@ -854,4 +870,41 @@ func statsCommand(cfg *config.Config) int {
 		fmt.Printf("extractor %s: %s\n", name, s.Extractors[name])
 	}
 	return 0
+}
+
+// codeFiles lists each chunked file with its namespace and the domains of
+// its chunks, sorted.
+func codeFiles(chunks []sitter.Chunk) []communities.File {
+	byPath := make(map[string]*communities.File)
+	var files []*communities.File
+	for _, c := range chunks {
+		f := byPath[c.Path]
+		if f == nil {
+			f = &communities.File{Path: c.Path, Namespace: c.Namespace}
+			byPath[c.Path] = f
+			files = append(files, f)
+		}
+		if !slices.Contains(f.Domains, c.Domain) {
+			f.Domains = append(f.Domains, c.Domain)
+		}
+	}
+	out := make([]communities.File, len(files))
+	for i, f := range files {
+		out[i] = *f
+	}
+	return out
+}
+
+// importsOf lists the "import" facts as communities imports.
+func importsOf(facts []extract.Fact) []communities.Import {
+	var imports []communities.Import
+	for _, f := range facts {
+		if f.Kind == "import" {
+			imports = append(
+				imports,
+				communities.Import{From: f.Source.Path, Target: f.Attrs["target"]},
+			)
+		}
+	}
+	return imports
 }

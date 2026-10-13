@@ -26,6 +26,9 @@
 #   WORKERS          parallel LLM calls         (default: 4; lower on 429s)
 #   MAX_TOKENS       generation cap per call    (default: 16384; thinking models)
 #   EXCLUDE          comma-separated excludes   (default: see below)
+#   EXTRA_EXCLUDE    appended to the excludes, e.g. one-off tools that are
+#                    not product behavior: EXTRA_EXCLUDE='seed*,backfills.go'
+#                    (names or globs, matched on file and directory names)
 #   REDUCE_MODE      merge|full                 (default: merge — only
 #                    near-duplicate candidates go to the LLM, the others keep
 #                    no acceptance criteria; full: the LLM consolidates all)
@@ -89,8 +92,11 @@ base_url=https://generativelanguage.googleapis.com/v1beta/openai
 default_exclude='vendor,node_modules,dist,build,generated,testutil,integration'
 default_exclude+=',*_test.go,*_gen.go,*.pb.go,mock_*.go,*_mock.go,*_mocks.go'
 default_exclude+=',*.md,*.txt,*.json,*.yaml,*.yml,*.sql,*.graphql,*.sh,*.toml'
-default_exclude+=',*.png,*.jpg,*.xml,*.gotxt,*.gohtml'
+default_exclude+=',*.png,*.jpg,*.xml,*.gotxt,*.gohtml,Makefile,*.proto.dep'
 exclude=${EXCLUDE:-$default_exclude}
+if [ -n "${EXTRA_EXCLUDE:-}" ]; then
+    exclude+=",$EXTRA_EXCLUDE"
+fi
 
 # --- preflight -------------------------------------------------------------
 

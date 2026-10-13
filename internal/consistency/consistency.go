@@ -27,35 +27,14 @@ func FindDuplicates(nodes []graph.Node, threshold float64) []DuplicatePair {
 	if threshold <= 0 {
 		threshold = DefaultThreshold
 	}
-	type rule struct {
-		id        string
-		words     map[string]bool
-		negations int
-	}
-	var rules []rule
-	for _, n := range nodes {
-		if n.Type != graph.TypeRule {
-			continue
-		}
-		requirement := graph.RuleRequirement(n.Body)
-		words := textsim.Words(requirement)
-		if len(words) == 0 {
-			continue
-		}
-		rules = append(rules, rule{id: n.ID, words: words, negations: negations(requirement)})
-	}
-	sort.SliceStable(rules, func(i, j int) bool { return rules[i].id < rules[j].id })
-
+	rules := ruleTexts(nodes)
 	var pairs []DuplicatePair
 	for i := range rules {
 		for j := i + 1; j < len(rules); j++ {
-			// Word overlap is blind to "is marked" vs "is not marked": rules
-			// that negate a different number of times state opposite things.
-			if rules[i].negations != rules[j].negations {
+			if !mayDuplicate(&rules[i], &rules[j]) {
 				continue
 			}
-			sim := textsim.Jaccard(rules[i].words, rules[j].words)
-			if sim >= threshold {
+			if sim := textsim.Jaccard(rules[i].words, rules[j].words); sim >= threshold {
 				pairs = append(
 					pairs,
 					DuplicatePair{A: rules[i].id, B: rules[j].id, Similarity: sim},
@@ -73,6 +52,46 @@ func FindDuplicates(nodes []graph.Node, threshold float64) []DuplicatePair {
 		return pairs[i].B < pairs[j].B
 	})
 	return pairs
+}
+
+// ruleText is what the duplicate check knows about one rule.
+type ruleText struct {
+	id         string
+	words      map[string]bool
+	negations  int
+	mechanical bool // produced by an extractor (graph.ExtraExtractedBy)
+}
+
+// ruleTexts returns the rules with a non-empty requirement, sorted by id.
+func ruleTexts(nodes []graph.Node) []ruleText {
+	var rules []ruleText
+	for _, n := range nodes {
+		if n.Type != graph.TypeRule {
+			continue
+		}
+		requirement := graph.RuleRequirement(n.Body)
+		words := textsim.Words(requirement)
+		if len(words) == 0 {
+			continue
+		}
+		rules = append(rules, ruleText{
+			id:         n.ID,
+			words:      words,
+			negations:  negations(requirement),
+			mechanical: n.Extra[graph.ExtraExtractedBy] != "",
+		})
+	}
+	sort.SliceStable(rules, func(i, j int) bool { return rules[i].id < rules[j].id })
+	return rules
+}
+
+// mayDuplicate reports whether two rules can be duplicates at all, before
+// comparing their words. Word overlap is blind to "is marked" vs "is not
+// marked", so rules negating a different number of times never pair. Two
+// extractor rules come from one template and differ in the operation they
+// name: alike in words, distinct by construction.
+func mayDuplicate(a, b *ruleText) bool {
+	return a.negations == b.negations && (!a.mechanical || !b.mechanical)
 }
 
 // negationRe matches one negation event in English or French. French

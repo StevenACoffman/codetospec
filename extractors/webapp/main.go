@@ -50,6 +50,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		"",
 		"this service's subgraph name (default: upper-cased root name)",
 	)
+	accessPkgs := flags.String("access-pkgs", "permissions",
+		"comma-separated service packages whose bool functions are access checks")
 	if err := flags.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -63,6 +65,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		GOROOT:       os.DirFS(build.Default.GOROOT),
 		ServiceGraph: *graph,
 		Lang:         *lang,
+		AccessPkgs:   strings.Split(*accessPkgs, ","),
 	}
 	if in.ServiceGraph == "" {
 		in.ServiceGraph = strings.ToUpper(strings.ReplaceAll(filepath.Base(*root), "-", "_"))

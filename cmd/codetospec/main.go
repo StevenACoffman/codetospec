@@ -274,6 +274,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 	facts, rejectedRules := graph.ValidateRuleFacts(
 		extract.Merge(sitterFacts, extractorFacts, fileFacts),
 	)
+	resolver.Ambiguous = extract.AmbiguousNamespaces(facts)
 	for _, reason := range rejectedRules {
 		sink.Emit(
 			ui.LogLine{Level: slog.LevelWarn, Message: "invalid rule fact dropped: " + reason},
@@ -368,8 +369,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 				if out.Failed {
 					s.ChunksFailed++
 				}
-				s.Tokens["map"].Prompt += usage.PromptTokens
-				s.Tokens["map"].Completion += usage.CompletionTokens
+				s.AddTokens("map", usage.PromptTokens, usage.CompletionTokens)
 				done = s.ChunksDone
 			}); err != nil {
 				slog.WarnContext(ctx, "state save failed", "err", err)
@@ -425,8 +425,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 				if out.Failed {
 					s.DomainsFailed++
 				}
-				s.Tokens["reduce"].Prompt += usage.PromptTokens
-				s.Tokens["reduce"].Completion += usage.CompletionTokens
+				s.AddTokens("reduce", usage.PromptTokens, usage.CompletionTokens)
 				done = s.DomainsDone
 			}); err != nil {
 				slog.WarnContext(ctx, "state save failed", "err", err)
@@ -479,8 +478,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 			},
 			OnUnit: func(v crosscheck.Verdict, usage llm.Usage) {
 				if err := st.Update(func(s *state.State) {
-					s.Tokens["crosscheck"].Prompt += usage.PromptTokens
-					s.Tokens["crosscheck"].Completion += usage.CompletionTokens
+					s.AddTokens("crosscheck", usage.PromptTokens, usage.CompletionTokens)
 				}); err != nil {
 					slog.WarnContext(ctx, "state save failed", "err", err)
 				}
@@ -588,11 +586,13 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 	final.ChunksTotal = snapshot.ChunksTotal
 	final.DomainsFailed = snapshot.DomainsFailed
 	final.DomainsTotal = snapshot.DomainsTotal
-	if t := snapshot.Tokens["map"]; t != nil {
-		final.TokensMap = llm.Usage{PromptTokens: t.Prompt, CompletionTokens: t.Completion}
-	}
-	if t := snapshot.Tokens["reduce"]; t != nil {
-		final.TokensReduce = llm.Usage{PromptTokens: t.Prompt, CompletionTokens: t.Completion}
+	for _, phase := range state.Phases() {
+		if t := snapshot.Tokens[phase]; t != nil {
+			final.Tokens = append(final.Tokens, ui.PhaseUsage{
+				Phase: phase,
+				Usage: llm.Usage{PromptTokens: t.LastPrompt, CompletionTokens: t.LastCompletion},
+			})
+		}
 	}
 	return nil
 }
@@ -842,9 +842,12 @@ func statsCommand(cfg *config.Config) int {
 		s.DomainsFailed,
 		s.DomainsTotal,
 	)
-	for _, phase := range []string{"map", "reduce", "crosscheck"} {
+	for _, phase := range state.Phases() {
 		if t := s.Tokens[phase]; t != nil {
-			fmt.Printf("tokens %s: prompt %d, completion %d\n", phase, t.Prompt, t.Completion)
+			fmt.Printf(
+				"tokens %s: last run prompt %d, completion %d; all runs prompt %d, completion %d\n",
+				phase, t.LastPrompt, t.LastCompletion, t.Prompt, t.Completion,
+			)
 		}
 	}
 	for _, name := range sortedKeys(s.Extractors) {

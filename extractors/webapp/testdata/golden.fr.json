@@ -36,7 +36,7 @@
     },
     "source": {
       "path": "resolvers/guards.go",
-      "lines": "64-64"
+      "lines": "121-121"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -50,7 +50,7 @@
     },
     "source": {
       "path": "resolvers/guards.go",
-      "lines": "64-64"
+      "lines": "121-121"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -64,7 +64,7 @@
     },
     "source": {
       "path": "resolvers/guards.go",
-      "lines": "67-67"
+      "lines": "124-124"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -78,7 +78,7 @@
     },
     "source": {
       "path": "resolvers/guards.go",
-      "lines": "67-67"
+      "lines": "124-124"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -126,7 +126,7 @@
   },
   {
     "kind": "domain",
-    "id": "domain.webapp.resolvers/guards.go:3",
+    "id": "domain.webapp.resolvers/guards.go:3-10",
     "attrs": {
       "domain": "auth-emails"
     },
@@ -139,7 +139,7 @@
   },
   {
     "kind": "domain",
-    "id": "domain.webapp.resolvers/guards.go:12",
+    "id": "domain.webapp.resolvers/guards.go:12-18",
     "attrs": {
       "domain": "auth-emails"
     },
@@ -152,7 +152,7 @@
   },
   {
     "kind": "domain",
-    "id": "domain.webapp.resolvers/guards.go:20",
+    "id": "domain.webapp.resolvers/guards.go:20-23",
     "attrs": {
       "domain": "user"
     },
@@ -165,7 +165,7 @@
   },
   {
     "kind": "domain",
-    "id": "domain.webapp.resolvers/guards.go:25",
+    "id": "domain.webapp.resolvers/guards.go:25-32",
     "attrs": {
       "domain": "user"
     },
@@ -178,13 +178,104 @@
   },
   {
     "kind": "domain",
-    "id": "domain.webapp.resolvers/guards.go:34",
+    "id": "domain.webapp.resolvers/guards.go:34-48",
     "attrs": {
       "domain": "user"
     },
     "source": {
       "path": "resolvers/guards.go",
       "lines": "34-48"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "domain",
+    "id": "domain.webapp.resolvers/guards.go:50-63",
+    "attrs": {
+      "domain": "user"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "50-63"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "domain",
+    "id": "domain.webapp.resolvers/guards.go:65-82",
+    "attrs": {
+      "domain": "user"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "65-82"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "domain",
+    "id": "domain.webapp.resolvers/guards.go:84-105",
+    "attrs": {
+      "domain": "user"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "84-105"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "domain",
+    "id": "domain.webapp.resolvers/guards.go:133-145",
+    "attrs": {
+      "domain": "user"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "133-145"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "domain",
+    "id": "domain.webapp.resolvers/guards.go:147-156",
+    "attrs": {
+      "domain": "auth-emails"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "147-156"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "domain",
+    "id": "domain.webapp.resolvers/kaid.go:1-10",
+    "attrs": {
+      "domain": "user"
+    },
+    "source": {
+      "path": "resolvers/kaid.go",
+      "lines": "1-10"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "domain",
+    "id": "domain.webapp.resolvers/kaid.go:3-5",
+    "attrs": {
+      "domain": "user"
+    },
+    "source": {
+      "path": "resolvers/kaid.go",
+      "lines": "3-5"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -223,6 +314,22 @@
   },
   {
     "kind": "route",
+    "id": "route.graphql.mutation.enableTotp",
+    "attrs": {
+      "handler": "mutationResolver.EnableTotp",
+      "handler_path": "resolvers/guards.go",
+      "method": "MUTATION",
+      "path": "enableTotp"
+    },
+    "source": {
+      "path": "auth_emails.graphql",
+      "lines": "5-5"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "route",
     "id": "route.graphql.query.checkUsername",
     "attrs": {
       "handler": "queryResolver.CheckUsername",
@@ -232,7 +339,23 @@
     },
     "source": {
       "path": "user.graphql",
-      "lines": "7-7"
+      "lines": "10-10"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "route",
+    "id": "route.graphql.query.recoveryCodes",
+    "attrs": {
+      "handler": "queryResolver.RecoveryCodes",
+      "handler_path": "resolvers/guards.go",
+      "method": "QUERY",
+      "path": "recoveryCodes"
+    },
+    "source": {
+      "path": "user.graphql",
+      "lines": "11-11"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -248,14 +371,14 @@
     },
     "source": {
       "path": "user.graphql",
-      "lines": "8-8"
+      "lines": "12-12"
     },
     "origin": "webapp",
     "certainty": "static"
   },
   {
     "kind": "rule",
-    "id": "rule.webapp.authz.resolvers/guards.go:6",
+    "id": "rule.webapp.authz.resolvers/guards.go:6-8",
     "attrs": {
       "domain": "auth-emails",
       "ears": "unwanted",
@@ -274,7 +397,7 @@
   },
   {
     "kind": "rule",
-    "id": "rule.webapp.authz.resolvers/guards.go:14",
+    "id": "rule.webapp.authz.resolvers/guards.go:14-16",
     "attrs": {
       "domain": "auth-emails",
       "ears": "unwanted",
@@ -293,7 +416,7 @@
   },
   {
     "kind": "rule",
-    "id": "rule.webapp.authz.resolvers/guards.go:21",
+    "id": "rule.webapp.authz.resolvers/guards.go:21-21",
     "attrs": {
       "domain": "user",
       "ears": "ubiquitous",
@@ -312,7 +435,7 @@
   },
   {
     "kind": "rule",
-    "id": "rule.webapp.authz.resolvers/guards.go:27",
+    "id": "rule.webapp.authz.resolvers/guards.go:27-30",
     "attrs": {
       "domain": "user",
       "ears": "unwanted",
@@ -331,12 +454,12 @@
   },
   {
     "kind": "rule",
-    "id": "rule.webapp.authz.resolvers/guards.go:36",
+    "id": "rule.webapp.authz.resolvers/guards.go:36-39",
     "attrs": {
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI l'appelant n'est pas l'utilisateur `user.Kaid` ET l'appelant n'a pas la permission `CanViewUserIdentity` pour l'utilisateur `user.Kaid`, ALORS le systeme doit rejeter User.pendingEmailVerifications.",
+      "requirement": "SI l'appelant n'est pas l'utilisateur `user.Kaid` ET l'appelant n'a pas la permission `CanViewUserIdentity` pour l'utilisateur `user.Kaid`, ALORS le systeme doit ne renvoyer aucune donnée pour User.pendingEmailVerifications.",
       "slug": "authz-user-pendingemailverifications",
       "title": "Contrôle d'accès : User.pendingEmailVerifications"
     },
@@ -349,7 +472,7 @@
   },
   {
     "kind": "rule",
-    "id": "rule.webapp.authz.resolvers/guards.go:40",
+    "id": "rule.webapp.authz.resolvers/guards.go:40-46",
     "attrs": {
       "domain": "user",
       "ears": "unwanted",
@@ -367,7 +490,79 @@
   },
   {
     "kind": "rule",
-    "id": "rule.webapp.authz.resolvers/guards.go:58",
+    "id": "rule.webapp.authz.resolvers/guards.go:51-53",
+    "attrs": {
+      "domain": "user",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "SI `permissions.UserCanViewEmails(ctx, *user.Kaid)` est faux, ALORS le systeme doit ne renvoyer aucune donnée pour User.emails.",
+      "slug": "authz-user-emails",
+      "title": "Contrôle d'accès : User.emails"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "51-53"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:74-76",
+    "attrs": {
+      "domain": "user",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "SI `err != nil` est vrai OU `canView` est faux, ALORS le systeme doit rejeter User.nickname avec l'erreur `Unauthorized`.",
+      "slug": "authz-user-nickname",
+      "title": "Contrôle d'accès : User.nickname"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "74-76"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:77-80",
+    "attrs": {
+      "domain": "user",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "SI `acl.ActorHasPermissionErr(ctx, capabilities.CanViewUserIdentity, acl.AnyScope)` échoue OU l'appelant n'a pas la permission `CanViewUserIdentity` pour tout utilisateur, ALORS le systeme doit rejeter User.nickname avec l'erreur `Unauthorized`.",
+      "slug": "authz-user-nickname-2",
+      "title": "Contrôle d'accès : User.nickname (2)"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "77-80"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:87-94",
+    "attrs": {
+      "domain": "user",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "SI la requête n'est pas une requête service-admin ET l'appelant n'est pas l'utilisateur `actor.Kaid`, ALORS le systeme doit ne renvoyer aucune donnée pour User.bio.",
+      "slug": "authz-user-bio",
+      "title": "Contrôle d'accès : User.bio"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "87-94"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:115-117",
     "attrs": {
       "domain": "resolvers",
       "ears": "unwanted",
@@ -378,7 +573,45 @@
     },
     "source": {
       "path": "resolvers/guards.go",
-      "lines": "58-60"
+      "lines": "115-117"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:134-136",
+    "attrs": {
+      "domain": "user",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "SI `_isActor(ctx, kaid)` est faux, ALORS le systeme doit ne renvoyer aucune donnée pour Query.recoveryCodes.",
+      "route": "route.graphql.query.recoveryCodes",
+      "slug": "authz-query-recoverycodes",
+      "title": "Contrôle d'accès : Query.recoveryCodes"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "134-136"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:148-154",
+    "attrs": {
+      "domain": "auth-emails",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "SI `age.IsUnderAgeGateByKaid(ctx, kaid)` est vrai, ALORS le systeme doit rejeter Mutation.enableTotp avec l'erreur `Unauthorized`.",
+      "route": "route.graphql.mutation.enableTotp",
+      "slug": "authz-mutation-enabletotp",
+      "title": "Contrôle d'accès : Mutation.enableTotp"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "148-154"
     },
     "origin": "webapp",
     "certainty": "static"

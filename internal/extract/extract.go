@@ -4,6 +4,7 @@ package extract
 
 import (
 	"fmt"
+	pathpkg "path"
 	"regexp"
 	"sort"
 	"strconv"
@@ -131,6 +132,10 @@ type DomainResolver struct {
 	// lives under one root namespace and would otherwise collapse to one
 	// mega-domain.
 	Depth int
+	// Ambiguous lists namespaces declared in several directories (see
+	// AmbiguousNamespaces): they name no single area, so files in them are
+	// resolved by their directory instead.
+	Ambiguous map[string]bool
 }
 
 // Resolve returns the domain slug for a namespace/path pair.
@@ -139,12 +144,50 @@ func (r DomainResolver) Resolve(namespace, path string) string {
 	if strategy == "" {
 		strategy = "auto"
 	}
+	if r.Ambiguous[namespace] {
+		return domainFromDir(path)
+	}
 	if strategy != "directory" && namespace != "" {
 		if d := domainFromNamespace(namespace, r.Depth); d != "" {
 			return d
 		}
 	}
 	return domainFromPath(path)
+}
+
+// AmbiguousNamespaces returns the namespaces declared by "module" facts in
+// more than one directory. Go names every command's package "main" and
+// reuses names like "util" across a tree; such a namespace says nothing
+// about the area a file belongs to.
+func AmbiguousNamespaces(facts []Fact) map[string]bool {
+	dirs := make(map[string]map[string]bool)
+	for _, f := range facts {
+		name := f.Attrs["name"]
+		if f.Kind != "module" || name == "" {
+			continue
+		}
+		if dirs[name] == nil {
+			dirs[name] = make(map[string]bool)
+		}
+		dirs[name][pathpkg.Dir(f.Source.Path)] = true
+	}
+	ambiguous := make(map[string]bool)
+	for name, in := range dirs {
+		if len(in) > 1 {
+			ambiguous[name] = true
+		}
+	}
+	return ambiguous
+}
+
+// domainFromDir names a domain after a file's whole directory:
+// cmd/seedroster/main.go → cmd-seedroster.
+func domainFromDir(path string) string {
+	dir := pathpkg.Dir(strings.TrimPrefix(path, "./"))
+	if dir == "." || dir == "/" {
+		return "root"
+	}
+	return Slugify(strings.ReplaceAll(dir, "/", "-"))
 }
 
 // DomainOf derives the domain slug for a fact using the auto strategy:

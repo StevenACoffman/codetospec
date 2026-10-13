@@ -30,6 +30,7 @@ func testInputs(lang string) *Inputs {
 		Supergraph:   os.DirFS(filepath.Join("testdata", "supergraph")),
 		ServiceGraph: "USERS",
 		Lang:         lang,
+		AccessPkgs:   []string{"permissions"},
 	}
 }
 
@@ -107,12 +108,12 @@ func TestAnalyzeFacts(t *testing.T) {
 		domain string
 		want   int
 	}{
-		"auth_emails.graphql operations": {"auth-emails", 2},
-		"user.graphql operations": {
-			"user",
-			4,
-		}, // checkUsername, deviceAuthRequestInfo, 2 guards of pendingEmailVerifications
-		"field-less resolver": {"resolvers", 1},
+		// addAuthEmail, addCoachRole, enableTotp
+		"auth_emails.graphql operations": {"auth-emails", 3},
+		// bio (nested), checkUsername, deviceAuthRequestInfo, emails,
+		// recoveryCodes, 2 guards each of nickname and pendingEmailVerifications
+		"user.graphql operations": {"user", 9},
+		"field-less resolver":     {"resolvers", 1},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -127,7 +128,91 @@ func TestAnalyzeFacts(t *testing.T) {
 			}
 		})
 	}
-	if domainFacts != 5 { // every resolver method with a schema field; not helper, not Orphan
-		t.Errorf("got %d domain facts, want 5", domainFacts)
+	// 11 resolver methods with a schema field (not helpers, not Orphan), plus
+	// the whole of kaid.go, whose methods share one domain.
+	if domainFacts != 12 {
+		t.Errorf("got %d domain facts, want 12", domainFacts)
+	}
+	wholeFile := map[string]bool{}
+	for _, f := range facts {
+		if f.Kind == kindDomain && strings.HasPrefix(f.Source.Lines, "1-") {
+			wholeFile[f.Source.Path] = true
+		}
+	}
+	if !wholeFile["resolvers/kaid.go"] || wholeFile["resolvers/guards.go"] {
+		t.Errorf(
+			"whole-file domain facts = %v, want kaid.go only (guards.go spans two domains)",
+			wholeFile,
+		)
+	}
+}
+
+// TestCatchAllSchemas: a schema file names no domain only when it holds
+// most methods and spreads over many resolver files.
+func TestCatchAllSchemas(t *testing.T) {
+	// layout builds one resolver file per method; schemaOf[i] declares
+	// method i's field.
+	layout := func(schemaOf ...string) (schemaIndex, []*source, [][]resolverMethod) {
+		idx := schemaIndex{}
+		files := make([]*source, len(schemaOf))
+		methods := make([][]resolverMethod, len(schemaOf))
+		for i, schemaFile := range schemaOf {
+			name := "M" + strings.Repeat("x", i)
+			idx["Query"] = append(idx["Query"], schemaField{name: name, file: schemaFile})
+			files[i] = &source{name: "resolvers/" + name + ".go"}
+			methods[i] = []resolverMethod{{typeName: "Query", method: name}}
+		}
+		return idx, files, methods
+	}
+	repeat := func(file string, n int) []string {
+		out := make([]string, n)
+		for i := range out {
+			out[i] = file
+		}
+		return out
+	}
+	cases := map[string]struct {
+		schemaOf []string
+		want     bool // schema.graphql is a catch-all
+	}{
+		"dominant and spread": {
+			append(repeat("schema.graphql", 10), repeat("user.graphql", 2)...), true,
+		},
+		"dominant in few files": {append(repeat("schema.graphql", 5), "user.graphql"), false},
+		"spread but not dominant": {
+			append(repeat("schema.graphql", 10), repeat("user.graphql", 10)...), false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			idx, files, methods := layout(tc.schemaOf...)
+			if got := catchAllSchemas(idx, files, methods)["schema.graphql"]; got != tc.want {
+				t.Fatalf("catch-all = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestAccessPredicates: only the exported bool-first functions of an
+// access package are checks.
+func TestAccessPredicates(t *testing.T) {
+	names, err := goSources(testInputs("en").Service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sources, _ := parseSources(testInputs("en").Service, names)
+	got := accessPredicates(sources, []string{"permissions"})
+	cases := map[string]bool{
+		"permissions.UserCanViewEmails": true,
+		"permissions.LoadVisibleEmails": false, // a loader
+		"permissions.canSee":            false, // unexported
+		"resolvers.helper":              false, // not an access package
+	}
+	for name, want := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got[name] != want {
+				t.Fatalf("predicate %s = %v, want %v", name, got[name], want)
+			}
+		})
 	}
 }

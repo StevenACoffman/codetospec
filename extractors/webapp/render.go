@@ -14,6 +14,7 @@ import (
 type wording struct {
 	and, or                     string
 	holdsFmt, notHoldsFmt       string // %s: Go source
+	failsFmt, succeedsFmt       string // %s: Go source of a call
 	loggedIn, notLoggedIn       string
 	nonPhantom                  string
 	currentUserFmt, notCurrFmt  string // %s: user expression
@@ -23,6 +24,7 @@ type wording struct {
 	scopeAny                    string
 	serviceAdmin, notSvcAdmin   string
 	rejectFmt                   string // %s condition, %s operation, %s error clause
+	emptyFmt                    string // %s condition, %s operation
 	withErrFmt                  string // %s error name
 	openFmt                     string // %s operation
 	titleFmt                    string // %s operation
@@ -42,6 +44,8 @@ func wordingFor(lang string) wording {
 		or:             tr("OU", "OR"),
 		holdsFmt:       tr("`%s` est vrai", "`%s` holds"),
 		notHoldsFmt:    tr("`%s` est faux", "`%s` does not hold"),
+		failsFmt:       tr("`%s` échoue", "`%s` fails"),
+		succeedsFmt:    tr("`%s` réussit", "`%s` succeeds"),
 		loggedIn:       tr("l'appelant est connecté", "the caller is logged in"),
 		notLoggedIn:    tr("l'appelant n'est pas connecté", "the caller is not logged in"),
 		nonPhantom:     tr(" avec un compte non fantôme", " with a non-phantom account"),
@@ -81,6 +85,10 @@ func wordingFor(lang string) wording {
 			"SI %s, ALORS le systeme doit rejeter %s%s.",
 			"IF %s, THEN the system shall reject %s%s.",
 		),
+		emptyFmt: tr(
+			"SI %s, ALORS le systeme doit ne renvoyer aucune donnée pour %s.",
+			"IF %s, THEN the system shall return no data for %s.",
+		),
 		withErrFmt: tr(" avec l'erreur `%s`", " with the `%s` error"),
 		openFmt: tr(
 			"Le systeme doit autoriser tout appelant à appeler %s.",
@@ -96,12 +104,16 @@ func (w *wording) requirement(fset *token.FileSet, g *guard, operation string) s
 	if g.open {
 		return fmt.Sprintf(w.openFmt, operation)
 	}
-	errClause := ""
-	if g.errName != "" {
-		errClause = fmt.Sprintf(w.withErrFmt, g.errName)
+	r := renderer{w: w, fset: fset, bindings: g.bindings, failures: g.failures}
+	cond := r.cond(g.cond, false)
+	switch g.outcome {
+	case outcomeEmpty:
+		return fmt.Sprintf(w.emptyFmt, cond, operation)
+	case outcomeError:
+		return fmt.Sprintf(w.rejectFmt, cond, operation, fmt.Sprintf(w.withErrFmt, g.errName))
+	case outcomeUnknown:
 	}
-	r := renderer{w: w, fset: fset, bindings: g.bindings}
-	return fmt.Sprintf(w.rejectFmt, r.cond(g.cond, false), operation, errClause)
+	return fmt.Sprintf(w.rejectFmt, cond, operation, "")
 }
 
 // renderer turns a guard condition into prose.
@@ -109,6 +121,7 @@ type renderer struct {
 	w        *wording
 	fset     *token.FileSet
 	bindings map[string]*ast.CallExpr
+	failures map[string]*ast.CallExpr
 }
 
 // cond renders e, negated when negate is set (De Morgan for && and ||).
@@ -128,6 +141,13 @@ func (r renderer) cond(e ast.Expr, negate bool) string {
 				word = r.w.and
 			}
 			return r.operand(x.X, x.Op, negate) + " " + word + " " + r.operand(x.Y, x.Op, negate)
+		}
+		if name, ok := nilComparison(x); ok && r.failures[name] != nil {
+			format := r.w.succeedsFmt
+			if (x.Op == token.NEQ) != negate {
+				format = r.w.failsFmt
+			}
+			return fmt.Sprintf(format, r.source(r.failures[name]))
 		}
 	case *ast.Ident:
 		if call, ok := r.bindings[x.Name]; ok {
@@ -262,5 +282,11 @@ func (r renderer) source(e ast.Expr) string {
 	if err := printer.Fprint(&b, r.fset, e); err != nil {
 		return "?"
 	}
-	return b.String()
+	return sourceLine(b.String())
+}
+
+// sourceLine joins a multi-line call's source into one line:
+// "f(\n\tktx,\n\tx,\n)" → "f(ktx, x)".
+func sourceLine(src string) string {
+	return strings.NewReplacer("( ", "(", ", )", ")", " )", ")").Replace(oneLine(src))
 }

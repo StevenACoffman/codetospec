@@ -60,3 +60,22 @@ func TestRenderCondition(t *testing.T) {
 		})
 	}
 }
+
+func TestSourceLine(t *testing.T) {
+	const flat = "f(a, b)"
+	cases := map[string]struct{ src, want string }{
+		"single line": {flat, flat},
+		"args on their own lines": {
+			"acl.ActorHasPermissionErr(\n\tktx, capabilities.CanEditContent, acl.AnyScope)",
+			"acl.ActorHasPermissionErr(ktx, capabilities.CanEditContent, acl.AnyScope)",
+		},
+		"trailing comma": {"f(\n\ta,\n\tb,\n)", flat},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := sourceLine(tc.src); got != tc.want {
+				t.Fatalf("sourceLine(%q) = %q, want %q", tc.src, got, tc.want)
+			}
+		})
+	}
+}

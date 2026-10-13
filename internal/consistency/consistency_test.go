@@ -131,3 +131,38 @@ func TestFindDuplicatesReadsEnglishRules(t *testing.T) {
 		t.Fatalf("distinct English rules paired through their shared label: %v", pairs)
 	}
 }
+
+func TestFindDuplicatesSkipsTwoExtractorRules(t *testing.T) {
+	mechanical := func(id, op string) graph.Node {
+		n := rule(
+			id,
+			"IF the request is not a service-admin query, THEN the system shall reject "+op+".",
+		)
+		n.Extra = map[string]string{graph.ExtraExtractedBy: "webapp"}
+		return n
+	}
+	llm := rule(
+		"rule.d.llm",
+		"IF the request is not a service-admin query, THEN the system shall reject Mutation.a.",
+	)
+	cases := map[string]struct {
+		nodes []graph.Node
+		want  int
+	}{
+		"two extractor rules": {
+			[]graph.Node{
+				mechanical("rule.d.a", "Mutation.a"),
+				mechanical("rule.d.b", "Mutation.b"),
+			},
+			0,
+		},
+		"extractor rule and llm": {[]graph.Node{mechanical("rule.d.a", "Mutation.a"), llm}, 1},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := FindDuplicates(tc.nodes, DefaultThreshold); len(got) != tc.want {
+				t.Fatalf("got %d pairs %v, want %d", len(got), got, tc.want)
+			}
+		})
+	}
+}

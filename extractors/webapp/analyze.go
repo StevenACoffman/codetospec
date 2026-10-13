@@ -29,6 +29,9 @@ type Inputs struct {
 	Supergraph   fs.FS
 	ServiceGraph string // this service's subgraph name, e.g. "USERS"
 	Lang         string // requirement language, "fr" or "en"
+	// AccessPkgs names the service's own access packages (permissions):
+	// their exported functions returning bool first are access checks.
+	AccessPkgs []string
 }
 
 // Analyze derives facts from a webapp service.
@@ -51,7 +54,7 @@ func Analyze(in *Inputs) ([]Fact, []string, error) {
 	sources, parseWarnings := parseSources(fsys, names)
 	warnings = append(warnings, parseWarnings...)
 
-	resolverFacts, resolverWarnings := resolverScan(sources, schema, in.Lang)
+	resolverFacts, resolverWarnings := resolverScan(sources, schema, in)
 	constFacts, constWarnings := constantFacts(in.GOROOT, sources)
 	entFacts, entWarnings := entityFacts(sources)
 	depFacts, depWarnings := dependencyFacts(in, sources)
@@ -64,41 +67,149 @@ func Analyze(in *Inputs) ([]Fact, []string, error) {
 
 // resolverScan derives the rule, domain and route facts of the resolver
 // methods in resolvers/.
-func resolverScan(sources []source, schema schemaIndex, lang string) ([]Fact, []string) {
+func resolverScan(sources []source, schema schemaIndex, in *Inputs) ([]Fact, []string) {
+	var resolverFiles []*source
+	for i := range sources {
+		if path.Dir(sources[i].name) == resolversDir {
+			resolverFiles = append(resolverFiles, &sources[i])
+		}
+	}
+	trees := make([]*ast.File, len(resolverFiles))
+	for i, s := range resolverFiles {
+		trees[i] = s.file
+	}
+	known := checks{predicates: accessPredicates(sources, in.AccessPkgs)}
+	known.helpers = helperPredicates(trees, known)
+	rs := resolverScanner{schema: schema, w: wordingFor(in.Lang)}
+	methods := make([][]resolverMethod, len(resolverFiles))
+	for i, s := range resolverFiles {
+		methods[i] = resolverMethods(s.fset, s.file, known)
+	}
+	rs.catchAll = catchAllSchemas(schema, resolverFiles, methods)
 	var (
 		facts    []Fact
 		warnings []string
 	)
-	w := wordingFor(lang)
-	for i := range sources {
-		s := &sources[i]
-		if path.Dir(s.name) != resolversDir {
-			continue
-		}
-		for _, m := range resolverMethods(s.fset, s.file) {
-			field := schema.lookup(m.typeName, m.method)
-			op := operation{name: m.typeName + "." + field.name, domain: fallbackDomain}
-			if field.file == "" {
-				warnings = append(
-					warnings,
-					fmt.Sprintf("%s: %s.%s matches no schema field", s.name, m.typeName, m.method),
-				)
-			} else {
-				op.domain = domainOf(field.file)
-				facts = append(facts, domainFact(s.name, &m, op.domain))
-				if field.doc != "" {
-					facts = append(facts, docFact(s.name, &m, op.name+": "+field.doc))
-				}
-				if isRootType(m.typeName) {
-					route := routeFact(s.name, &m, &field)
-					op.route = route.ID
-					facts = append(facts, route)
-				}
+	for i, s := range resolverFiles {
+		fileFacts, fileWarnings := rs.scanFile(s, methods[i])
+		facts = append(facts, fileFacts...)
+		warnings = append(warnings, fileWarnings...)
+	}
+	return facts, warnings
+}
+
+// resolverScanner holds what every resolver file is scanned against.
+type resolverScanner struct {
+	schema   schemaIndex
+	catchAll map[string]bool // schema files too broad to name a domain
+	w        wording
+}
+
+// A schema file is a catch-all, naming no domain, when it declares the
+// fields of more than catchAllShare of the service's resolver methods and
+// those methods live in at least catchAllFiles resolver files: districts'
+// schema.graphql declares 92% of its fields across 37 files. The file
+// count keeps a small service from being split by file.
+const (
+	catchAllShare = 0.5
+	catchAllFiles = 10
+)
+
+// catchAllSchemas returns the catch-all schema files; methods[i] are the
+// resolver methods of resolverFiles[i].
+func catchAllSchemas(
+	schema schemaIndex,
+	resolverFiles []*source,
+	methods [][]resolverMethod,
+) map[string]bool {
+	perSchema := make(map[string]int)
+	spread := make(map[string]map[string]bool) // schema file → resolver files
+	total := 0
+	for i, fileMethods := range methods {
+		for j := range fileMethods {
+			f := schema.lookup(fileMethods[j].typeName, fileMethods[j].method)
+			if f.file == "" {
+				continue
 			}
-			facts = append(facts, ruleFacts(s.fset, &w, s.name, &m, &op)...)
+			perSchema[f.file]++
+			total++
+			if spread[f.file] == nil {
+				spread[f.file] = make(map[string]bool)
+			}
+			spread[f.file][resolverFiles[i].name] = true
+		}
+	}
+	catchAll := make(map[string]bool)
+	for file, n := range perSchema {
+		if float64(n) > catchAllShare*float64(total) && len(spread[file]) >= catchAllFiles {
+			catchAll[file] = true
+		}
+	}
+	return catchAll
+}
+
+// domainFor names the domain of a resolver method in file whose field is
+// declared in schemaFile: the schema file, or for a catch-all schema file
+// the resolver file (resolvers/user_district_info.go → user-district-info).
+func (rs *resolverScanner) domainFor(file, schemaFile string) string {
+	if rs.catchAll[schemaFile] {
+		return domainOf(file)
+	}
+	return domainOf(schemaFile)
+}
+
+// scanFile derives the facts of one resolver file's methods, plus a
+// whole-file domain fact when they all share one domain.
+func (rs *resolverScanner) scanFile(s *source, methods []resolverMethod) ([]Fact, []string) {
+	var (
+		facts    []Fact
+		warnings []string
+	)
+	fileDomains := make(map[string]bool)
+	for _, m := range methods {
+		field := rs.schema.lookup(m.typeName, m.method)
+		op := operation{name: m.typeName + "." + field.name, domain: fallbackDomain}
+		if field.file == "" {
+			warnings = append(
+				warnings,
+				fmt.Sprintf("%s: %s.%s matches no schema field", s.name, m.typeName, m.method),
+			)
+		} else {
+			op.domain = rs.domainFor(s.name, field.file)
+			fileDomains[op.domain] = true
+			facts = append(facts, rs.fieldFacts(s.name, &m, &field, &op)...)
+		}
+		facts = append(facts, ruleFacts(s.fset, &rs.w, s.name, &m, &op)...)
+	}
+	if len(fileDomains) == 1 {
+		// The file's helpers serve its resolvers: give the whole file their
+		// domain. Method facts still win (smaller span).
+		for domain := range fileDomains {
+			facts = append(facts, domainFact(s.name, 1, s.fset.Position(s.file.End()).Line, domain))
 		}
 	}
 	return facts, warnings
+}
+
+// fieldFacts derives the facts of a resolver method whose schema field is
+// known: its domain, its documentation and, for a root field, its endpoint
+// (op.route is set to it).
+func (rs *resolverScanner) fieldFacts(
+	file string,
+	m *resolverMethod,
+	field *schemaField,
+	op *operation,
+) []Fact {
+	facts := []Fact{domainFact(file, m.start, m.end, op.domain)}
+	if field.doc != "" {
+		facts = append(facts, docFact(file, m, op.name+": "+field.doc))
+	}
+	if isRootType(m.typeName) {
+		route := routeFact(file, m, field)
+		op.route = route.ID
+		facts = append(facts, route)
+	}
+	return facts
 }
 
 // skippedDirs hold no code the spec cites: dependencies, generated code and
@@ -197,10 +308,10 @@ func sortFacts(facts []Fact) {
 	})
 }
 
-// domainOf names a domain after its schema file: auth_emails.graphql →
-// auth-emails.
-func domainOf(schemaFile string) string {
-	return slugify(strings.TrimSuffix(path.Base(schemaFile), path.Ext(schemaFile)))
+// domainOf names a domain after a file: auth_emails.graphql → auth-emails,
+// resolvers/user_district_info.go → user-district-info.
+func domainOf(name string) string {
+	return slugify(strings.TrimSuffix(path.Base(name), path.Ext(name)))
 }
 
 // docFact attaches a field's schema documentation to its resolver method.
@@ -215,12 +326,13 @@ func docFact(file string, m *resolverMethod, text string) Fact {
 	}
 }
 
-func domainFact(file string, m *resolverMethod, domain string) Fact {
+// domainFact assigns lines start-end of file to domain.
+func domainFact(file string, start, end int, domain string) Fact {
 	return Fact{
 		Kind:      kindDomain,
-		ID:        fmt.Sprintf("domain.webapp.%s:%d", file, m.start),
+		ID:        fmt.Sprintf("domain.webapp.%s:%d-%d", file, start, end),
 		Attrs:     map[string]string{attrDomain: domain},
-		Source:    Ref{Path: file, Lines: lines(m.start, m.end)},
+		Source:    Ref{Path: file, Lines: lines(start, end)},
 		Origin:    origin,
 		Certainty: certain,
 	}
@@ -295,7 +407,7 @@ func ruleFacts(
 		}
 		facts = append(facts, Fact{
 			Kind:      kindRule,
-			ID:        fmt.Sprintf("rule.webapp.authz.%s:%d", file, g.start),
+			ID:        fmt.Sprintf("rule.webapp.authz.%s:%d-%d", file, g.start, g.end),
 			Attrs:     attrs,
 			Source:    Ref{Path: file, Lines: lines(g.start, g.end)},
 			Origin:    origin,

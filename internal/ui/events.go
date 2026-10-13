@@ -105,8 +105,13 @@ type RunFinished struct {
 	DomainsFailed int
 	DomainsTotal  int
 	Extractors    map[string]string
-	TokensMap     llm.Usage
-	TokensReduce  llm.Usage
+	Tokens        []PhaseUsage // this run's, in phase order
+}
+
+// PhaseUsage is the tokens one LLM phase used.
+type PhaseUsage struct {
+	Phase string
+	Usage llm.Usage
 }
 
 // PrintSummary prints the end-of-run summary on stdout (plain mode, and
@@ -124,9 +129,18 @@ func PrintSummary(e RunFinished) {
 		e.Coverage.EntitiesTouched, e.Coverage.EntitiesTotal)
 	fmt.Printf("failures: %d/%d chunks, %d/%d domains\n",
 		e.ChunksFailed, e.ChunksTotal, e.DomainsFailed, e.DomainsTotal)
-	fmt.Printf("tokens: map %d+%d, reduce %d+%d (prompt+completion)\n",
-		e.TokensMap.PromptTokens, e.TokensMap.CompletionTokens,
-		e.TokensReduce.PromptTokens, e.TokensReduce.CompletionTokens)
+	if len(e.Tokens) > 0 {
+		parts := make([]string, len(e.Tokens))
+		for i, t := range e.Tokens {
+			parts[i] = fmt.Sprintf(
+				"%s %d+%d",
+				t.Phase,
+				t.Usage.PromptTokens,
+				t.Usage.CompletionTokens,
+			)
+		}
+		fmt.Printf("tokens this run: %s (prompt+completion)\n", strings.Join(parts, ", "))
+	}
 	if len(e.Extractors) > 0 {
 		names := make([]string, 0, len(e.Extractors))
 		for name := range e.Extractors {

@@ -2,4 +2,5 @@ extend type Mutation {
   """Attach an auth email to a user (service admins only)."""
   addAuthEmail(kaid: String!, authEmail: String!): AddAuthEmail
   addCoachRole(kaid: String!): AddCoachRole
+  enableTotp(kaid: String!): String
 }

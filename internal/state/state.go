@@ -14,10 +14,32 @@ import (
 	"time"
 )
 
-// PhaseTokens accumulates token usage for one phase.
+// PhaseTokens accumulates token usage for one phase: over every run on
+// this output, and over the latest run alone (a warm-cache run costs 0).
 type PhaseTokens struct {
-	Prompt     int `json:"prompt"`
-	Completion int `json:"completion"`
+	Prompt         int `json:"prompt"`
+	Completion     int `json:"completion"`
+	LastPrompt     int `json:"last_prompt"`
+	LastCompletion int `json:"last_completion"`
+}
+
+// Phases lists the LLM phases whose tokens State counts, in run order.
+func Phases() []string {
+	return []string{"map", "reduce", "crosscheck"}
+}
+
+// AddTokens counts one LLM call of phase, in the cumulative and the
+// latest-run counters.
+func (s *State) AddTokens(phase string, prompt, completion int) {
+	t := s.Tokens[phase]
+	if t == nil {
+		t = &PhaseTokens{}
+		s.Tokens[phase] = t
+	}
+	t.Prompt += prompt
+	t.Completion += completion
+	t.LastPrompt += prompt
+	t.LastCompletion += completion
 }
 
 // State is the persisted run state.
@@ -44,7 +66,8 @@ type Store struct {
 }
 
 // Open loads the state file when present, otherwise initializes a fresh
-// state for srcPath.
+// state for srcPath; either way it starts a run, resetting the latest-run
+// token counters.
 func Open(path, srcPath string) (*Store, error) {
 	store := &Store{path: path}
 	data, err := os.ReadFile(path)
@@ -68,10 +91,12 @@ func Open(path, srcPath string) (*Store, error) {
 	if store.s.Tokens == nil {
 		store.s.Tokens = map[string]*PhaseTokens{}
 	}
-	for _, phase := range []string{"map", "reduce", "crosscheck"} {
+	for _, phase := range Phases() {
 		if store.s.Tokens[phase] == nil {
 			store.s.Tokens[phase] = &PhaseTokens{}
 		}
+		store.s.Tokens[phase].LastPrompt = 0
+		store.s.Tokens[phase].LastCompletion = 0
 	}
 	return store, nil
 }

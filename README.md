@@ -189,7 +189,7 @@ Other commands:
 ```sh
 bin/codetospec verify --src <repo> --out <graph>   # re-check citations, exit 1 on violation
 bin/codetospec drift  --src <repo> --out <graph>   # flag rules whose cited code changed, exit 1 on drift
-bin/codetospec stats  --out <graph>                # phase counters and token costs
+bin/codetospec stats  --out <graph>                # phase counters; tokens of the last run and all runs
 ```
 
 Each rule stores a digest of its cited code, so `drift` reports which rules
@@ -198,7 +198,8 @@ matches. `drift --format json` emits a machine-readable summary and exits 1
 on drift, so it drops straight into CI (see `examples/spec-drift.yml`). The
 output README also lists near-duplicate rule candidates (a deterministic
 consistency check, split into intra- and cross-domain) for a reviewer to
-reconcile.
+reconcile; two extractor rules are never paired, since they come from one
+template and name different operations.
 
 `--reduce-mode merge` makes reduce much cheaper: only candidates with a
 near-duplicate (similar requirement or overlapping citation) go to the LLM;
@@ -207,7 +208,9 @@ the others are kept as mapped, without rationale or acceptance criteria.
 Useful flags: `--crosscheck` (adversarial review pass), `--repair` (fix
 flagged citations, needs a SCIP index), `--domain-depth N` (split a repo that
 lives under one root namespace into `core-controller`, `core-server`… instead
-of one mega-domain), `--workers N` (map
+of one mega-domain; a namespace declared in several directories, such as
+Go's `main` for every `cmd/<tool>`, is never one domain: each file takes its
+directory's, `cmd-seedroster`), `--workers N` (map
 parallelism), `--max-tokens N` (raise it if a large domain truncates its
 reduce output), `--lang fr|en` (output language: EARS requirements, node labels, README and
 llms.txt; default `fr`),

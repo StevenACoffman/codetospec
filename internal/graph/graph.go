@@ -80,6 +80,9 @@ const (
 // TypeRule is the Node.Type of a business rule.
 const TypeRule = "rule"
 
+// TypeDomain is the node type of a domain.
+const TypeDomain = "domain"
+
 // StatusGenerated is the only node status in v0.1.
 const StatusGenerated = "generated"
 
@@ -100,6 +103,7 @@ func Build(
 	nodes = append(nodes, endpointNodes(facts, text)...)
 
 	ruleNodes, domainNodes := ruleAndDomainNodes(reduced, facts, text)
+	linkHandlers(ruleNodes, facts)
 	domainDeps := domainDependencies(facts, resolver, domainNodes)
 	namespaces := namespaceByPath(facts)
 	services, serviceDeps := serviceNodes(facts, func(path string) string {
@@ -128,10 +132,20 @@ func EntityID(f extract.Fact) string {
 	return "entity." + extract.Slugify(name)
 }
 
-// EndpointID derives the node id for a route fact.
+// rootPathSlug names the path "/" in an endpoint id, which would
+// otherwise slug to nothing (endpoint. and a hidden nodes/endpoints/.md).
+const rootPathSlug = "root"
+
+// EndpointID derives the node id for a route fact: its verb and path,
+// slugged. Paths differing only by punctuation share an id (/graphql and
+// /graphql/); changing that would rename existing endpoints.
 func EndpointID(f extract.Fact) string {
 	verb := strings.ToLower(routeVerb(f))
-	return "endpoint." + extract.Slugify(verb+" "+f.Attrs["path"])
+	path := f.Attrs["path"]
+	if extract.Slugify(path) == "" {
+		path = rootPathSlug
+	}
+	return "endpoint." + extract.Slugify(verb+" "+path)
 }
 
 func routeVerb(f extract.Fact) string {
@@ -192,7 +206,7 @@ func splitColumns(columns string) []string {
 func endpointNodes(facts []extract.Fact, text *locale.Text) []Node {
 	var nodes []Node
 	for _, f := range facts {
-		if f.Kind != "route" {
+		if f.Kind != extract.KindRoute {
 			continue
 		}
 		verb := strings.ToUpper(routeVerb(f))
@@ -302,8 +316,8 @@ func reducedRuleNode(domain string, rule *reducer.Rule, text *locale.Text) Node 
 
 	sources := append([]extract.Ref(nil), rule.Citations...)
 	sort.SliceStable(sources, func(i, j int) bool {
-		if sources[i].Path != sources[j].Path {
-			return sources[i].Path < sources[j].Path
+		if sources[i].File() != sources[j].File() {
+			return sources[i].File() < sources[j].File()
 		}
 		return sources[i].Lines < sources[j].Lines
 	})

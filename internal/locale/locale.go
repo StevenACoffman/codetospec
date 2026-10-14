@@ -41,6 +41,7 @@ type Labels struct {
 	DomainTitleFmt          string // %s: domain slug
 	ServiceTitleFmt         string // %s: external service slug
 	OperationsCalled        string // heading over a service's called operations
+	AsServiceAdminNote      string // after a call made as a service-admin query
 	RulesHeading            string // markdown heading over a domain's rule list
 	SourcesLabel, LinksLead string // node file footer
 }
@@ -68,6 +69,7 @@ type ReadmeCoverage struct {
 	EndpointsCoveredFmt, EntitiesCoveredFmt string // %d/%d (%s percent)
 	ChunksFailedFmt, DomainsFailedFmt       string // %d/%d
 	NoGrammarFmt, ExtractorsFailedFmt       string // %s: comma-separated list
+	GeneratedFmt                            string // %d generated files
 	CrosscheckFmt                           string // %d supported, partial, unsupported
 	RepairedFmt, UncheckedFmt               string // %d, appended to CrosscheckFmt
 	MechanicalFmt                           string // %d, appended to CrosscheckFmt
@@ -173,6 +175,10 @@ func newLabels(tr translate) Labels {
 		),
 		ServiceTitleFmt:  tr("Service %s", "Service %s"),
 		OperationsCalled: tr("## Opérations appelées", "## Operations called"),
+		AsServiceAdminNote: tr(
+			" (requête service-admin)",
+			" (service-admin query)",
+		),
 		DomainTitleFmt: tr(
 			"Domaine %s",
 			"Domain %s",
@@ -263,6 +269,10 @@ func newReadmeCoverage(tr translate) ReadmeCoverage {
 		NoGrammarFmt: tr(
 			"- Fichiers sans grammaire (fallback lignes) : %s",
 			"- Files without a grammar (line-window fallback): %s",
+		),
+		GeneratedFmt: tr(
+			"- Fichiers générés (non analysés, marqueur « Code generated … DO NOT EDIT. ») : %d",
+			"- Generated files (not mapped, \"Code generated … DO NOT EDIT.\" header): %d",
 		),
 		ExtractorsFailedFmt: tr(
 			"- Extracteurs en échec : %s",

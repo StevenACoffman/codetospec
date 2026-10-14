@@ -10,6 +10,9 @@
 //     file that declares its field (auth_emails.graphql → auth-emails).
 //
 // Usage: extract -root <service dir> [-lang fr|en]
+//
+//	extract -all -root <webapp checkout> [-lang fr|en]: every Go service,
+//	consolidated relative to the checkout (see AnalyzeAll).
 package main
 
 import (
@@ -50,14 +53,30 @@ func run(args []string, stdout, stderr io.Writer) int {
 		"",
 		"this service's subgraph name (default: upper-cased root name)",
 	)
+	webapp := flags.String(
+		"webapp",
+		"",
+		"webapp checkout, whose pkg/ marks shared checkers (default: <root>/../.. when it has pkg/)",
+	)
 	accessPkgs := flags.String("access-pkgs", "permissions",
 		"comma-separated service packages whose bool functions are access checks")
+	all := flags.Bool("all", false,
+		"analyze every Go service of the webapp checkout -root, consolidated")
 	if err := flags.Parse(args); err != nil {
 		return exitUsage
 	}
 	if *root == "" || (*lang != "fr" && *lang != "en") {
 		logf("-root is required and -lang must be fr or en")
 		return exitUsage
+	}
+	if *all {
+		facts, warnings, err := AnalyzeAll(&AllInputs{
+			Webapp:     os.DirFS(*root),
+			GOROOT:     os.DirFS(build.Default.GOROOT),
+			Lang:       *lang,
+			AccessPkgs: strings.Split(*accessPkgs, ","),
+		})
+		return emit(facts, warnings, err, stdout, logf)
 	}
 
 	in := Inputs{
@@ -77,7 +96,28 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if _, statErr := os.Stat(filepath.Join(dir, composedSchemaFile)); statErr == nil {
 		in.Supergraph = os.DirFS(dir)
 	}
+	webappDir := *webapp
+	if webappDir == "" {
+		webappDir = filepath.Join(*root, "..", "..")
+	}
+	if info, statErr := os.Stat(
+		filepath.Join(webappDir, sharedDir),
+	); statErr == nil &&
+		info.IsDir() {
+		in.Webapp = os.DirFS(webappDir)
+	}
 	facts, warnings, err := Analyze(&in)
+	return emit(facts, warnings, err, stdout, logf)
+}
+
+// emit logs warnings and writes the envelope, returning the exit code.
+func emit(
+	facts []Fact,
+	warnings []string,
+	err error,
+	stdout io.Writer,
+	logf func(string, ...any),
+) int {
 	for _, w := range warnings {
 		logf("%s", w)
 	}

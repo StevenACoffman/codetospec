@@ -6,7 +6,13 @@ package main
 type Ref struct {
 	Path  string `json:"path"`
 	Lines string `json:"lines"`
+	// Root names the tree Path is in when it is not the service: webappRoot
+	// for webapp's shared pkg/ (codetospec --ref-root webapp=<checkout>).
+	Root string `json:"root,omitempty"`
 }
+
+// webappRoot is the citation root of webapp's shared code.
+const webappRoot = "webapp"
 
 // Fact is one mechanically derived statement about the codebase.
 type Fact struct {
@@ -54,4 +60,11 @@ const (
 	attrText        = "text"
 	attrService     = "service"
 	attrOperation   = "operation"
+	attrAs          = "as" // a dependency's authority: asServiceAdmin, asUser
+)
+
+// Values of attrAs (codetospec's extract.AsServiceAdmin, extract.AsUser).
+const (
+	asServiceAdmin = "service-admin"
+	asUser         = "user"
 )

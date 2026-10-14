@@ -32,6 +32,12 @@ Pipeline : `extract → chunk → map → reduce → crosscheck(+repair) → bui
   appel map (~570 tokens) domine les petites fonctions.
   Ajouter un langage = grammaire + fichier query, zéro modif du cœur.
 - `internal/extract` — modèle Fact, fusion, protocole extracteurs externes.
+  Piège : `Merge` déduplique par ID et un fait `module` a l'ID
+  `module.<nom>` — il n'en reste qu'un par nom. Tout calcul « par fichier »
+  (ex. `AmbiguousNamespaces`, les `main` Go de chaque `cmd/`) lit donc le
+  `fileInfo` tree-sitter, pas les faits fusionnés ; le tester par le vrai
+  chemin (`sitter.Parse` → `UniversalFacts` → `Merge`), pas avec des faits
+  construits à la main.
 - `internal/{mapper,reducer,crosscheck}` — phases LLM, chacune valide
   mécaniquement sa sortie (2 corrections max puis échec tracé). Le map préfixe
   chaque ligne du code de son numéro absolu (`numberedContent`) : sinon le
@@ -58,7 +64,22 @@ Pipeline : `extract → chunk → map → reduce → crosscheck(+repair) → bui
   `main` pour éviter le cycle grounding → graph → mapper) : une réponse aux
   règles non fondées reçoit un échange de correction, adopté seulement s'il
   est meilleur (jamais pire ; `mapper/ground.go`). Ce texte de correction
-  n'entre pas dans `promptKey` : le cache map reste valide.
+  n'entre pas dans `promptKey` : le cache map reste valide ; `--reground`
+  rejoue l'échange sur les sorties en cache, une fois chacune (champ
+  `regrounded` de la sortie). Une citation seulement trop étroite est
+  élargie sans LLM (`grounding.Annotate`, `widening`) : valeur présente à
+  une seule autre ligne du fichier, à ≤ 30 lignes, pas un chiffre seul ;
+  tracée dans `grounding_widened`.
+- `internal/graph/handlers.go` — lien mécanique règle → endpoint
+  (`exposed_by`) quand une citation recouvre le code du handler
+  (`handler_path` + `handler_lines` d'un fait `route`) : tient sur cache
+  chaud, où le map n'est jamais re-demandé (les listes d'endpoints autorisés
+  ne sont pas dans `promptKey`).
+- `extract.Roots` — seule lecture des fichiers cités : `--src`, plus les
+  arbres `--ref-root nom=dir` qu'une citation nomme (`Ref.Root`, réservé
+  aux règles d'extracteur : le `pkg/` partagé de webapp). Grounding, drift,
+  verify passent par elle ; `Ref.File()` (`@nom/chemin`) sert de clé et
+  d'affichage. Un `Root` vide ne change rien (digests, goldens, caches).
 - `internal/communities` — domaines « dispersés » : communautés du graphe
   d'imports (Louvain de gonum + composantes connexes, graine fixe), section
   du README de sortie. gonum est épinglé : une montée de version peut
@@ -80,7 +101,8 @@ hors de ce jeu. Le convertisseur SCIP émet des facts `symbol` avec
 
 Faits `constant` (grounding : `400` ↔ `http.StatusBadRequest`), `doc`
 (section `SCHEMA_DOCS` du map), `dependency` (nœuds `service` +
-`depends_on`) et `route.handler_path` complètent le contrat. Le reduce a un
+`depends_on` ; `as` = `service-admin` | `user`, l'autorité de l'appel) et
+`route.handler_path` complètent le contrat. Le reduce a un
 mode `--reduce-mode merge` (`reducer.ModeMerge`) : seuls les candidats en
 cluster (Jaccard ≥ 0,6 ou citations chevauchantes, `internal/textsim`) vont
 au LLM.

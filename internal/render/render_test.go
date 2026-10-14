@@ -238,6 +238,7 @@ func TestWriteEnglish(t *testing.T) {
 	meta := testMeta()
 	meta.Lang = "en"
 	meta.DomainSplits = []communities.Split{{Domain: "main", Communities: 2, Files: 6}}
+	meta.FilesGenerated = 4
 	if err := Write(outDir, testNodes(), meta); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -252,6 +253,7 @@ func TestWriteEnglish(t *testing.T) {
 				"# Generated specification", "## Coverage", "- Adversarial crosscheck:",
 				", 1 unchecked", "## Ungrounded rules", "## Domains",
 				"## Scattered domains", "- `main`: 6 files in 2 communities",
+				"- Generated files (not mapped, \"Code generated … DO NOT EDIT.\" header): 4",
 			},
 			notWant: []string{"Spécification", "Couverture", "Domaines", "non vérifiées"},
 		},
@@ -283,5 +285,88 @@ func TestWriteEnglish(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestParseNodeKeepsWidenedCitations(t *testing.T) {
+	n := testNodes()[0]
+	n.Extra = map[string]string{
+		"grounding":                 "grounded",
+		graph.ExtraGroundingWidened: "a.go:10-10, a.go:12-12",
+	}
+	md := NodeMarkdown(n, locale.For("en"))
+	if !strings.Contains(md, `grounding_widened: "a.go:10-10, a.go:12-12"`) {
+		t.Fatalf("frontmatter lacks grounding_widened:\n%s", md)
+	}
+	parsed, err := ParseNode(md)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := parsed.Extra[graph.ExtraGroundingWidened]; got != n.Extra[graph.ExtraGroundingWidened] {
+		t.Fatalf("grounding_widened = %q after round trip", got)
+	}
+}
+
+// TestParseNodeKeepsCitationRoot: a citation outside --src keeps its root
+// through the frontmatter, and the body names it @root/path.
+func TestParseNodeKeepsCitationRoot(t *testing.T) {
+	n := testNodes()[0]
+	shared := extract.Ref{Path: "pkg/web/serve/x.go", Lines: "3-9", Root: "webapp"}
+	n.Sources = append(n.Sources, shared)
+	md := NodeMarkdown(n, locale.For("en"))
+	if !strings.Contains(md, "`@webapp/pkg/web/serve/x.go:3-9`") {
+		t.Fatalf("body does not name the rooted citation:\n%s", md)
+	}
+	parsed, err := ParseNode(md)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rooted := 0
+	for _, src := range parsed.Sources {
+		if src.Root != "" {
+			rooted++
+			if src != shared {
+				t.Fatalf("citation after round trip = %+v, want %+v", src, shared)
+			}
+		}
+	}
+	if rooted != 1 || len(parsed.Sources) != len(n.Sources) {
+		t.Fatalf("sources after round trip = %+v", parsed.Sources)
+	}
+}
+
+func TestDomainDiagramGroupsSplitNamespaces(t *testing.T) {
+	const goMain = "main" // Go's command package, split by directory
+	domain := func(slug string, dependsOn ...string) graph.Node {
+		n := graph.Node{ID: "domain." + slug, Type: graph.TypeDomain}
+		for _, d := range dependsOn {
+			n.Edges = append(n.Edges, graph.Edge{Type: graph.EdgeDependsOn, To: "domain." + d})
+		}
+		return n
+	}
+	nodes := []graph.Node{
+		domain("cmd-backfill", "models", "cmd-seed"),
+		domain("cmd-seed", "models"),
+		domain("models", "cmd-seed"),
+		domain("tasks-main", "models"), // a group of one: drawn plain
+	}
+	groups := map[string]string{"cmd-backfill": goMain, "cmd-seed": goMain, "tasks-main": "tasks"}
+	got := domainDiagram(nodes, groups)
+	for _, want := range []string{
+		"  subgraph group_main[\"main\"]\n    cmd_backfill[\"cmd-backfill\"]\n    cmd_seed[\"cmd-seed\"]\n  end\n",
+		"  group_main --> models\n",
+		"  models --> cmd_seed\n",
+		"  tasks_main[\"tasks-main\"]\n",
+		"  tasks_main --> models\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("diagram lacks %q:\n%s", want, got)
+		}
+	}
+	if n := strings.Count(got, "group_main --> models"); n != 1 {
+		t.Errorf("group arrow drawn %d times, want once:\n%s", n, got)
+	}
+	if strings.Contains(got, "group_main --> cmd_seed") {
+		t.Errorf("arrow within the group drawn:\n%s", got)
 	}
 }

@@ -67,7 +67,11 @@ func setup(r *gin.Engine, a Adapter) {
 }
 `
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module srv\n\ngo 1.26\n"), 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(dir, "go.mod"),
+		[]byte("module srv\n\ngo 1.26\n"),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "server.go"), []byte(src), 0o644); err != nil {
@@ -107,7 +111,8 @@ func setup(r *gin.Engine, a Adapter) {
 		}
 	}
 	// The method-value handler must resolve to the receiver type.
-	if h := got["POST /webhook/apple"]; h != "server.Adapter.WebHookApple" && h != "Adapter.WebHookApple" {
+	if h := got["POST /webhook/apple"]; h != "server.Adapter.WebHookApple" &&
+		h != "Adapter.WebHookApple" {
 		t.Errorf("POST /webhook/apple handler = %q, want ...Adapter.WebHookApple", h)
 	}
 }
@@ -118,4 +123,22 @@ func keys(m map[string]string) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// TestInDir: a route registered under a skipped directory, at any depth,
+// is not an entry point.
+func TestInDir(t *testing.T) {
+	skip := dirSet(" testutil , ")
+	cases := map[string]bool{
+		"testutil/hcaptcha.go":              true,
+		"translation/testutil/testsuite.go": true,
+		"handlers/pubsub_handler.go":        false,
+		"testutil.go":                       false,
+		"handlers/testutilities/x.go":       false,
+	}
+	for file, want := range cases {
+		if got := inDir(file, skip); got != want {
+			t.Errorf("inDir(%q) = %v, want %v", file, got, want)
+		}
+	}
 }

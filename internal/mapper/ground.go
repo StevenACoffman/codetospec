@@ -26,18 +26,19 @@ const regroundRepairs = 1
 //
 // Requires: payload passed validate; msgs is the conversation that produced
 // it.
-// Ensures:  usage counts every call made, including rejected ones.
+// Ensures:  returns the payload to keep, the usage of every call made
+// (rejected ones included), and whether there was anything to correct.
 func (m *Mapper) reground(
 	ctx context.Context,
 	msgs []llm.Message,
 	payload mapPayload,
 	chunk *sitter.Chunk,
 	validate func(reply string) (mapPayload, error),
-) (mapPayload, llm.Usage) {
+) (mapPayload, llm.Usage, bool) {
 	var usage llm.Usage
 	misses := m.misses(payload, chunk)
 	if len(misses) == 0 {
-		return payload, usage
+		return payload, usage, false
 	}
 	conversation := append(append([]llm.Message(nil), msgs...),
 		llm.Message{Role: "assistant", Content: mustJSON(payload)},
@@ -47,9 +48,9 @@ func (m *Mapper) reground(
 		func(u llm.Usage) { usage.Add(u) }, validate)
 	if err != nil || len(fixed.Rules) < len(payload.Rules) ||
 		len(m.misses(fixed, chunk)) >= len(misses) {
-		return payload, usage
+		return payload, usage, true
 	}
-	return fixed, usage
+	return fixed, usage, true
 }
 
 // miss is one rule whose requirement states values its citations lack.

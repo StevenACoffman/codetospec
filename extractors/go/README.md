@@ -11,7 +11,18 @@ Extracteur natif codetospec pour l'écosystème Go, sur le protocole
   (`mux.HandleFunc("GET /x", h)`), plus `Handle(method, path, …)` et
   `Any`. Les préfixes de groupe (`api := r.Group("/api")`) sont résolus, et
   le handler est nommé via l'information de type (`pkg.Func`,
-  `Type.Méthode`).
+  `Type.Méthode`). Son code est localisé (`handler_path`, `handler_lines` :
+  la déclaration de la fonction) à travers les formes d'enregistrement
+  courantes : fonction ou méthode, closure qui appelle une seule fonction
+  (`func(w, r) { handleX(w, r) }`), conversion `http.HandlerFunc(h)`,
+  enveloppe qui reçoit le handler (`withAuth(h)`) ; une autre closure est
+  elle-même le handler. codetospec relie alors à l'endpoint toute règle qui
+  cite ce code. Un handler hors du module (`playground.Handler(…)`) a pour
+  code l'enregistrement lui-même, le code le plus proche qui sert la route.
+  `-skip-dirs testutil` (liste séparée par des virgules, vide par défaut)
+  écarte les routes enregistrées sous ces dossiers, à toute profondeur :
+  les serveurs factices des aides de test (`testutil/hcaptcha.go`) ne sont
+  pas des points d'entrée. `scanwebapp.sh` le passe.
 - **Tables** (`table`) : `CREATE TABLE` des fichiers `.sql` (schéma sqlc,
   migrations), avec colonnes typées ; les contraintes de table sont ignorées.
 

@@ -96,14 +96,19 @@ the LLM inside a loop it does not control:
   number (`30`, `1 000`, `10 %` ↔ `0.1`, read with the `--lang` decimal
   separator: `1,5` in French, `1,000` = one thousand in English) and quoted
   string in a rule's requirement must occur in its cited lines (a call quoted
-  on one line matches the same call split over several). The map step checks
+  on one line matches the same call split over several lines, or spaced
+  differently around operators). The map step checks
   this as it goes: a reply with ungrounded rules gets one correction
   exchange, kept only if it is valid, keeps every rule and grounds more of
-  them (cached map outputs are not re-asked). A rule that still states a
-  value its citation lacks is marked `grounding: ungrounded` and listed in
-  the output README, with where the value does appear in the file (usually
-  where the citation should point). A rule with nothing checkable is
-  `unchecked`, never counted as a pass.
+  them (cached map outputs are re-asked only with `--reground`, once each).
+  A citation that is merely too narrow is widened without an LLM: when every
+  missing value occurs at exactly one other line of the file, within 30
+  lines of the citation (and is not a lone digit), that line is added and
+  listed in `grounding_widened`. A rule that still states a value its
+  citation lacks is marked `grounding: ungrounded` and listed in the output
+  README, with where the value does appear in the file (usually where the
+  citation should point). A rule with nothing checkable is `unchecked`,
+  never counted as a pass.
 - **Flagged rules are repaired, not just flagged** (`--repair`, needs a SCIP
   index): a rule the reviewer rejected gets one chance to re-cite the exact
   span of a precise symbol that implements it. The new citation is accepted
@@ -124,6 +129,9 @@ lives in three layers:
    `.scm` query files — adding a language means adding a grammar and one
    query file, zero core changes. PHP, Go, JavaScript, TypeScript/TSX and
    Rust ship out of the box; unknown files fall back to line-window chunks.
+   Files whose header says `// Code generated … DO NOT EDIT.` (Go's
+   convention, before the first code line) keep their facts but are not
+   mapped; the output README counts them.
 2. **External native extractors** (ecosystem semantics): standalone
    executables speaking a small JSON protocol, free to use the target
    ecosystem's own tooling. Three ship today — PHP/Laravel (routes, schema
@@ -207,7 +215,9 @@ template and name different operations. It also lists **scattered domains**:
 domains whose files fall into several communities of the import graph
 (gonum's Louvain, split into connected parts, fixed seed), a sign a domain
 lumps unrelated code together (every Go `main` package, a catch-all schema
-file).
+file). A route fact may carry its handler's code span (`handler_path`,
+`handler_lines`): any rule citing that span is linked to the endpoint
+(`exposed_by`) without the LLM, so the link holds on a warm cache.
 
 `--reduce-mode merge` makes reduce much cheaper: only candidates with a
 near-duplicate (similar requirement or overlapping citation) go to the LLM;
@@ -218,12 +228,16 @@ flagged citations, needs a SCIP index), `--domain-depth N` (split a repo that
 lives under one root namespace into `core-controller`, `core-server`… instead
 of one mega-domain; a namespace declared in several directories, such as
 Go's `main` for every `cmd/<tool>`, is never one domain: each file takes its
-directory's, `cmd-seedroster`), `--workers N` (map
+directory's, `cmd-seedroster`, and the README's domain map draws those
+together in one box), `--reground` (give cached map outputs with ungrounded
+rules one correction exchange), `--workers N` (map
 parallelism), `--max-tokens N` (raise it if a large domain truncates its
 reduce output), `--lang fr|en` (output language: EARS requirements, node labels, README and
 llms.txt; default `fr`),
 `--exclude 'vendor,node_modules,*.md,*.csv'` (directory names and
-file globs), `--facts extra.facts.json` (inject facts from anywhere).
+file globs), `--facts extra.facts.json` (inject facts from anywhere),
+`--ref-root name=dir` (repeatable; also on `verify` and `drift`: an extra
+source tree extractor rules may cite, see below).
 
 ## Output
 
@@ -284,7 +298,21 @@ Two more kinds let an extractor contribute beyond structure (contract in
   the LLM reviewer), are listed to the map prompt as `MECHANICAL_RULES` so the
   model does not restate them, and are grounded like any rule.
   An optional attr `route` (a route fact id) links the rule to that
-  endpoint (`exposed_by`).
+  endpoint (`exposed_by`). Its `source` may carry `"root": "<name>"`: the
+  citation is then in the tree given by `--ref-root <name>=dir`, not
+  `--src` — shared code the analyzed one builds on (a monorepo's `pkg/`).
+  Such a rule is grounded, digested and verified against that tree, shown
+  as `@<name>/path:lines`, and kept as `root:` in the frontmatter; a root
+  not given is a `verify` violation and a `drift` "broken" rule. Only
+  extractor rules carry a root (chunks come from `--src`).
+
+For Khan webapp, `scanwebapp-authz.sh` lists the authorization rules of every
+Go service at once (no LLM): `extractors/webapp -all` on the checkout, the Go
+extractor per service, then `scripts/authzall.py` writes `authz.html` (the
+authzview page), `authz.csv` and `authz.md` into `~/authz-webapp`.
+
+An endpoint's node id is its verb and path, slugged (`endpoint.safelist-add`);
+the path `/` is `root` (`endpoint.root`, `endpoint.get-root`).
 - `domain` — attr `domain` assigns the code in `source` to a domain,
   overriding the domain strategy for chunks starting there.
 - `constant` — attrs `name` (as written in code, e.g.
@@ -295,7 +323,8 @@ Two more kinds let an extractor contribute beyond structure (contract in
 - `dependency` — attrs `service` and `operation`: the code at `source`
   calls an operation another service owns. Each service becomes a
   `service` node listing the calls, and calling domains get `depends_on`
-  edges to it.
+  edges to it. Optional `as` (`service-admin` | `user`): the authority the
+  call is made with; service-admin calls are marked on the service node.
 
 A `route` fact may carry `handler_path` (the handler's file): its chunks may
 then cite the endpoint, without matching handler names to symbols.

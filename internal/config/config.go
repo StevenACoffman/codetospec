@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"codetospec/internal/extract"
 )
 
 // Extractor configures one external facts extractor command.
@@ -47,7 +49,10 @@ type fileConfig struct {
 
 // Config is the resolved configuration for one command invocation.
 type Config struct {
-	Src            string
+	Src string
+	// RefRoots are the extra source trees extractor rules may cite, by
+	// root name (--ref-root name=dir): webapp's shared pkg/ for a service.
+	RefRoots       map[string]string
 	Out            string
 	BaseURL        string
 	APIKey         string
@@ -64,6 +69,7 @@ type Config struct {
 	NoTUI          bool
 	Crosscheck     bool
 	Repair         bool
+	Reground       bool
 	ReduceBatch    int
 	ReduceMode     string // "full" or "merge" (see reducer.ModeMerge)
 	Format         string // drift output format: "text" | "json"
@@ -82,6 +88,49 @@ func (l *stringList) Set(v string) error {
 	return nil
 }
 
+// refRoots is the --ref-root flag: name=dir pairs, repeatable.
+type refRoots map[string]string
+
+func (r refRoots) String() string {
+	pairs := make([]string, 0, len(r))
+	for name, dir := range r {
+		pairs = append(pairs, name+"="+dir)
+	}
+	slices.Sort(pairs)
+	return strings.Join(pairs, ",")
+}
+
+func (r refRoots) Set(v string) error {
+	name, dir, ok := strings.Cut(v, "=")
+	switch {
+	case !ok || name == "" || dir == "":
+		return fmt.Errorf("--ref-root %q: want name=dir", v)
+	case r[name] != "":
+		return fmt.Errorf("--ref-root %q: root %q given twice", v, name)
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		return fmt.Errorf("--ref-root %q: %q is not a readable directory", v, dir)
+	}
+	r[name] = dir
+	return nil
+}
+
+// registerRefRoots adds --ref-root to a command that reads citations.
+func registerRefRoots(flags *flag.FlagSet, cfg *Config) {
+	cfg.RefRoots = make(map[string]string)
+	flags.Var(refRoots(cfg.RefRoots), "ref-root",
+		"name=dir: an extra source tree extractor rules cite (repeatable)")
+}
+
+// Roots resolves citations: --src, and the --ref-root trees by name.
+func (c *Config) Roots() extract.Roots {
+	extra := make(map[string]fs.FS, len(c.RefRoots))
+	for name, dir := range c.RefRoots {
+		extra[name] = os.DirFS(dir)
+	}
+	return extract.Roots{Src: os.DirFS(c.Src), Extra: extra}
+}
+
 // ParseRun resolves the run command configuration.
 func ParseRun(args []string) (*Config, error) {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
@@ -92,6 +141,7 @@ func ParseRun(args []string) (*Config, error) {
 		facts      stringList
 	)
 	fs.StringVar(&cfg.Src, "src", "", "root of the analyzed repository (required)")
+	registerRefRoots(fs, cfg)
 	fs.StringVar(&cfg.Out, "out", "", "output graph directory (required)")
 	fs.StringVar(
 		&configPath,
@@ -119,31 +169,7 @@ func ParseRun(args []string) (*Config, error) {
 	fs.Var(&facts, "facts", "additional facts JSON file (repeatable)")
 	fs.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
 	fs.BoolVar(&cfg.NoTUI, "no-tui", false, "disable the full-screen dashboard, log to stderr")
-	fs.BoolVar(
-		&cfg.Crosscheck,
-		"crosscheck",
-		false,
-		"adversarial review pass: a fresh-context LLM tries to refute each rule against its cited lines",
-	)
-	fs.BoolVar(
-		&cfg.Repair,
-		"repair",
-		false,
-		"repair pass (implies --crosscheck): a flagged rule re-cites the exact span of a precise symbol; needs a SCIP index",
-	)
-	fs.IntVar(
-		&cfg.ReduceBatch,
-		"reduce-batch",
-		30,
-		"max candidate rules per reduce call; larger domains are batched then merged",
-	)
-	fs.StringVar(
-		&cfg.ReduceMode,
-		"reduce-mode",
-		"full",
-		"full: the LLM consolidates every rule (rationale, acceptance criteria); "+
-			"merge: only candidates with a near-duplicate go to the LLM, the rest are kept as mapped (much cheaper)",
-	)
+	registerPassFlags(fs, cfg)
 	fs.IntVar(
 		&cfg.DomainDepth,
 		"domain-depth",
@@ -201,6 +227,7 @@ func ParseVerify(args []string) (*Config, error) {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
 	cfg := &Config{}
 	fs.StringVar(&cfg.Src, "src", "", "root of the analyzed repository (required)")
+	registerRefRoots(fs, cfg)
 	fs.StringVar(&cfg.Out, "out", "", "graph directory to verify (required)")
 	fs.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
 	if err := fs.Parse(args); err != nil {
@@ -218,6 +245,7 @@ func ParseDrift(args []string) (*Config, error) {
 	fs := flag.NewFlagSet("drift", flag.ContinueOnError)
 	cfg := &Config{}
 	fs.StringVar(&cfg.Src, "src", "", "root of the analyzed repository (required)")
+	registerRefRoots(fs, cfg)
 	fs.StringVar(&cfg.Out, "out", "", "graph directory to check (required)")
 	fs.StringVar(&cfg.Format, "format", "text", "output format: text or json")
 	fs.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
@@ -327,4 +355,40 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
+}
+
+// registerPassFlags declares the flags of the LLM passes: crosscheck and
+// repair, reground, and how reduce batches and consolidates.
+func registerPassFlags(flags *flag.FlagSet, cfg *Config) {
+	flags.BoolVar(
+		&cfg.Crosscheck,
+		"crosscheck",
+		false,
+		"adversarial review pass: a fresh-context LLM tries to refute each rule against its cited lines",
+	)
+	flags.BoolVar(
+		&cfg.Repair,
+		"repair",
+		false,
+		"repair pass (implies --crosscheck): a flagged rule re-cites the exact span of a precise symbol; needs a SCIP index",
+	)
+	flags.BoolVar(
+		&cfg.Reground,
+		"reground",
+		false,
+		"give cached map outputs with ungrounded rules one correction exchange (once per output; costs one LLM call each)",
+	)
+	flags.IntVar(
+		&cfg.ReduceBatch,
+		"reduce-batch",
+		30,
+		"max candidate rules per reduce call; larger domains are batched then merged",
+	)
+	flags.StringVar(
+		&cfg.ReduceMode,
+		"reduce-mode",
+		"full",
+		"full: the LLM consolidates every rule (rationale, acceptance criteria); "+
+			"merge: only candidates with a near-duplicate go to the LLM, the rest are kept as mapped (much cheaper)",
+	)
 }

@@ -3,4 +3,11 @@ extend type Mutation {
   addAuthEmail(kaid: String!, authEmail: String!): AddAuthEmail
   addCoachRole(kaid: String!): AddCoachRole
   enableTotp(kaid: String!): String
+  signup(kaid: String!): String
+  merge(kaids: [String!]!): [String]
+  roster: String
+  optOut(kaid: String): String
+  cooldown(kaid: String!): String
+  rename(name: String!): String
+  login(token: String!): String
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/vektah/gqlparser/v2/ast"
@@ -13,8 +14,14 @@ import (
 )
 
 // schemaIndex maps GraphQL types to their fields and the schema file that
-// declares each one.
+// declares each one. Federation's entity types (those with a @key) are
+// indexed as the "fields" of entityType: gqlgen resolves each through a
+// finder method of its entity resolver.
 type schemaIndex map[string][]schemaField
+
+// entityType is the GraphQL type of gqlgen's federation entity resolver
+// (entityResolver), whose finders resolve the gateway's _entities query.
+const entityType = "Entity"
 
 type schemaField struct {
 	name string // as declared, e.g. "addAuthEmail"
@@ -109,6 +116,7 @@ func (idx schemaIndex) add(fsys fs.FS, name string) string {
 	}
 	for _, defs := range []ast.DefinitionList{doc.Definitions, doc.Extensions} {
 		for _, def := range defs {
+			idx.addEntity(name, def)
 			for _, f := range def.Fields {
 				field := schemaField{name: f.Name, file: name, doc: fieldDoc(f)}
 				if f.Position != nil {
@@ -121,15 +129,88 @@ func (idx schemaIndex) add(fsys fs.FS, name string) string {
 	return ""
 }
 
+// addEntity indexes def as an entity type when it has a @key (a type
+// declared then extended keeps its first declaration).
+func (idx schemaIndex) addEntity(file string, def *ast.Definition) {
+	if def.Directives.ForName("key") == nil || idx.entity(def.Name) {
+		return
+	}
+	entity := schemaField{name: def.Name, file: file}
+	if def.Position != nil {
+		entity.line = def.Position.Line
+	}
+	idx[entityType] = append(idx[entityType], entity)
+}
+
+// entity reports whether name is an indexed entity type.
+func (idx schemaIndex) entity(name string) bool {
+	return slices.ContainsFunc(idx[entityType], func(f schemaField) bool { return f.name == name })
+}
+
 // lookup finds the field a resolver method implements. gqlgen derives Go
 // method names from field names with initialism rules (userID → UserID), so
 // the match ignores case. Without a match, it returns a field named after
-// the method (lower-case first letter) with no file.
+// the method (lower-case first letter) with no file. An entity finder
+// "matches" the declaration of the entity type it finds (see finderOf).
 func (idx schemaIndex) lookup(typeName, method string) schemaField {
+	named := schemaField{name: strings.ToLower(method[:1]) + method[1:]}
+	if typeName == entityType {
+		if entity, ok := idx.finderOf(method); ok {
+			named.file, named.line = entity.file, entity.line
+		}
+		return named
+	}
 	for _, f := range idx[typeName] {
 		if strings.EqualFold(f.name, method) {
 			return f
 		}
 	}
-	return schemaField{name: strings.ToLower(method[:1]) + method[1:]}
+	return named
+}
+
+// finderOf returns the entity type a finder method finds. gqlgen names
+// finders FindMany<Type>By<Keys>s and Find<Type>By<Keys>; as a type name
+// may itself contain "By" (RowForActivationReportByTeacherV2), the longest
+// entity type that fits wins. A type whose @key lives in a shared schema
+// (pkg/graphql/shared-schemas) is found among the types the service's own
+// files declare or extend instead.
+func (idx schemaIndex) finderOf(method string) (schemaField, bool) {
+	rest, isFinder := strings.CutPrefix(method, "Find")
+	if !isFinder {
+		return schemaField{}, false
+	}
+	if found, ok := longestFit(rest, idx[entityType]); ok {
+		return found, true
+	}
+	return longestFit(rest, idx.declaredTypes())
+}
+
+// longestFit returns the longest of types that rest ("ManyUserByKaids",
+// "UserByKaid") finds.
+func longestFit(rest string, types []schemaField) (schemaField, bool) {
+	var best schemaField
+	for _, t := range types {
+		for _, prefix := range []string{"Many" + t.name + "By", t.name + "By"} {
+			if strings.HasPrefix(rest, prefix) && len(t.name) > len(best.name) {
+				best = t
+			}
+		}
+	}
+	return best, best.name != ""
+}
+
+// declaredTypes lists the types with fields in the service's schema, each
+// at its first field, sorted by name.
+func (idx schemaIndex) declaredTypes() []schemaField {
+	var types []schemaField
+	for name, fields := range idx {
+		if name != entityType && len(fields) > 0 {
+			types = append(
+				types,
+				schemaField{name: name, file: fields[0].file, line: fields[0].line},
+			)
+		}
+	}
+	slices.SortFunc(types, func(a, b schemaField) int { return strings.Compare(a.name, b.name) })
+	return types
 }

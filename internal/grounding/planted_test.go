@@ -55,7 +55,7 @@ func TestPlantedFaults(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			citations, err := grounding.Load(fsys, []extract.Ref{{Path: prorata, Lines: cited}})
+			citations, err := grounding.Load(extract.Roots{Src: fsys}, []extract.Ref{{Path: prorata, Lines: cited}})
 			if err != nil {
 				t.Fatalf("Load: %v", err)
 			}

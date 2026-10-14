@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io/fs"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,7 +19,9 @@ import (
 	"codetospec/internal/grounding"
 	"codetospec/internal/llm"
 	"codetospec/internal/mapper"
+	"codetospec/internal/drift"
 	"codetospec/internal/render"
+	"codetospec/internal/sitter"
 	"codetospec/internal/ui"
 	"codetospec/internal/verify"
 )
@@ -205,7 +208,7 @@ func TestEndToEndRunOnFixture(t *testing.T) {
 	}
 
 	// Rendered graph must re-verify cleanly against the sources.
-	if violations := verify.Run(nodes, cfg.Src); len(violations) != 0 {
+	if violations := verify.Run(nodes, cfg.Roots()); len(violations) != 0 {
 		t.Fatalf("verify violations: %v", violations)
 	}
 
@@ -390,7 +393,7 @@ func TestEndToEndEnglish(t *testing.T) {
 			t.Errorf("rule %s body lacks the English requirement label:\n%s", n.ID, n.Body)
 		}
 	}
-	if violations := verify.Run(nodes, cfg.Src); len(violations) != 0 {
+	if violations := verify.Run(nodes, cfg.Roots()); len(violations) != 0 {
 		t.Fatalf("verify violations: %v", violations)
 	}
 }
@@ -464,8 +467,76 @@ func TestEndToEndMechanicalRule(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDir: %v", err)
 	}
-	if violations := verify.Run(nodes, cfg.Src); len(violations) != 0 {
+	if violations := verify.Run(nodes, cfg.Roots()); len(violations) != 0 {
 		t.Fatalf("verify violations: %v", violations)
+	}
+}
+
+// TestEndToEndRootedRule: an extractor rule cited in another source tree
+// (--ref-root) is rendered with its root, grounded and digested from that
+// tree, and verified against it; without the root, verify reports it.
+func TestEndToEndRootedRule(t *testing.T) {
+	server := mockLLM(t)
+	defer server.Close()
+	outDir := t.TempDir()
+	cfg := e2eConfig(t, server.URL, outDir)
+	cfg.Lang = "en"
+	shared := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(shared, "pkg", "web"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	code := strings.Join([]string{
+		"package web",
+		"",
+		"func check(h string) error {",
+		"\tif h != \"X-Ka-Secret\" {",
+		"\t\treturn errDenied",
+		"\t}",
+		"\treturn nil",
+		"}",
+		"",
+	}, "\n")
+	checkFile := filepath.Join(shared, "pkg", "web", "check.go")
+	if err := os.WriteFile(checkFile, []byte(code), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg.RefRoots = map[string]string{"webapp": shared}
+	factsPath := filepath.Join(t.TempDir(), "rooted.facts.json")
+	facts := `{"schema":"codetospec/facts/v1","facts":[
+{"kind":"rule","id":"rule.webapp.shared","origin":"webapp","certainty":"static",
+ "source":{"path":"pkg/web/check.go","lines":"3-8","root":"webapp"},
+ "attrs":{"slug":"shared-check","title":"Shared check",
+  "requirement":"IF the header is not ` + "`X-Ka-Secret`" + `, THEN the system shall reject the request.",
+  "ears":"unwanted","nature":"business","domain":"shared-web"}}]}`
+	if err := os.WriteFile(factsPath, []byte(facts), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg.FactsFiles = append(cfg.FactsFiles, factsPath)
+	if err := runPipeline(context.Background(), cfg, ui.Discard{}); err != nil {
+		t.Fatalf("runPipeline: %v", err)
+	}
+	rule, err := fs.ReadFile(os.DirFS(outDir), "nodes/rules/shared-web.shared-check.md")
+	if err != nil {
+		t.Fatalf("rooted rule not rendered: %v", err)
+	}
+	for _, want := range []string{"    root: webapp", "grounding: grounded", "digest: ", "`@webapp/pkg/web/check.go:3-8`"} {
+		if !strings.Contains(string(rule), want) {
+			t.Errorf("rooted rule lacks %q:\n%s", want, rule)
+		}
+	}
+	nodes, err := render.LoadDir(outDir)
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	if violations := verify.Run(nodes, cfg.Roots()); len(violations) != 0 {
+		t.Fatalf("verify violations: %v", violations)
+	}
+	if report := drift.Check(nodes, cfg.Roots()); report.Drifted() {
+		t.Fatalf("drift on an unchanged tree: %+v", report)
+	}
+	cfg.RefRoots = nil
+	if violations := verify.Run(nodes, cfg.Roots()); len(violations) != 1 {
+		t.Fatalf("without --ref-root, violations = %v; want the rooted citation", violations)
 	}
 }
 
@@ -486,5 +557,27 @@ func TestAllowedListsHandlerPath(t *testing.T) {
 	if got := byPath["resolvers/add_auth_email.go"]; len(got) != 1 ||
 		got[0] != "endpoint.mutation-addauthemail" {
 		t.Fatalf("endpoints for the handler file = %v", got)
+	}
+}
+
+func TestDomainGroups(t *testing.T) {
+	chunk := func(path, namespace, domain string) sitter.Chunk {
+		return sitter.Chunk{Path: path, StartLine: 1, Namespace: namespace, Domain: domain}
+	}
+	hints := extract.NewDomainHints([]extract.Fact{{
+		Kind: extract.KindDomain, Attrs: map[string]string{extract.AttrDomain: "auth"},
+		Source: extract.Ref{Path: "cmd/login/main.go", Lines: "1-9"},
+	}})
+	chunks := []sitter.Chunk{
+		chunk("cmd/seed/main.go", "main", "cmd-seed"),
+		chunk("cmd/login/main.go", "main", "auth"), // an extractor hint decided
+		chunk("models/user.go", "models", "models"),
+		chunk("x/a.go", "main", "x"), // reached from two ambiguous namespaces
+		chunk("x/b.go", "util", "x"),
+	}
+	got := domainGroups(chunks, map[string]bool{"main": true, "util": true}, &hints)
+	want := map[string]string{"cmd-seed": "main"}
+	if !maps.Equal(got, want) {
+		t.Fatalf("domainGroups = %v, want %v", got, want)
 	}
 }

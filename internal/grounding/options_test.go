@@ -84,7 +84,7 @@ func TestCheckConstantsAndPlaceholders(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			citations, err := grounding.Load(
-				fsys,
+				extract.Roots{Src: fsys},
 				[]extract.Ref{{Path: "auth/handler.go", Lines: "5-11"}},
 			)
 			if err != nil {

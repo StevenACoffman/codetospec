@@ -116,6 +116,9 @@ type Output struct {
 	// PromptKey records the model and prompt templates that produced this
 	// output; a cached output is reused only while it matches.
 	PromptKey string `json:"prompt_key"`
+	// Regrounded records that its ungrounded rules already had their one
+	// correction exchange (see reground), so --reground does not pay twice.
+	Regrounded bool `json:"regrounded,omitempty"`
 }
 
 // mapPayload mirrors the JSON schema requested from the LLM.
@@ -168,6 +171,9 @@ type Mapper struct {
 	// OnUnit is called after each finished unit (cached or live) with the
 	// usage consumed by that unit; callers persist state there.
 	OnUnit func(out Output, usage llm.Usage)
+	// Reground gives cached outputs with ungrounded rules the correction
+	// exchange a fresh reply gets (once per output; needs Ungrounded).
+	Reground bool
 }
 
 // Run maps every chunk, reusing a chunk's cached output when it was produced
@@ -255,45 +261,32 @@ func (m *Mapper) mapChunk(ctx context.Context, chunk sitter.Chunk) (Output, llm.
 			// the current one so a domain change regroups cached outputs
 			// instead of silently keeping the old grouping.
 			cached.Domain = chunk.Domain
-			return cached, llm.Usage{}, nil
+			return m.regroundCached(ctx, &cached, &chunk, sections, outPath)
 		}
 	}
 
 	allowedEndpoints := m.EndpointsFor(chunk.Path)
-	namespace := chunk.Namespace
-	if namespace == "" {
-		namespace = "-"
-	}
-	userPrompt := fmt.Sprintf(userPromptFormat,
-		chunk.Path, chunk.StartLine, chunk.EndLine,
-		chunk.Language, namespace, chunk.Domain,
-		mustJSON(m.Entities), mustJSON(allowedEndpoints),
-		sections,
-		numberedContent(chunk),
-	)
-	msgs := []llm.Message{
-		{Role: "system", Content: locale.For(m.Lang).Prompt(systemPrompt)},
-		{Role: "user", Content: userPrompt},
-	}
-
+	msgs := m.prompt(&chunk, sections, allowedEndpoints)
 	var usage llm.Usage
 	validate := func(reply string) (mapPayload, error) {
 		return validateMapReply(reply, chunk, m.Entities, allowedEndpoints)
 	}
 	payload, err := llm.ChatJSON(ctx, m.LLM, msgs, 2, func(u llm.Usage) { usage.Add(u) }, validate)
+	regrounded := false
 	if err == nil && m.Ungrounded != nil {
 		var regroundUsage llm.Usage
-		payload, regroundUsage = m.reground(ctx, msgs, payload, &chunk, validate)
+		payload, regroundUsage, regrounded = m.reground(ctx, msgs, payload, &chunk, validate)
 		usage.Add(regroundUsage)
 	}
 
 	out := Output{
-		ChunkID:   chunk.ID,
-		Path:      chunk.Path,
-		StartLine: chunk.StartLine,
-		EndLine:   chunk.EndLine,
-		Domain:    chunk.Domain,
-		PromptKey: promptKey,
+		ChunkID:    chunk.ID,
+		Path:       chunk.Path,
+		StartLine:  chunk.StartLine,
+		EndLine:    chunk.EndLine,
+		Domain:     chunk.Domain,
+		PromptKey:  promptKey,
+		Regrounded: regrounded,
 	}
 	switch {
 	case err == nil:
@@ -307,14 +300,80 @@ func (m *Mapper) mapChunk(ctx context.Context, chunk sitter.Chunk) (Output, llm.
 		out.Error = err.Error()
 	}
 
-	data, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
-		return Output{}, usage, fmt.Errorf("encode map output: %w", err)
-	}
-	if err := state.WriteFileAtomic(outPath, append(data, '\n')); err != nil {
-		return Output{}, usage, fmt.Errorf("write map output: %w", err)
+	if err := writeOutput(outPath, &out); err != nil {
+		return Output{}, usage, err
 	}
 	return out, usage, nil
+}
+
+// prompt is the conversation that maps chunk.
+func (m *Mapper) prompt(
+	chunk *sitter.Chunk,
+	sections string,
+	allowedEndpoints []string,
+) []llm.Message {
+	namespace := chunk.Namespace
+	if namespace == "" {
+		namespace = "-"
+	}
+	userPrompt := fmt.Sprintf(userPromptFormat,
+		chunk.Path, chunk.StartLine, chunk.EndLine,
+		chunk.Language, namespace, chunk.Domain,
+		mustJSON(m.Entities), mustJSON(allowedEndpoints),
+		sections,
+		numberedContent(*chunk),
+	)
+	return []llm.Message{
+		{Role: "system", Content: locale.For(m.Lang).Prompt(systemPrompt)},
+		{Role: "user", Content: userPrompt},
+	}
+}
+
+// regroundCached gives a cached output, under Reground, the correction
+// exchange its ungrounded rules would get from a fresh reply; the outcome is
+// saved, Regrounded set, so a rerun does not pay twice. Without Reground, or
+// with nothing to correct, the output is returned as cached.
+func (m *Mapper) regroundCached(
+	ctx context.Context,
+	cached *Output,
+	chunk *sitter.Chunk,
+	sections, outPath string,
+) (Output, llm.Usage, error) {
+	if !m.Reground || m.Ungrounded == nil || cached.Failed || cached.Regrounded {
+		return *cached, llm.Usage{}, nil
+	}
+	payload := mapPayload{ChunkSummary: cached.ChunkSummary, Rules: cached.Rules}
+	if len(m.misses(payload, chunk)) == 0 {
+		return *cached, llm.Usage{}, nil
+	}
+	allowedEndpoints := m.EndpointsFor(chunk.Path)
+	validate := func(reply string) (mapPayload, error) {
+		return validateMapReply(reply, *chunk, m.Entities, allowedEndpoints)
+	}
+	fixed, usage, _ := m.reground(
+		ctx,
+		m.prompt(chunk, sections, allowedEndpoints),
+		payload,
+		chunk,
+		validate,
+	)
+	cached.ChunkSummary, cached.Rules, cached.Regrounded = fixed.ChunkSummary, fixed.Rules, true
+	if err := writeOutput(outPath, cached); err != nil {
+		return Output{}, usage, err
+	}
+	return *cached, usage, nil
+}
+
+// writeOutput saves a map output atomically.
+func writeOutput(outPath string, out *Output) error {
+	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode map output: %w", err)
+	}
+	if writeErr := state.WriteFileAtomic(outPath, append(data, '\n')); writeErr != nil {
+		return fmt.Errorf("write map output: %w", writeErr)
+	}
+	return nil
 }
 
 // promptKey covers everything besides the chunk content that shapes a map

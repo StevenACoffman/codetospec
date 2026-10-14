@@ -8,8 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -46,14 +44,16 @@ type Report struct {
 // Drifted reports whether any rule is stale or broken.
 func (r Report) Drifted() bool { return r.Stale > 0 || r.Broken > 0 }
 
-// Digest hashes the exact cited source lines of a set of references, so an
-// edit inside any cited span changes the digest. Sources are sorted for a
-// stable result. Returns an error only for an unreadable file or bad range.
-func Digest(srcRoot string, sources []extract.Ref) (string, error) {
+// Digest hashes the exact cited source lines of a set of references, read
+// through roots, so an edit inside any cited span changes the digest.
+// Sources are sorted for a stable result; a reference outside --src hashes
+// its root too, one inside hashes as it always has. Returns an error only
+// for an unreadable file, an unknown root or a bad range.
+func Digest(roots extract.Roots, sources []extract.Ref) (string, error) {
 	ordered := append([]extract.Ref(nil), sources...)
 	sort.SliceStable(ordered, func(i, j int) bool {
-		if ordered[i].Path != ordered[j].Path {
-			return ordered[i].Path < ordered[j].Path
+		if ordered[i].File() != ordered[j].File() {
+			return ordered[i].File() < ordered[j].File()
 		}
 		return ordered[i].Lines < ordered[j].Lines
 	})
@@ -61,29 +61,31 @@ func Digest(srcRoot string, sources []extract.Ref) (string, error) {
 	for _, src := range ordered {
 		start, end, err := extract.ParseLines(src.Lines)
 		if err != nil {
-			return "", fmt.Errorf("%s: %w", src.Path, err)
+			return "", fmt.Errorf("%s: %w", src.File(), err)
 		}
-		data, err := os.ReadFile(filepath.Join(srcRoot, filepath.FromSlash(src.Path)))
+		data, err := roots.ReadFile(src)
 		if err != nil {
-			return "", fmt.Errorf("read %s: %w", src.Path, err)
+			return "", err
 		}
 		lines := strings.Split(string(data), "\n")
 		if end > len(lines) {
 			return "", fmt.Errorf(
 				"%s: lines %s exceed file (%d lines)",
-				src.Path,
+				src.File(),
 				src.Lines,
 				len(lines),
 			)
 		}
-		fmt.Fprintf(h, "%s|%s\n%s\n", src.Path, src.Lines, strings.Join(lines[start-1:end], "\n"))
+		// A hash never fails to write.
+		cited := strings.Join(lines[start-1:end], "\n")
+		_, _ = fmt.Fprintf(h, "%s|%s\n%s\n", src.File(), src.Lines, cited)
 	}
 	return hex.EncodeToString(h.Sum(nil))[:16], nil
 }
 
 // Check recomputes each rule's digest against the current source and
 // compares it to the digest stored in the rule node.
-func Check(nodes []graph.Node, srcRoot string) Report {
+func Check(nodes []graph.Node, roots extract.Roots) Report {
 	var report Report
 	for _, n := range nodes {
 		if n.Type != graph.TypeRule {
@@ -97,7 +99,7 @@ func Check(nodes []graph.Node, srcRoot string) Report {
 			rs.Detail = "no stored digest (regenerate the spec to enable drift checks)"
 			report.Unknown++
 		default:
-			current, err := Digest(srcRoot, n.Sources)
+			current, err := Digest(roots, n.Sources)
 			switch {
 			case err != nil:
 				rs.Status = StatusBroken

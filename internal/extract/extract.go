@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"codetospec/internal/sitter"
 )
 
 // Fact is a mechanically provable statement about the codebase.
@@ -45,9 +47,19 @@ const (
 	// chunks it overlaps.
 	KindDoc = "doc"
 	// KindDependency records that the code at Source calls AttrOperation,
-	// owned by the external service AttrService (a slug). The graph gets one
+	// owned by the external service AttrService (a slug), optionally with
+	// the authority AttrAs (AsServiceAdmin, AsUser). The graph gets one
 	// service node per service and depends_on edges from calling domains.
 	KindDependency = "dependency"
+	// KindRoute is an endpoint: Attrs path, method, handler, AttrHandlerPath
+	// and AttrHandlerLines.
+	KindRoute = "route"
+)
+
+// Values of AttrAs.
+const (
+	AsServiceAdmin = "service-admin"
+	AsUser         = "user"
 )
 
 // Attribute names of KindRule and KindDomain facts.
@@ -64,16 +76,29 @@ const (
 	AttrText        = "text"
 	AttrService     = "service"
 	AttrOperation   = "operation"
+	// AttrAs, on a dependency fact, is the authority the call is made
+	// with: AsServiceAdmin (webapp's service-admin queries, which bypass
+	// user permission checks that accept them) or AsUser (the caller's
+	// own); absent when the extractor cannot tell.
+	AttrAs = "as"
 	// AttrHandlerPath, on a "route" fact, is the file holding the endpoint's
 	// handler: its chunks may cite the endpoint. It beats matching the handler
 	// name against symbols.
 	AttrHandlerPath = "handler_path"
+	// AttrHandlerLines, with AttrHandlerPath, is the span of the handler's
+	// code ("a-b"): a rule citing it is linked to the endpoint (exposed_by)
+	// without asking the LLM.
+	AttrHandlerLines = "handler_lines"
 )
 
 // Ref pins a fact to a file location.
 type Ref struct {
-	Path  string `json:"path"`  // relative to --src, slash-separated
+	Path  string `json:"path"`  // relative to --src (or to Root), slash-separated
 	Lines string `json:"lines"` // "12-87", 1-based inclusive
+	// Root names the source tree Path is relative to, when it is not
+	// --src: one given by --ref-root (see Roots). Only an extractor's
+	// mechanical rules cite one; chunks and LLM citations never do.
+	Root string `json:"root,omitempty"`
 }
 
 // Certainty and origin constants used across the pipeline.
@@ -155,21 +180,24 @@ func (r DomainResolver) Resolve(namespace, path string) string {
 	return domainFromPath(path)
 }
 
-// AmbiguousNamespaces returns the namespaces declared by "module" facts in
-// more than one directory. Go names every command's package "main" and
-// reuses names like "util" across a tree; such a namespace says nothing
-// about the area a file belongs to.
-func AmbiguousNamespaces(facts []Fact) map[string]bool {
+// AmbiguousNamespaces returns the namespaces that files in more than one
+// directory declare. Go names every command's package "main" and reuses
+// names like "util" across a tree; such a namespace says nothing about the
+// area a file belongs to. It reads the per-file tree-sitter information,
+// as namespaces are resolved from it: "module" facts cannot tell, since
+// merging keeps one per name.
+func AmbiguousNamespaces(files map[string]*sitter.FileInfo) map[string]bool {
 	dirs := make(map[string]map[string]bool)
-	for _, f := range facts {
-		name := f.Attrs["name"]
-		if f.Kind != "module" || name == "" {
+	for path, info := range files {
+		if info == nil {
 			continue
 		}
-		if dirs[name] == nil {
-			dirs[name] = make(map[string]bool)
+		for _, m := range info.Modules {
+			if dirs[m.Name] == nil {
+				dirs[m.Name] = make(map[string]bool)
+			}
+			dirs[m.Name][pathpkg.Dir(path)] = true
 		}
-		dirs[name][pathpkg.Dir(f.Source.Path)] = true
 	}
 	ambiguous := make(map[string]bool)
 	for name, in := range dirs {

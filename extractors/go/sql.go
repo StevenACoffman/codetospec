@@ -16,7 +16,9 @@ var createTableRe = regexp.MustCompile(`(?is)create\s+table\s+(?:if\s+not\s+exis
 	"[`\"']?([a-zA-Z_][a-zA-Z0-9_.]*)[`\"']?\\s*\\(")
 
 // nonColumnStart matches lines that declare a constraint, not a column.
-var nonColumnStart = regexp.MustCompile(`(?i)^(primary|foreign|unique|constraint|check|key|index|exclude)\b`)
+var nonColumnStart = regexp.MustCompile(
+	`(?i)^(primary|foreign|unique|constraint|check|key|index|exclude)\b`,
+)
 
 // ParseTables extracts CREATE TABLE statements from one SQL source.
 func ParseTables(sql string) []Table {
@@ -81,7 +83,7 @@ func parseColumns(body string) []string {
 			columns = append(columns, colName+":"+colType)
 		}
 	}
-	for i := 0; i < len(body); i++ {
+	for i := range len(body) {
 		switch body[i] {
 		case '(':
 			depth++

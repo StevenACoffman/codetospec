@@ -29,6 +29,7 @@ type Meta struct {
 	DomainsFailed    int
 	DomainsTotal     int
 	FilesNoGrammar   []string
+	FilesGenerated   int // generated files, not mapped
 	ExtractorsFailed []string
 	// Adversarial cross-check tally; only rendered when Crosschecked is true.
 	Crosschecked          bool
@@ -41,6 +42,9 @@ type Meta struct {
 	// DomainSplits are the domains whose files fall into several import-graph
 	// communities (see communities.Splits).
 	DomainSplits []communities.Split
+	// DomainGroups maps each domain split out of an ambiguous namespace to
+	// that namespace (cmd-seedroster → main): the README draws them together.
+	DomainGroups map[string]string
 	// Near-duplicate rule pairs (deterministic consistency check).
 	DuplicatePairs []consistency.DuplicatePair
 	// RuleFactsRejected counts extractor rule facts dropped as malformed.
@@ -118,6 +122,9 @@ func Frontmatter(n graph.Node) string {
 		b.WriteString("sources:\n")
 		for _, s := range n.Sources {
 			fmt.Fprintf(&b, "  - path: %s\n    lines: %q\n", s.Path, s.Lines)
+			if s.Root != "" {
+				fmt.Fprintf(&b, "    root: %s\n", s.Root)
+			}
 		}
 	}
 	if len(n.Edges) == 0 {
@@ -155,6 +162,9 @@ func Frontmatter(n graph.Node) string {
 	if v := n.Extra["grounding_missing"]; v != "" {
 		fmt.Fprintf(&b, "grounding_missing: %q\n", v)
 	}
+	if v := n.Extra[graph.ExtraGroundingWidened]; v != "" {
+		fmt.Fprintf(&b, "%s: %q\n", graph.ExtraGroundingWidened, v)
+	}
 	if v := n.Extra["digest"]; v != "" {
 		fmt.Fprintf(&b, "digest: %s\n", v)
 	}
@@ -174,7 +184,7 @@ func NodeMarkdown(n graph.Node, text *locale.Text) string {
 	if len(n.Sources) > 0 {
 		parts := make([]string, len(n.Sources))
 		for i, s := range n.Sources {
-			parts[i] = fmt.Sprintf("`%s:%s`", s.Path, s.Lines)
+			parts[i] = fmt.Sprintf("`%s:%s`", s.File(), s.Lines)
 		}
 		b.WriteString("\n" + text.SourcesLabel + strings.Join(parts, " · ") + "\n")
 	}
@@ -314,6 +324,9 @@ func readme(nodes []graph.Node, meta Meta, text *locale.Text) string {
 			strings.Join(files, ", "),
 		)
 	}
+	if meta.FilesGenerated > 0 {
+		fmt.Fprintf(&b, text.GeneratedFmt+"\n", meta.FilesGenerated)
+	}
 	if len(meta.ExtractorsFailed) > 0 {
 		names := append([]string(nil), meta.ExtractorsFailed...)
 		sort.Strings(names)
@@ -371,33 +384,104 @@ func readme(nodes []graph.Node, meta Meta, text *locale.Text) string {
 		}
 	}
 
-	b.WriteString("\n" + text.DomainsHeading + "\n\n```mermaid\ngraph TD\n")
+	b.WriteString("\n" + text.DomainsHeading + "\n\n")
+	b.WriteString(domainDiagram(nodes, meta.DomainGroups))
+	return b.String()
+}
+
+// domainDiagram draws the domain map as mermaid. Domains split out of one
+// namespace (groups: domain → namespace, e.g. every cmd-<tool> out of Go's
+// "main") share a subgraph, and their dependencies are drawn once per
+// group, so a tree of commands does not bury the map in arrows.
+func domainDiagram(nodes []graph.Node, groups map[string]string) string {
+	dm := newDomainMap(nodes, groups)
+	var b strings.Builder
+	b.WriteString("```mermaid\ngraph TD\n")
+	dm.writeNodes(&b, nodes)
+	dm.writeArrows(&b, nodes)
+	b.WriteString("```\n")
+	return b.String()
+}
+
+// domainMap knows which domains are drawn together.
+type domainMap struct {
+	groups  map[string]string   // domain → namespace
+	members map[string][]string // namespace → its domains, in node order
+}
+
+func newDomainMap(nodes []graph.Node, groups map[string]string) domainMap {
+	members := make(map[string][]string)
 	for _, n := range nodes {
-		if n.Type == "domain" {
-			slug := strings.TrimPrefix(n.ID, "domain.")
-			fmt.Fprintf(&b, "  %s[\"%s\"]\n", mermaidID(slug), slug)
+		slug := strings.TrimPrefix(n.ID, "domain.")
+		if ns := groups[slug]; n.Type == graph.TypeDomain && ns != "" {
+			members[ns] = append(members[ns], slug)
 		}
 	}
+	return domainMap{groups: groups, members: members}
+}
+
+// groupOf is the namespace whose subgraph holds a domain; "" when the
+// domain is drawn alone (no group, or a group of one).
+func (dm domainMap) groupOf(slug string) string {
+	if ns := dm.groups[slug]; len(dm.members[ns]) > 1 {
+		return ns
+	}
+	return ""
+}
+
+// writeNodes writes each domain, a group's members inside its subgraph.
+func (dm domainMap) writeNodes(b *strings.Builder, nodes []graph.Node) {
+	drawn := make(map[string]bool) // subgraphs written
 	for _, n := range nodes {
-		if n.Type != "domain" {
+		if n.Type != graph.TypeDomain {
 			continue
 		}
-		from := mermaidID(strings.TrimPrefix(n.ID, "domain."))
+		slug := strings.TrimPrefix(n.ID, "domain.")
+		switch ns := dm.groupOf(slug); {
+		case ns == "":
+			fmt.Fprintf(b, "  %s[\"%s\"]\n", mermaidID(slug), slug)
+		case !drawn[ns]:
+			drawn[ns] = true
+			fmt.Fprintf(b, "  subgraph %s[\"%s\"]\n", groupID(ns), ns)
+			for _, m := range dm.members[ns] {
+				fmt.Fprintf(b, "    %s[\"%s\"]\n", mermaidID(m), m)
+			}
+			b.WriteString("  end\n")
+		}
+	}
+}
+
+// writeArrows writes the depends_on edges between domains (external
+// services are listed as nodes of their own), a group's once from its
+// subgraph, none within a group.
+func (dm domainMap) writeArrows(b *strings.Builder, nodes []graph.Node) {
+	seen := make(map[string]bool)
+	for _, n := range nodes {
+		if n.Type != graph.TypeDomain {
+			continue
+		}
+		slug := strings.TrimPrefix(n.ID, "domain.")
+		ns := dm.groupOf(slug)
+		from := mermaidID(slug)
+		if ns != "" {
+			from = groupID(ns)
+		}
 		for _, e := range n.Edges {
-			// The diagram is the domain map; external services are listed
-			// as nodes of their own.
-			if e.Type == graph.EdgeDependsOn && strings.HasPrefix(e.To, "domain.") {
-				fmt.Fprintf(
-					&b,
-					"  %s --> %s\n",
-					from,
-					mermaidID(strings.TrimPrefix(e.To, "domain.")),
-				)
+			to := strings.TrimPrefix(e.To, "domain.")
+			if e.Type != graph.EdgeDependsOn || to == e.To || ns != "" && dm.groupOf(to) == ns {
+				continue
+			}
+			if arrow := fmt.Sprintf("  %s --> %s\n", from, mermaidID(to)); !seen[arrow] {
+				seen[arrow] = true
+				b.WriteString(arrow)
 			}
 		}
 	}
-	b.WriteString("```\n")
-	return b.String()
+}
+
+// groupID is the mermaid id of a namespace's subgraph, apart from domain ids.
+func groupID(namespace string) string {
+	return "group_" + mermaidID(extract.Slugify(namespace))
 }
 
 // maxListed caps how many entries a README review list shows.
@@ -484,6 +568,7 @@ type frontmatterDoc struct {
 	Sources []struct {
 		Path  string `yaml:"path"`
 		Lines string `yaml:"lines"`
+		Root  string `yaml:"root"`
 	} `yaml:"sources"`
 	Edges []struct {
 		Type string `yaml:"type"`
@@ -498,6 +583,7 @@ type frontmatterDoc struct {
 	Extracted  string   `yaml:"extracted_by"`
 	Grounding  string   `yaml:"grounding"`
 	Missing    string   `yaml:"grounding_missing"`
+	Widened    string   `yaml:"grounding_widened"`
 	Digest     string   `yaml:"digest"`
 }
 
@@ -522,7 +608,7 @@ func ParseNode(content string) (graph.Node, error) {
 	n.Type = doc.Type
 	n.Status = doc.Status
 	for _, s := range doc.Sources {
-		n.Sources = append(n.Sources, extract.Ref{Path: s.Path, Lines: s.Lines})
+		n.Sources = append(n.Sources, extract.Ref{Path: s.Path, Lines: s.Lines, Root: s.Root})
 	}
 	for _, e := range doc.Edges {
 		n.Edges = append(n.Edges, graph.Edge{Type: e.Type, To: e.To})
@@ -554,6 +640,9 @@ func ParseNode(content string) (graph.Node, error) {
 	}
 	if doc.Missing != "" {
 		extra["grounding_missing"] = doc.Missing
+	}
+	if doc.Widened != "" {
+		extra[graph.ExtraGroundingWidened] = doc.Widened
 	}
 	if doc.Digest != "" {
 		extra["digest"] = doc.Digest

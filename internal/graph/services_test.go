@@ -27,10 +27,12 @@ func TestBuildServiceNodes(t *testing.T) {
 		},
 		dependency(caller, "40-40", "assignments", "Mutation.acceptInvitation"),
 		dependency(caller, "12-12", "assignments", "Query.classroom"),
+		dependency(caller, "60-60", "assignments", "Query.roster"),
 		dependency(caller, "50-50", "Not A Slug", "Query.ignored"),
 		ruleFact("rule.x"), // gives the caller's domain a domain node
 	}
-	facts[4].Attrs[extract.AttrDomain] = "tasks"
+	facts[5].Attrs[extract.AttrDomain] = "tasks"
+	facts[3].Attrs[extract.AttrAs] = extract.AsServiceAdmin
 	nodes := graph.Build(facts, nil, extract.DomainResolver{Strategy: "namespace"}, "en")
 
 	byID := make(map[string]graph.Node)
@@ -41,8 +43,13 @@ func TestBuildServiceNodes(t *testing.T) {
 	if !ok {
 		t.Fatalf("no service node; got %v", nodeIDs(nodes))
 	}
-	if len(service.Sources) != 2 || service.Sources[0].Lines != "40-40" {
-		t.Errorf("service sources = %v, want both call sites sorted by operation", service.Sources)
+	if len(service.Sources) != 3 || service.Sources[0].Lines != "40-40" {
+		t.Errorf("service sources = %v, want the call sites sorted by operation", service.Sources)
+	}
+	const adminCall = "`Query.roster` — `tasks/nickname.go:60-60` (service-admin query)"
+	if !strings.Contains(service.Body, adminCall) ||
+		strings.Contains(service.Body, "12-12` (service-admin") {
+		t.Errorf("service body does not mark exactly the service-admin call:\n%s", service.Body)
 	}
 	if !strings.Contains(service.Body, "`Query.classroom` — `tasks/nickname.go:12-12`") {
 		t.Errorf("service body lacks the call site:\n%s", service.Body)

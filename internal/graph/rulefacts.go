@@ -13,6 +13,11 @@ import (
 // mechanical rule (see extract.KindRule); absent on LLM rules.
 const ExtraExtractedBy = "extracted_by"
 
+// ExtraGroundingWidened is the Extra key listing the lines grounding added to
+// a rule's citations ("path:a-b, …"), because the value it states sat just
+// outside them (see grounding.Annotate).
+const ExtraGroundingWidened = "grounding_widened"
+
 // ValidateRuleFacts drops extract.KindRule facts that do not satisfy the rule
 // fact contract, so an extractor bug cannot put a malformed rule in the
 // graph. Facts of other kinds pass through unchanged.
@@ -74,7 +79,7 @@ func invalidRuleFact(f *extract.Fact) string {
 func routesByID(facts []extract.Fact) map[string]*extract.Fact {
 	routes := make(map[string]*extract.Fact)
 	for i := range facts {
-		if facts[i].Kind == "route" {
+		if facts[i].Kind == extract.KindRoute {
 			routes[facts[i].ID] = &facts[i]
 		}
 	}

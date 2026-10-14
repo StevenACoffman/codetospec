@@ -21,6 +21,7 @@ const EdgeDependsOn = "depends_on"
 type serviceCall struct {
 	operation string
 	at        extract.Ref
+	as        string // extract.AttrAs; "" when unknown
 }
 
 // serviceNodes builds one node per external service named by the
@@ -42,7 +43,7 @@ func serviceNodes(
 		}
 		calls[service] = append(
 			calls[service],
-			serviceCall{f.Attrs[extract.AttrOperation], f.Source},
+			serviceCall{f.Attrs[extract.AttrOperation], f.Source, f.Attrs[extract.AttrAs]},
 		)
 		domain := domainOf(f.Source.Path)
 		if callers[domain] == nil {
@@ -63,11 +64,8 @@ func serviceNodes(
 			}
 			return sites[i].at.Lines < sites[j].at.Lines
 		})
-		var body strings.Builder
-		body.WriteString(text.OperationsCalled + "\n")
 		sources := make([]extract.Ref, 0, len(sites))
 		for _, c := range sites {
-			fmt.Fprintf(&body, "\n- `%s` — `%s:%s`", c.operation, c.at.Path, c.at.Lines)
 			sources = append(sources, c.at)
 		}
 		nodes = append(nodes, Node{
@@ -76,7 +74,7 @@ func serviceNodes(
 			Status:  StatusGenerated,
 			Sources: sources,
 			Title:   fmt.Sprintf(text.ServiceTitleFmt, service),
-			Body:    body.String(),
+			Body:    serviceBody(sites, text),
 		})
 	}
 
@@ -90,6 +88,20 @@ func serviceNodes(
 		}
 	}
 	return nodes, edges
+}
+
+// serviceBody lists a service's call sites, sorted, marking those made as
+// a service-admin query.
+func serviceBody(sites []serviceCall, text *locale.Text) string {
+	var body strings.Builder
+	body.WriteString(text.OperationsCalled + "\n")
+	for _, c := range sites {
+		fmt.Fprintf(&body, "\n- `%s` — `%s:%s`", c.operation, c.at.Path, c.at.Lines)
+		if c.as == extract.AsServiceAdmin {
+			body.WriteString(text.AsServiceAdminNote)
+		}
+	}
+	return body.String()
 }
 
 // namespaceByPath maps each file to the first module (namespace/package)

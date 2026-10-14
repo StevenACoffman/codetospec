@@ -121,3 +121,60 @@ func TestRegroundIsNeverWorse(t *testing.T) {
 		})
 	}
 }
+
+// TestRegroundCachedOutputs: under Reground, a cached output with an
+// ungrounded rule gets one correction exchange, saved so a rerun pays
+// nothing; without Reground the cache is used as is.
+func TestRegroundCachedOutputs(t *testing.T) {
+	const (
+		ungrounded = "WHEN charging, the system shall cap at 50."
+		grounded   = "WHEN charging, the system shall cap at 30."
+	)
+	cases := map[string]struct {
+		reground        bool
+		wantCalls       []int // per run, after the run that fills the cache
+		wantRequirement string
+	}{
+		"reground once": {true, []int{1, 0}, grounded},
+		"cache as is":   {false, []int{0, 0}, ungrounded},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			run := func(reground bool, replies ...string) (int, mapper.Output) {
+				t.Helper()
+				chat := &scripted{replies: replies}
+				m := &mapper.Mapper{
+					LLM: chat, Lang: "en", Workers: 1, OutDir: dir,
+					EndpointsFor: func(string) []string { return nil },
+					Ungrounded:   numbersMissing,
+					Reground:     reground,
+				}
+				outputs, err := m.Run(context.Background(), []sitter.Chunk{groundChunk()})
+				if err != nil {
+					t.Fatalf("Run: %v", err)
+				}
+				return chat.calls, outputs[0]
+			}
+			// Fill the cache without a checker, as an older run did.
+			fill := &mapper.Mapper{
+				LLM: &scripted{replies: []string{ruleReply(ungrounded)}}, Lang: "en", Workers: 1,
+				OutDir: dir, EndpointsFor: func(string) []string { return nil },
+			}
+			if _, err := fill.Run(context.Background(), []sitter.Chunk{groundChunk()}); err != nil {
+				t.Fatal(err)
+			}
+			var out mapper.Output
+			for i, want := range tc.wantCalls {
+				var calls int
+				calls, out = run(tc.reground, ruleReply(grounded))
+				if calls != want {
+					t.Fatalf("run %d made %d calls, want %d", i+1, calls, want)
+				}
+			}
+			if got := out.Rules[0].Requirement; got != tc.wantRequirement {
+				t.Fatalf("requirement = %q, want %q", got, tc.wantRequirement)
+			}
+		})
+	}
+}

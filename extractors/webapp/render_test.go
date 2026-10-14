@@ -1,7 +1,6 @@
 package main
 
 import (
-	"go/ast"
 	"go/parser"
 	"go/token"
 	"testing"
@@ -22,6 +21,25 @@ func TestRenderCondition(t *testing.T) {
 		"mixed operators keep grouping": {
 			"en", "!acl.IsLoggedIn(ktx) || (acl.IsCoachedByActor(ktx, k) && x)",
 			"the caller is not logged in OR (the user `k` is coached by the caller AND `x` holds)",
+		},
+		"negated conjunction keeps its grouping": {
+			"en",
+			"!(acl.IsLoggedIn(ktx) && x) && !ktx.RequestIsServiceAdminQuery()",
+			"(the caller is not logged in OR `x` does not hold) AND the request is not a service-admin query",
+		},
+		"rate limit, negated": {
+			"en",
+			`!ratelimit.ByIP(ktx, "Login", ratelimit.MaxRequestsPerWindow(5), ratelimit.LimitWindow(2*time.Hour))`,
+			"the caller is within the `Login` rate limit by IP (5 requests per 2 hours)",
+		},
+		"rate limit without options": {
+			"fr", `ratelimit.ByAccount(ktx, "Login", kaid)`,
+			"l'appelant dépasse la limite de débit `Login` par compte (sa limite par défaut)",
+		},
+		"rate limit with a computed window": {
+			"en",
+			`ratelimit.ByIP(ktx, key, ratelimit.MaxRequestsPerWindow(n), ratelimit.LimitWindow(window))`,
+			"the caller exceeds the `key` rate limit by IP (`n` requests per `window`)",
 		},
 		"phantom accounts": {
 			"en", "!acl.IsLoggedIn(ktx, acl.PhantomProhibited)",
@@ -53,7 +71,7 @@ func TestRenderCondition(t *testing.T) {
 				t.Fatalf("ParseExpr: %v", err)
 			}
 			w := wordingFor(tc.lang)
-			r := renderer{w: &w, fset: token.NewFileSet(), bindings: map[string]*ast.CallExpr{}}
+			r := renderer{w: &w, fset: token.NewFileSet()}
 			if got := r.cond(expr, false); got != tc.want {
 				t.Fatalf("cond = %q\nwant   %q", got, tc.want)
 			}

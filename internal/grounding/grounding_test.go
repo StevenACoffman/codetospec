@@ -124,7 +124,7 @@ func runCheckCases(t *testing.T, decimalSeparator byte, cases map[string]checkCa
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			citations, err := grounding.Load(
-				fsys,
+				extract.Roots{Src: fsys},
 				[]extract.Ref{{Path: billingPath, Lines: tc.lines}},
 			)
 			if err != nil {
@@ -161,7 +161,7 @@ func TestLoadErrors(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, err := grounding.Load(fsys, []extract.Ref{tc.ref})
+			_, err := grounding.Load(extract.Roots{Src: fsys}, []extract.Ref{tc.ref})
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("err = %v, want it to mention %q", err, tc.wantErr)
 			}
@@ -171,7 +171,7 @@ func TestLoadErrors(t *testing.T) {
 
 func TestLoadClampsToFileLength(t *testing.T) {
 	fsys := fstest.MapFS{"a.go": {Data: []byte("x := 42\n")}}
-	citations, err := grounding.Load(fsys, []extract.Ref{{Path: "a.go", Lines: "1-99"}})
+	citations, err := grounding.Load(extract.Roots{Src: fsys}, []extract.Ref{{Path: "a.go", Lines: "1-99"}})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -190,9 +190,10 @@ func TestCheckCodeLayout(t *testing.T) {
 	const path = "resolvers/classroom.go"
 	code := "isTeacher, err := cross_service.IsTeacherForClassroom(\n" +
 		"\tktx, currentUser.Kaid, classroom.Descriptor)\n" +
-		"ok := acl.ActorHasPermission(\n\tktx,\n\tcapabilities.CanEditContent,\n)\n"
+		"ok := acl.ActorHasPermission(\n\tktx,\n\tcapabilities.CanEditContent,\n)\n" +
+		"limited := ratelimit.ByIP(ktx, \"link_\"+loginType)\n"
 	fsys := fstest.MapFS{path: {Data: []byte(code)}}
-	citations, err := grounding.Load(fsys, []extract.Ref{{Path: path, Lines: "1-6"}})
+	citations, err := grounding.Load(extract.Roots{Src: fsys}, []extract.Ref{{Path: path, Lines: "1-7"}})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -206,6 +207,10 @@ func TestCheckCodeLayout(t *testing.T) {
 		},
 		"one argument per line, trailing comma": {
 			"acl.ActorHasPermission(ktx, capabilities.CanEditContent)",
+			grounding.StatusGrounded,
+		},
+		"operators spaced by a formatter": {
+			`ratelimit.ByIP(ktx, "link_" + loginType)`,
 			grounding.StatusGrounded,
 		},
 		"a different argument": {

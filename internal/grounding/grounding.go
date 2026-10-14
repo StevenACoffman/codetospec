@@ -11,9 +11,7 @@ package grounding
 
 import (
 	"fmt"
-	"io/fs"
 	"math"
-	"path"
 	"regexp"
 	"slices"
 	"strconv"
@@ -79,29 +77,29 @@ func (r Result) Summary() string {
 	return strings.Join(parts, "; ")
 }
 
-// Load reads the cited ranges of refs from fsys (rooted at the source tree).
+// Load reads the cited ranges of refs through roots.
 //
 // Requires: every ref.Lines is "A-B" with 1 <= A <= B.
 // Ensures:  one Citation per ref, in order; End is clamped to the file length.
-func Load(fsys fs.FS, refs []extract.Ref) ([]Citation, error) {
+func Load(roots extract.Roots, refs []extract.Ref) ([]Citation, error) {
 	files := make(map[string][]string)
 	citations := make([]Citation, 0, len(refs))
 	for _, ref := range refs {
 		start, end, err := extract.ParseLines(ref.Lines)
 		if err != nil {
-			return nil, fmt.Errorf("grounding.Load: %s: %w", ref.Path, err)
+			return nil, fmt.Errorf("grounding.Load: %s: %w", ref.File(), err)
 		}
-		lines, ok := files[ref.Path]
+		lines, ok := files[ref.File()]
 		if !ok {
-			data, readErr := fs.ReadFile(fsys, path.Clean(ref.Path))
+			data, readErr := roots.ReadFile(ref)
 			if readErr != nil {
 				return nil, fmt.Errorf("grounding.Load: %w", readErr)
 			}
 			lines = strings.Split(string(data), "\n")
-			files[ref.Path] = lines
+			files[ref.File()] = lines
 		}
 		citations = append(citations, Citation{
-			Path:  ref.Path,
+			Path:  ref.File(),
 			Start: start,
 			End:   min(end, len(lines)),
 			File:  lines,
@@ -420,32 +418,63 @@ func sameNumber(a, b float64) bool {
 	return math.Abs(a-b) <= tolerance*math.Max(1, math.Max(math.Abs(a), math.Abs(b)))
 }
 
+// codePunct are the characters code may or may not space around: a
+// formatter writes "a + b" where the source has "a+b".
+const codePunct = "+-*/%=<>!&|^,;:()[]{}"
+
 // fold lowercases s, unifies typographic quotes and collapses whitespace, so
-// a quoted string matches code regardless of case and layout. Space inside
-// brackets and before a comma goes, and so does a trailing comma: a call
-// split over lines ("f(\n\tktx,\n\tx,\n)") reads as written on one
-// ("f(ktx, x)").
+// a quoted string matches code regardless of case and layout. Space next to
+// code punctuation goes, and so does a trailing comma: a call split over
+// lines ("f(\n\tktx,\n\tx,\n)") reads as written on one ("f(ktx, x)"), and
+// "10*time.Minute" as "10 * time.Minute".
 func fold(s string) string {
 	s = strings.NewReplacer("’", "'", "‘", "'", "“", `"`, "”", `"`).Replace(strings.ToLower(s))
-	s = strings.Join(strings.Fields(s), " ")
-	s = strings.NewReplacer("( ", "(", "[ ", "[", "{ ", "{", " )", ")", " ]", "]", " }", "}", " ,", ",").
-		Replace(s)
-	return strings.NewReplacer(",)", ")", ",]", "]", ",}", "}").Replace(s)
+	var b strings.Builder
+	prev := ""
+	for _, word := range strings.Fields(s) {
+		if prev != "" && !strings.ContainsAny(prev[len(prev)-1:], codePunct) &&
+			!strings.ContainsAny(word[:1], codePunct) {
+			b.WriteByte(' ')
+		}
+		b.WriteString(word)
+		prev = word
+	}
+	return strings.NewReplacer(",)", ")", ",]", "]", ",}", "}").Replace(b.String())
 }
 
-// Annotate checks every rule node's requirement against its cited code in
-// fsys with opts (see Check), and records the outcome in Extra["grounding"] (a Status) and, for an
+// Annotate checks every rule node's requirement against its cited code,
+// read through roots, with opts (see Check), and records the outcome in Extra["grounding"] (a Status) and, for an
 // ungrounded rule, Extra["grounding_missing"] (Result.Summary). A rule whose
 // citations cannot be read is StatusUnchecked; verify reports the broken
-// citation itself.
-func Annotate(fsys fs.FS, nodes []graph.Node, opts Options) []graph.Node {
+// citation itself. An ungrounded rule whose citation is merely too narrow
+// is widened (see widening): the lines added to its Sources are recorded in
+// Extra[graph.ExtraGroundingWidened].
+func Annotate(roots extract.Roots, nodes []graph.Node, opts Options) []graph.Node {
 	for i := range nodes {
 		if nodes[i].Type != graph.TypeRule {
 			continue
 		}
+		requirement := graph.RuleRequirement(nodes[i].Body)
 		result := Result{Status: StatusUnchecked}
-		if citations, err := Load(fsys, nodes[i].Sources); err == nil {
-			result = Check(graph.RuleRequirement(nodes[i].Body), citations, opts)
+		if citations, err := Load(roots, nodes[i].Sources); err == nil {
+			result = Check(requirement, citations, opts)
+		}
+		if added := widening(result, nodes[i].Sources); len(added) > 0 {
+			sources := append(slices.Clone(nodes[i].Sources), added...)
+			if citations, err := Load(roots, sources); err == nil {
+				if widened := Check(
+					requirement,
+					citations,
+					opts,
+				); widened.Status == StatusGrounded {
+					nodes[i].Sources, result = sources, widened
+					nodes[i].Extra = withExtra(
+						nodes[i].Extra,
+						graph.ExtraGroundingWidened,
+						refList(added),
+					)
+				}
+			}
 		}
 		if nodes[i].Extra == nil {
 			nodes[i].Extra = map[string]string{}
@@ -456,4 +485,84 @@ func Annotate(fsys fs.FS, nodes []graph.Node, opts Options) []graph.Node {
 		}
 	}
 	return nodes
+}
+
+// maxWidenDistance is how far from a citation, in lines, a missing value may
+// sit for the citation to be widened to it: the same function, give or take.
+const maxWidenDistance = 30
+
+// widening returns the lines that would ground an ungrounded rule whose
+// citation is merely too narrow: each missing value occurs at exactly one
+// other line of a cited file, within maxWidenDistance of one of the rule's
+// citations, and is not a lone digit (which occurs everywhere). nil when
+// any missing value falls short, so a widened rule is never a guess.
+func widening(result Result, sources []extract.Ref) []extract.Ref {
+	if result.Status != StatusUngrounded || slices.ContainsFunc(sources, rooted) {
+		return nil
+	}
+	var added []extract.Ref
+	for _, m := range result.Missing {
+		if len(m.Elsewhere) != 1 || isLoneDigit(m.Literal) {
+			return nil
+		}
+		file, line, ok := splitLocation(m.Elsewhere[0])
+		if !ok || !nearCitation(file, line, sources) {
+			return nil
+		}
+		ref := extract.Ref{Path: file, Lines: strconv.Itoa(line) + "-" + strconv.Itoa(line)}
+		if !slices.Contains(added, ref) {
+			added = append(added, ref)
+		}
+	}
+	return added
+}
+
+// rooted reports whether a ref cites a tree other than --src: such rules
+// are an extractor's, cited exactly, and are never widened.
+func rooted(ref extract.Ref) bool { return ref.Root != "" }
+
+// isLoneDigit reports whether a stated value is a single digit.
+func isLoneDigit(literal string) bool {
+	return len(literal) == 1 && literal[0] >= '0' && literal[0] <= '9'
+}
+
+// splitLocation parses a Miss location, "path:line".
+func splitLocation(location string) (string, int, bool) {
+	i := strings.LastIndexByte(location, ':')
+	if i < 0 {
+		return "", 0, false
+	}
+	line, err := strconv.Atoi(location[i+1:])
+	return location[:i], line, err == nil
+}
+
+// nearCitation reports whether line of file is within maxWidenDistance of
+// one of sources.
+func nearCitation(file string, line int, sources []extract.Ref) bool {
+	for _, s := range sources {
+		a, b, err := extract.ParseLines(s.Lines)
+		if err == nil && s.Path == file && line >= a-maxWidenDistance &&
+			line <= b+maxWidenDistance {
+			return true
+		}
+	}
+	return false
+}
+
+// refList writes refs as "path:a-b" joined by ", ".
+func refList(refs []extract.Ref) string {
+	parts := make([]string, len(refs))
+	for i, r := range refs {
+		parts[i] = r.File() + ":" + r.Lines
+	}
+	return strings.Join(parts, ", ")
+}
+
+// withExtra sets extra[key] = value, allocating extra when nil.
+func withExtra(extra map[string]string, key, value string) map[string]string {
+	if extra == nil {
+		extra = map[string]string{}
+	}
+	extra[key] = value
+	return extra
 }

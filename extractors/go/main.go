@@ -32,7 +32,17 @@ var excludedDirs = map[string]bool{
 
 func main() {
 	root := flag.String("root", "", "module root to analyze (required)")
-	sqlGlob := flag.String("sql-glob", "", "optional glob (relative to root) restricting SQL schema files")
+	sqlGlob := flag.String(
+		"sql-glob",
+		"",
+		"optional glob (relative to root) restricting SQL schema files",
+	)
+	skipDirs := flag.String(
+		"skip-dirs",
+		"",
+		"comma-separated directory names whose route registrations are not entry points "+
+			"(e.g. testutil, where test helpers register mock servers)",
+	)
 	flag.Parse()
 
 	if *root == "" {
@@ -46,19 +56,44 @@ func main() {
 	}
 
 	var facts []Fact
-	facts = append(facts, routeFacts(absRoot)...)
+	facts = append(facts, routeFacts(absRoot, dirSet(*skipDirs))...)
 	facts = append(facts, tableFacts(absRoot, *sqlGlob)...)
 
 	sort.Slice(facts, func(i, j int) bool { return facts[i].ID < facts[j].ID })
-	if err := json.NewEncoder(os.Stdout).Encode(Envelope{Schema: schemaID, Facts: facts}); err != nil {
+	if err := json.NewEncoder(os.Stdout).
+		Encode(Envelope{Schema: schemaID, Facts: facts}); err != nil {
 		fmt.Fprintf(os.Stderr, "extract: encode: %v\n", err)
 		os.Exit(1)
 	}
 }
 
+// dirSet parses a comma-separated list of directory names.
+func dirSet(list string) map[string]bool {
+	set := make(map[string]bool)
+	for _, name := range strings.Split(list, ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			set[name] = true
+		}
+	}
+	return set
+}
+
+// inDir reports whether a slash-separated path lies under a directory
+// named in dirs, at any depth.
+func inDir(file string, dirs map[string]bool) bool {
+	parts := strings.Split(file, "/")
+	for _, dir := range parts[:len(parts)-1] {
+		if dirs[dir] {
+			return true
+		}
+	}
+	return false
+}
+
 // routeFacts loads the module with type information and converts detected
-// routes to facts. Load errors are tolerated: partial results still ship.
-func routeFacts(root string) []Fact {
+// routes to facts, but those registered under a skipped directory. Load
+// errors are tolerated: partial results still ship.
+func routeFacts(root string, skip map[string]bool) []Fact {
 	fset := token.NewFileSet()
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax |
@@ -76,17 +111,28 @@ func routeFacts(root string) []Fact {
 		loadErrors += len(p.Errors)
 	})
 	if loadErrors > 0 {
-		fmt.Fprintf(os.Stderr, "extract: %d package load error(s), continuing with partial type info\n", loadErrors)
+		fmt.Fprintf(
+			os.Stderr,
+			"extract: %d package load error(s), continuing with partial type info\n",
+			loadErrors,
+		)
 	}
 
 	var facts []Fact
 	for _, r := range ExtractRoutes(pkgs, fset, root) {
+		if inDir(r.Ref.Path, skip) {
+			continue
+		}
 		attrs := map[string]string{"path": r.Path}
 		if r.Method != "" {
 			attrs["method"] = r.Method
 		}
 		if r.Handler != "" && r.Handler != "closure" {
 			attrs["handler"] = r.Handler
+		}
+		if r.HandlerRef.Path != "" {
+			attrs["handler_path"] = r.HandlerRef.Path
+			attrs["handler_lines"] = r.HandlerRef.Lines
 		}
 		method := r.Method
 		if method == "" {
@@ -141,9 +187,12 @@ func tableFacts(root, sqlGlob string) []Fact {
 			}
 			seen[t.Name] = true
 			facts = append(facts, Fact{
-				Kind:      "table",
-				ID:        "table." + t.Name,
-				Attrs:     map[string]string{"name": t.Name, "columns": strings.Join(t.Columns, ", ")},
+				Kind: "table",
+				ID:   "table." + t.Name,
+				Attrs: map[string]string{
+					"name":    t.Name,
+					"columns": strings.Join(t.Columns, ", "),
+				},
 				Source:    Ref{Path: rel, Lines: itoa(t.Line) + "-" + itoa(t.Line)},
 				Origin:    origin,
 				Certainty: certain,

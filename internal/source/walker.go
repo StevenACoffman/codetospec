@@ -19,6 +19,9 @@ type File struct {
 	Path     string // slash-separated, relative to the root
 	AbsPath  string
 	Language string // "" when no grammar matches the extension
+	// Generated marks a file whose header says a tool wrote it (see
+	// generatedHeader): its rules are its generator's, not its own.
+	Generated bool
 }
 
 // Walk lists source files under root in deterministic (lexical) order,
@@ -66,13 +69,15 @@ func Walk(root string, exclude []string) ([]File, error) {
 		if err != nil {
 			return fmt.Errorf("relativize %s: %w", path, err)
 		}
-		if isBinary(path) {
+		kind := sniff(path)
+		if kind.binary {
 			return nil
 		}
 		files = append(files, File{
-			Path:     filepath.ToSlash(rel),
-			AbsPath:  path,
-			Language: sitter.LanguageForPath(name),
+			Path:      filepath.ToSlash(rel),
+			AbsPath:   path,
+			Language:  sitter.LanguageForPath(name),
+			Generated: kind.generated,
 		})
 		return nil
 	})
@@ -82,17 +87,44 @@ func Walk(root string, exclude []string) ([]File, error) {
 	return files, nil
 }
 
-// isBinary sniffs the first bytes of a file to decide whether it is source
-// text at all.
-func isBinary(path string) bool {
+// fileKind is what the first bytes of a file tell about it.
+type fileKind struct {
+	binary    bool // not source text (or unreadable)
+	generated bool // source text a tool wrote (see generatedHeader)
+}
+
+// sniff reads the first bytes of a file to decide whether it is source
+// text at all, and whether a tool generated it.
+func sniff(path string) fileKind {
 	f, err := os.Open(path)
 	if err != nil {
-		return true
+		return fileKind{binary: true}
 	}
 	defer f.Close()
 	buf := make([]byte, 8000)
 	n, _ := f.Read(buf)
-	return looksBinary(buf[:n])
+	if looksBinary(buf[:n]) {
+		return fileKind{binary: true}
+	}
+	return fileKind{generated: generatedHeader(buf[:n])}
+}
+
+// generatedHeader reports whether head carries Go's generated-code marker,
+// a "// Code generated … DO NOT EDIT." line before the first line that is
+// neither a comment nor blank (https://go.dev/s/generatedcode). A generator
+// that holds the marker in a string, after its package clause, is not
+// generated itself.
+func generatedHeader(head []byte) bool {
+	for line := range strings.Lines(string(head)) {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "// Code generated ") && strings.HasSuffix(line, " DO NOT EDIT."):
+			return true
+		case line != "" && !strings.HasPrefix(line, "//"):
+			return false
+		}
+	}
+	return false
 }
 
 // looksBinary reports whether a byte sample is not decodable source text. A

@@ -7,13 +7,17 @@
 #        DRY_RUN=1 ./scanwebapp.sh users      # build + extract only, no LLM call
 #        SCIP=0 ./scanwebapp.sh users         # skip the scip-go index
 #        REDUCE_MODE=full ./scanwebapp.sh users    # LLM consolidates every rule
+#        ./scanwebapp.sh users --reground   # re-ask cached chunks whose rules
+#                                           # state values their code lacks
 #
 # Steps:
 #   1. build bin/codetospec and bin/webapp-extract (extractors/webapp);
 #   2. run the webapp extractor on $WEBAPP_DIR/services/<service>: mechanical
-#      authorization rules, schema-file domains, GraphQL endpoints, Datastore
-#      entities, numeric constants, schema docs and cross-service calls;
-#      and index the service with scip-go for precise symbols (SCIP=0 skips);
+#      authorization and rate-limit rules, schema-file domains, GraphQL
+#      endpoints, Datastore entities, numeric constants, schema docs and
+#      cross-service calls; the Go extractor for net/http routes (pub/sub
+#      push handlers, REST endpoints); and index the service with scip-go for
+#      precise symbols (SCIP=0 skips);
 #   3. run codetospec on the service with those facts, against Gemini's
 #      OpenAI-compatible endpoint, with the key from $GEMINI_API_KEY.
 #
@@ -86,13 +90,17 @@ scip_go=github.com/scip-code/scip-go/cmd/scip-go@v0.2.7
 base_url=https://generativelanguage.googleapis.com/v1beta/openai
 
 # Excluded from the LLM map phase. --exclude replaces codetospec's defaults,
-# so vendor/node_modules/dist/build are repeated. Tests, generated code,
-# mocks and test harnesses only cost tokens; schema/config files are read by
-# the extractor, not mapped.
-default_exclude='vendor,node_modules,dist,build,generated,testutil,integration'
+# so vendor/node_modules/dist/build are repeated. Tests (incl. testdata/ and
+# BDD *.feature), generated code, mocks, notebooks, Terraform and READMEs only
+# cost tokens; schema/config files are read by the extractor, not mapped.
+# Files with Go's "Code generated … DO NOT EDIT." header are skipped by
+# codetospec itself. *.proto and *.py stay: they yield rules (contracts,
+# scripts); drop them with EXTRA_EXCLUDE if unwanted.
+default_exclude='vendor,node_modules,dist,build,generated,testutil,integration,testdata'
 default_exclude+=',*_test.go,*_gen.go,*.pb.go,mock_*.go,*_mock.go,*_mocks.go'
 default_exclude+=',*.md,*.txt,*.json,*.yaml,*.yml,*.sql,*.graphql,*.sh,*.toml'
 default_exclude+=',*.png,*.jpg,*.xml,*.gotxt,*.gohtml,Makefile,*.proto.dep'
+default_exclude+=',README,*.ipynb,*.tf,*.feature'
 exclude=${EXCLUDE:-$default_exclude}
 if [ -n "${EXTRA_EXCLUDE:-}" ]; then
     exclude+=",$EXTRA_EXCLUDE"
@@ -107,7 +115,7 @@ else
 fi
 [ -d "$service_dir" ] || die "no such service: $service_dir"
 [ -f "$service_dir/gqlgen.yml" ] ||
-    printf 'scanwebapp: warning: %s has no gqlgen.yml; resolvers keep their directory domain\n' "$service_dir" >&2
+    printf 'scanwebapp: note: %s has no gqlgen.yml: only its net/http handlers, access policies and tables get mechanical rules\n' "$service_dir" >&2
 case "$spec_lang" in fr | en) ;; *) die "SPEC_LANG must be fr or en, got '$spec_lang'" ;; esac
 case "$reduce_mode" in full | merge) ;; *) die "REDUCE_MODE must be full or merge, got '$reduce_mode'" ;; esac
 case "$scip" in 0 | 1) ;; *) die "SCIP must be 0 or 1, got '$scip'" ;; esac
@@ -122,6 +130,7 @@ fi
 printf '==> building codetospec and the webapp extractor\n' >&2
 (cd "$repo_dir" && go build -o bin/codetospec ./cmd/codetospec)
 (cd "$repo_dir/extractors/webapp" && go build -o "$repo_dir/bin/webapp-extract" .)
+(cd "$repo_dir/extractors/go" && go build -o "$repo_dir/bin/go-extract" .)
 if [ "$scip" = 1 ]; then
     (cd "$repo_dir/extractors/scip" && go build -o "$repo_dir/bin/scip2facts" .)
 fi
@@ -137,6 +146,15 @@ printf '    rules %s · domains %s · endpoints %s · entities %s · constants %
     "$(count rule)" "$(count domain)" "$(count route)" "$(count table)" \
     "$(count constant)" "$(count doc)" "$(count dependency)" >&2
 facts_args=(--facts "$facts_file")
+
+# net/http routes: optional, a failed package load only loses the routes.
+routes_file=$out_dir/.codetospec/go-routes.facts.json
+if (cd "$service_dir" && "$repo_dir/bin/go-extract" -root . -skip-dirs testutil >"$routes_file" 2>"$routes_file.log"); then
+    printf '    %s net/http routes\n' "$(grep -o '"kind":"route"' "$routes_file" | wc -l | tr -d ' ')" >&2
+    facts_args+=(--facts "$routes_file")
+else
+    printf 'scanwebapp: warning: Go route extraction failed (see %s); continuing without it\n' "$routes_file.log" >&2
+fi
 
 if [ "$scip" = 1 ]; then
     scip_index=$out_dir/.codetospec/index.scip
@@ -154,6 +172,7 @@ fi
 cmd=(
     "$repo_dir/bin/codetospec" run
     --src "$service_dir"
+    --ref-root "webapp=$webapp_dir"
     --out "$out_dir"
     --lang "$spec_lang"
     --max-tokens "$max_tokens"

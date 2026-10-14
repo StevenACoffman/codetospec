@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -290,5 +291,66 @@ func TestRuleBodyRoundTripsInEveryLanguage(t *testing.T) {
 				t.Errorf("body does not use %s labels:\n%s", text.Lang, rule.Body)
 			}
 		})
+	}
+}
+
+func TestBuildLinksRulesToTheirHandlersEndpoint(t *testing.T) {
+	const handlerFile = "app/Services/Billing/ProrataCalculator.php" // fixtureReduced cites it
+	route := func(path, handlerLines string) extract.Fact {
+		return extract.Fact{
+			Kind: "route", ID: "route.any." + path,
+			Attrs: map[string]string{
+				"path":                   path,
+				extract.AttrHandlerPath:  handlerFile,
+				extract.AttrHandlerLines: handlerLines,
+			},
+			Source: extract.Ref{Path: "routes.go", Lines: "3-4"},
+		}
+	}
+	cases := map[string]struct {
+		handlerLines string
+		linked       bool
+	}{
+		"citation inside the handler":  {"10-30", true},
+		"citation overlapping its end": {"20-40", true},
+		"handler elsewhere in file":    {"30-40", false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			facts := append(fixtureFacts(), route("/pubsub/x", tc.handlerLines))
+			nodes := Build(facts, fixtureReduced(), extract.DomainResolver{}, "fr")
+			for _, n := range nodes {
+				if n.ID != "rule.services.prorata-activation" { // cites lines 11-24
+					continue
+				}
+				edge := Edge{Type: EdgeExposedBy, To: "endpoint.pubsub-x"}
+				if got := slices.Contains(n.Edges, edge); got != tc.linked {
+					t.Fatalf("linked = %v, want %v (edges %v)", got, tc.linked, n.Edges)
+				}
+				return
+			}
+			t.Fatal("rule node missing")
+		})
+	}
+}
+
+// TestEndpointIDNamesRoot: the path "/" gets a visible id, with or
+// without a verb; other paths keep theirs.
+func TestEndpointIDNamesRoot(t *testing.T) {
+	route := func(method, path string) extract.Fact {
+		return extract.Fact{
+			Kind:  extract.KindRoute,
+			Attrs: map[string]string{"method": method, "path": path},
+		}
+	}
+	cases := map[string]extract.Fact{
+		"endpoint.root":         route("", "/"),
+		"endpoint.get-root":     route("GET", "/"),
+		"endpoint.safelist-add": route("", "/safelist/add"),
+	}
+	for want, f := range cases {
+		if got := EndpointID(f); got != want {
+			t.Errorf("EndpointID(%v) = %q, want %q", f.Attrs, got, want)
+		}
 	}
 }

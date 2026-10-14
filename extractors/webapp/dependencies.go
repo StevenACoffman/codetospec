@@ -47,18 +47,8 @@ func dependencyFacts(in *Inputs, sources []source) ([]Fact, []string) {
 
 	var facts []Fact
 	for i := range sources {
-		s := &sources[i]
-		for _, call := range genqlientCalls(s) {
-			for _, field := range ops[call.name] {
-				for _, owner := range owners[field] {
-					if owner != in.ServiceGraph {
-						facts = append(
-							facts,
-							dependencyFact(s.name, call.line, serviceSlug(owner), field),
-						)
-					}
-				}
-			}
+		for _, call := range genqlientCalls(&sources[i]) {
+			facts = append(facts, call.facts(sources[i].name, ops, owners, in.ServiceGraph)...)
 		}
 	}
 	return facts, warnings
@@ -68,6 +58,7 @@ func dependencyFacts(in *Inputs, sources []source) ([]Fact, []string) {
 type genqlientCall struct {
 	name string // operation function, e.g. "Users_AcceptInvitation"
 	line int
+	as   string // the client's authority (see clientAuthority); "" if unknown
 }
 
 // genqlientCalls finds the genqlient.<Operation>(…) calls in s.
@@ -83,14 +74,58 @@ func genqlientCalls(s *source) []genqlientCall {
 			return true
 		}
 		if pkg, isIdent := sel.X.(*ast.Ident); isIdent && pkg.Name == "genqlient" {
-			calls = append(
-				calls,
-				genqlientCall{name: sel.Sel.Name, line: s.fset.Position(call.Pos()).Line},
-			)
+			calls = append(calls, genqlientCall{
+				name: sel.Sel.Name,
+				line: s.fset.Position(call.Pos()).Line,
+				as:   clientAuthority(call),
+			})
 		}
 		return true
 	})
 	return calls
+}
+
+// facts returns the dependency facts of a call in file: one per root field
+// of its operation (ops) and owning service (owners) but self.
+func (c *genqlientCall) facts(file string, ops, owners map[string][]string, self string) []Fact {
+	var facts []Fact
+	for _, field := range ops[c.name] {
+		for _, owner := range owners[field] {
+			if owner == self {
+				continue
+			}
+			f := dependencyFact(file, c.line, serviceSlug(owner), field)
+			if c.as != "" {
+				f.Attrs[attrAs] = c.as
+			}
+			facts = append(facts, f)
+		}
+	}
+	return facts
+}
+
+// clientArg is the position of the client in a genqlient call:
+// genqlient.Op(ctx, client, …).
+const clientArg = 1
+
+// clientAuthority is the authority of a genqlient call's client, when the
+// call builds it in place: ctx.GraphQL().AsServiceAdmin() → asServiceAdmin,
+// AsUser() → asUser; "" for a client held in a variable.
+func clientAuthority(call *ast.CallExpr) string {
+	if len(call.Args) <= clientArg {
+		return ""
+	}
+	client, ok := call.Args[clientArg].(*ast.CallExpr)
+	if !ok {
+		return ""
+	}
+	switch calledName(client) {
+	case "AsServiceAdmin":
+		return asServiceAdmin
+	case "AsUser":
+		return asUser
+	}
+	return ""
 }
 
 func dependencyFact(file string, line int, service, field string) Fact {
@@ -217,7 +252,7 @@ func rootFields(query string) ([]string, error) {
 	}
 	var fields []string
 	for _, op := range doc.Operations {
-		root := "Query"
+		root := gqlQuery
 		switch op.Operation {
 		case gqlast.Mutation:
 			root = "Mutation"

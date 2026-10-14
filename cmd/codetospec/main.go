@@ -276,7 +276,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 	facts, rejectedRules := graph.ValidateRuleFacts(
 		extract.Merge(sitterFacts, extractorFacts, fileFacts),
 	)
-	resolver.Ambiguous = extract.AmbiguousNamespaces(facts)
+	resolver.Ambiguous = extract.AmbiguousNamespaces(fileInfo)
 	for _, reason := range rejectedRules {
 		sink.Emit(
 			ui.LogLine{Level: slog.LevelWarn, Message: "invalid rule fact dropped: " + reason},
@@ -311,10 +311,17 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		}
 		return resolver.Resolve(namespace, path)
 	}
+	// Generated files keep their facts but are not mapped: their rules are
+	// their generator's.
 	var chunks []sitter.Chunk
+	generated := 0
 	for _, f := range files {
 		data, ok := fileData[f.Path]
 		if !ok {
+			continue
+		}
+		if f.Generated {
+			generated++
 			continue
 		}
 		chunks = append(
@@ -366,6 +373,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		Model:    cfg.Model,
 		Lang:     cfg.Lang,
 		Workers:  cfg.Workers,
+		Reground: cfg.Reground,
 		OutDir:   filepath.Join(cfg.Out, ".codetospec", "map"),
 		Entities: entities,
 		EndpointsFor: func(path string) []string {
@@ -520,15 +528,16 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 
 	// Check, without an LLM, that each rule's stated values occur in the code
 	// it cites (after crosscheck, whose repair may re-cite).
-	nodes = grounding.Annotate(os.DirFS(cfg.Src), nodes, groundingOpts)
+	nodes = grounding.Annotate(cfg.Roots(), nodes, groundingOpts)
 
 	// Stamp each rule with a digest of its cited code, enabling later drift
 	// checks against an evolving source tree.
+	roots := cfg.Roots()
 	for i := range nodes {
 		if nodes[i].Type != graph.TypeRule {
 			continue
 		}
-		digest, digestErr := drift.Digest(cfg.Src, nodes[i].Sources)
+		digest, digestErr := drift.Digest(roots, nodes[i].Sources)
 		if digestErr != nil {
 			continue // a broken citation is caught by verify below
 		}
@@ -538,7 +547,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		nodes[i].Extra["digest"] = digest
 	}
 
-	violations := verify.Run(nodes, cfg.Src)
+	violations := verify.Run(nodes, cfg.Roots())
 	if len(violations) > 0 {
 		for _, v := range violations {
 			final.Violations = append(final.Violations, v.String())
@@ -562,12 +571,14 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 	snapshot := st.Snapshot()
 	meta := render.Meta{
 		DomainSplits:          communities.Splits(codeFiles(chunks), importsOf(facts)),
+		DomainGroups:          domainGroups(chunks, resolver.Ambiguous, &hints),
 		Coverage:              graph.ComputeCoverage(nodes),
 		ChunksFailed:          snapshot.ChunksFailed,
 		ChunksTotal:           snapshot.ChunksTotal,
 		DomainsFailed:         snapshot.DomainsFailed,
 		DomainsTotal:          snapshot.DomainsTotal,
 		FilesNoGrammar:        noGrammar,
+		FilesGenerated:        generated,
 		Crosschecked:          cfg.Crosscheck,
 		CrosscheckSupported:   checkTally.Supported,
 		CrosscheckPartial:     checkTally.Partial,
@@ -794,7 +805,7 @@ func verifyCommand(cfg *config.Config) int {
 		slog.Error("no nodes found", "out", cfg.Out)
 		return 1
 	}
-	violations := verify.Run(nodes, cfg.Src)
+	violations := verify.Run(nodes, cfg.Roots())
 	if len(violations) > 0 {
 		for _, v := range violations {
 			fmt.Fprintln(os.Stderr, v.String())
@@ -811,7 +822,7 @@ func driftCommand(cfg *config.Config) int {
 		slog.Error("cannot load graph", "err", err)
 		return 1
 	}
-	report := drift.Check(nodes, cfg.Src)
+	report := drift.Check(nodes, cfg.Roots())
 
 	if cfg.Format == "json" {
 		payload := map[string]int{
@@ -907,4 +918,29 @@ func importsOf(facts []extract.Fact) []communities.Import {
 		}
 	}
 	return imports
+}
+
+// domainGroups maps each domain that chunks of an ambiguous namespace
+// resolved to by directory (no extractor hint) to that namespace; a domain
+// reached from two such namespaces belongs to neither.
+func domainGroups(
+	chunks []sitter.Chunk,
+	ambiguous map[string]bool,
+	hints *extract.DomainHints,
+) map[string]string {
+	groups := make(map[string]string)
+	mixed := make(map[string]bool)
+	for _, c := range chunks {
+		if !ambiguous[c.Namespace] || hints.At(c.Path, c.StartLine) != "" {
+			continue
+		}
+		if ns, ok := groups[c.Domain]; ok && ns != c.Namespace {
+			mixed[c.Domain] = true
+		}
+		groups[c.Domain] = c.Namespace
+	}
+	for domain := range mixed {
+		delete(groups, domain)
+	}
+	return groups
 }

@@ -16,17 +16,34 @@ type Route struct {
 	Method  string
 	Path    string
 	Handler string
-	Ref     Ref
+	// HandlerRef is the module code serving the route; the registration
+	// itself when the handler is not the module's (playground.Handler(…)):
+	// it is the closest code that serves the route.
+	HandlerRef Ref
+	Ref        Ref
 }
 
 // httpVerbs are router method names that name an HTTP verb directly
 // (gin/echo use upper-case, chi uses title-case).
 var httpVerbs = map[string]string{
-	"GET": "GET", "POST": "POST", "PUT": "PUT", "PATCH": "PATCH",
-	"DELETE": "DELETE", "OPTIONS": "OPTIONS", "HEAD": "HEAD", "ANY": "ANY",
-	"Get": "GET", "Post": "POST", "Put": "PUT", "Patch": "PATCH",
-	"Delete": "DELETE", "Options": "OPTIONS", "Head": "HEAD", "Connect": "CONNECT", "Trace": "TRACE",
-	"Any": "ANY",
+	"GET":     "GET",
+	"POST":    "POST",
+	"PUT":     "PUT",
+	"PATCH":   "PATCH",
+	"DELETE":  "DELETE",
+	"OPTIONS": "OPTIONS",
+	"HEAD":    "HEAD",
+	"ANY":     "ANY",
+	"Get":     "GET",
+	"Post":    "POST",
+	"Put":     "PUT",
+	"Patch":   "PATCH",
+	"Delete":  "DELETE",
+	"Options": "OPTIONS",
+	"Head":    "HEAD",
+	"Connect": "CONNECT",
+	"Trace":   "TRACE",
+	"Any":     "ANY",
 }
 
 var methodPrefixRe = regexp.MustCompile(`^(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+(/\S*)$`)
@@ -35,7 +52,9 @@ var methodPrefixRe = regexp.MustCompile(`^(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEA
 // group prefixes resolved and handlers named via type information.
 func ExtractRoutes(pkgs []*packages.Package, fset *token.FileSet, root string) []Route {
 	var routes []Route
+	decls := funcDecls(pkgs)
 	for _, pkg := range pkgs {
+		handlers := handlerCode{info: pkg.TypesInfo, fset: fset, root: root, decls: decls}
 		for _, file := range pkg.Syntax {
 			// Resolve router-group prefixes within each function scope.
 			ast.Inspect(file, func(n ast.Node) bool {
@@ -51,7 +70,7 @@ func ExtractRoutes(pkgs []*packages.Package, fset *token.FileSet, root string) [
 				}
 				prefixes := groupPrefixes(body)
 				for _, stmt := range allCalls(body) {
-					if r, ok := routeFrom(stmt, prefixes, pkg.TypesInfo, fset, root); ok {
+					if r, ok := routeFrom(stmt, prefixes, &handlers); ok {
 						routes = append(routes, r)
 					}
 				}
@@ -135,7 +154,12 @@ func allCalls(body *ast.BlockStmt) []*ast.CallExpr {
 }
 
 // routeFrom interprets one call as a route registration, if it is one.
-func routeFrom(call *ast.CallExpr, prefixes map[string]string, info *types.Info, fset *token.FileSet, root string) (Route, bool) {
+func routeFrom(
+	call *ast.CallExpr,
+	prefixes map[string]string,
+	handlers *handlerCode,
+) (Route, bool) {
+	info, fset, root := handlers.info, handlers.fset, handlers.root
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok || len(call.Args) == 0 {
 		return Route{}, false
@@ -146,41 +170,8 @@ func routeFrom(call *ast.CallExpr, prefixes map[string]string, info *types.Info,
 		recvPrefix = prefixes[recv.Name]
 	}
 
-	var method, path string
-	switch {
-	case httpVerbs[name] != "":
-		p, ok := stringLit(call.Args[0])
-		if !ok || !strings.HasPrefix(p, "/") {
-			return Route{}, false
-		}
-		method, path = httpVerbs[name], p
-	case name == "Handle" || name == "Method":
-		// gin: Handle(method, path, h...) ; chi: Method(method, path, h)
-		if len(call.Args) < 2 {
-			return Route{}, false
-		}
-		m, okM := stringLit(call.Args[0])
-		p, okP := stringLit(call.Args[1])
-		if okM && okP && isHTTPMethod(m) && strings.HasPrefix(p, "/") {
-			method, path = strings.ToUpper(m), p
-		} else if p2, ok := stringLit(call.Args[0]); ok && strings.HasPrefix(p2, "/") {
-			method, path = "", p2 // net/http mux.Handle(path, handler)
-		} else {
-			return Route{}, false
-		}
-	case name == "HandleFunc":
-		p, ok := stringLit(call.Args[0])
-		if !ok {
-			return Route{}, false
-		}
-		if m := methodPrefixRe.FindStringSubmatch(p); m != nil { // Go 1.22 "GET /path"
-			method, path = m[1], m[2]
-		} else if strings.HasPrefix(p, "/") {
-			method, path = "", p
-		} else {
-			return Route{}, false
-		}
-	default:
+	method, path, isRoute := methodAndPath(name, call.Args)
+	if !isRoute {
 		return Route{}, false
 	}
 
@@ -188,12 +179,56 @@ func routeFrom(call *ast.CallExpr, prefixes map[string]string, info *types.Info,
 	if !strings.HasPrefix(full, "/") {
 		full = "/" + full
 	}
+	handler := call.Args[len(call.Args)-1]
+	ref := refOf(call, fset, root)
 	return Route{
-		Method:  method,
-		Path:    full,
-		Handler: handlerName(call.Args[len(call.Args)-1], info),
-		Ref:     refOf(call, fset, root),
+		Method:     method,
+		Path:       full,
+		Handler:    handlerName(handler, info),
+		HandlerRef: servedBy(handlers, handler, ref),
+		Ref:        ref,
 	}, true
+}
+
+// methodAndPath reads the method and path a registration call named name
+// declares with args: r.GET("/x", h), Handle(method, path, h) (gin, chi)
+// or Handle(path, h) (net/http), HandleFunc("GET /x", h) (Go 1.22).
+func methodAndPath(name string, args []ast.Expr) (string, string, bool) {
+	switch {
+	case httpVerbs[name] != "":
+		p, ok := stringLit(args[0])
+		return httpVerbs[name], p, ok && strings.HasPrefix(p, "/")
+	case name == "Handle" || name == "Method":
+		if len(args) < 2 {
+			return "", "", false
+		}
+		m, isMethod := stringLit(args[0])
+		p, isPath := stringLit(args[1])
+		if isMethod && isPath && isHTTPMethod(m) && strings.HasPrefix(p, "/") {
+			return strings.ToUpper(m), p, true
+		}
+		p, isPath = stringLit(args[0])
+		return "", p, isPath && strings.HasPrefix(p, "/") // net/http mux.Handle(path, handler)
+	case name == "HandleFunc":
+		p, ok := stringLit(args[0])
+		if !ok {
+			return "", "", false
+		}
+		if m := methodPrefixRe.FindStringSubmatch(p); m != nil { // Go 1.22 "GET /path"
+			return m[1], m[2], true
+		}
+		return "", p, strings.HasPrefix(p, "/")
+	}
+	return "", "", false
+}
+
+// servedBy is the code serving a route: its handler's, or the
+// registration (at) for a handler outside the module.
+func servedBy(handlers *handlerCode, handler ast.Expr, at Ref) Ref {
+	if ref := handlers.of(handler); ref.Path != "" {
+		return ref
+	}
+	return at
 }
 
 // handlerName resolves a handler argument to a qualified symbol name so the

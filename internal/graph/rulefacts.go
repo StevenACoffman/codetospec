@@ -13,6 +13,18 @@ import (
 // mechanical rule (see extract.KindRule); absent on LLM rules.
 const ExtraExtractedBy = "extracted_by"
 
+// ExtraInheritedFrom is the Extra key naming the spec an inherited rule
+// comes from (see extract.AttrInheritedFrom); absent on other rules.
+const ExtraInheritedFrom = "inherited_from"
+
+// Reviewable reports whether a node is a rule of this spec's LLM output,
+// which the cross-check reviewer may judge: not an extractor's mechanical
+// rule, nor one inherited from another spec.
+func Reviewable(n *Node) bool {
+	return n.Type == TypeRule && n.Extra[ExtraExtractedBy] == "" &&
+		n.Extra[ExtraInheritedFrom] == ""
+}
+
 // ExtraGroundingWidened is the Extra key listing the lines grounding added to
 // a rule's citations ("path:a-b, …"), because the value it states sat just
 // outside them (see grounding.Annotate).
@@ -107,11 +119,34 @@ func mechanicalRuleNode(
 		Edges:   edges,
 		Title:   f.Attrs[extract.AttrTitle],
 		Body:    text.Requirement + f.Attrs[extract.AttrRequirement],
-		Extra: map[string]string{
-			"ears":           f.Attrs[extract.AttrEARS],
-			"nature":         f.Attrs[extract.AttrNature],
-			"origin":         "explicit",
-			ExtraExtractedBy: f.Origin,
-		},
+		Extra:   ruleFactExtra(f),
 	}
+}
+
+// ruleFactExtra is the frontmatter of a rule fact's node: a mechanical
+// rule names its extractor; an inherited one its spec, with that spec's
+// verdict (unchecked when it had none), origin and confidence.
+func ruleFactExtra(f *extract.Fact) map[string]string {
+	extra := map[string]string{
+		"ears":   f.Attrs[extract.AttrEARS],
+		"nature": f.Attrs[extract.AttrNature],
+		"origin": "explicit",
+	}
+	from := f.Attrs[extract.AttrInheritedFrom]
+	if from == "" {
+		extra[ExtraExtractedBy] = f.Origin
+		return extra
+	}
+	extra[ExtraInheritedFrom] = from
+	extra["crosscheck"] = f.Attrs[extract.AttrCrosscheck]
+	if extra["crosscheck"] == "" {
+		extra["crosscheck"] = "unchecked"
+	}
+	if origin := f.Attrs[extract.AttrOrigin]; origin != "" {
+		extra["origin"] = origin
+	}
+	if confidence := f.Attrs[extract.AttrConfidence]; confidence != "" {
+		extra["confidence"] = confidence
+	}
+	return extra
 }

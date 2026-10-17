@@ -305,6 +305,11 @@ Two more kinds let an extractor contribute beyond structure (contract in
   as `@<name>/path:lines`, and kept as `root:` in the frontmatter; a root
   not given is a `verify` violation and a `drift` "broken" rule. Only
   extractor rules carry a root (chunks come from `--src`).
+  A rule fact may also be **inherited** from another spec: attr
+  `inherited_from` (that spec's name) with its `crosscheck` verdict,
+  `origin` and `confidence`. Such a rule (an LLM rule of shared code) is
+  rendered `inherited_from: <spec>` — never `extracted_by` — and is not
+  reviewed again by `--crosscheck`; it is grounded and digested like any.
 
 For Khan webapp, `scanwebapp-authz.sh` lists the authorization rules of every
 Go service at once (no LLM): `extractors/webapp -all` on the checkout, the Go

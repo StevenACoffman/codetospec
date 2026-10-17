@@ -60,6 +60,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	)
 	accessPkgs := flags.String("access-pkgs", "permissions",
 		"comma-separated service packages whose bool functions are access checks")
+	inherit := flags.String("inherit", "",
+		"codetospec graph of webapp's pkg/ whose rules about reached code to inherit")
 	all := flags.Bool("all", false,
 		"analyze every Go service of the webapp checkout -root, consolidated")
 	if err := flags.Parse(args); err != nil {
@@ -105,6 +107,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	); statErr == nil &&
 		info.IsDir() {
 		in.Webapp = os.DirFS(webappDir)
+	}
+	if *inherit != "" {
+		in.Inherit = os.DirFS(*inherit)
 	}
 	facts, warnings, err := Analyze(&in)
 	return emit(facts, warnings, err, stdout, logf)

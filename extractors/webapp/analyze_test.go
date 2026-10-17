@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"go/ast"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -497,4 +498,41 @@ func ownRules(t *testing.T, dir, svc string) int {
 		}
 	}
 	return own
+}
+
+// TestInheritFacts: the pkg spec's LLM rules about code the service
+// reaches — a function, a method through its type — are inherited, cited in
+// pkg/ under webappRoot with the spec's verdict; unreached code, a rule
+// citing two files and the spec's own extractor rules are not.
+func TestInheritFacts(t *testing.T) {
+	in := testInputs("en")
+	in.Inherit = os.DirFS(filepath.Join("testdata", "pkgspec"))
+	facts, warnings, err := Analyze(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]Fact{}
+	for _, f := range facts {
+		if f.Attrs[attrInheritedFrom] != "" {
+			got[f.ID] = f
+		}
+	}
+	want := []string{
+		"rule.inherited.pkg.web-gqlclient.send-needs-headers",
+		"rule.inherited.pkg.web-serve.missing-secret",
+	}
+	if ids := slices.Sorted(maps.Keys(got)); !slices.Equal(ids, want) {
+		t.Fatalf("inherited %v, want %v", ids, want)
+	}
+	f := got[want[1]]
+	if f.Source != (Ref{Path: "pkg/web/serve/graphql.go", Lines: "15-18", Root: webappRoot}) ||
+		f.Attrs[attrCrosscheck] != "supported" || f.Attrs[attrDomain] != "shared-web-serve" {
+		t.Errorf("inherited rule = %+v", f)
+	}
+	if !slices.ContainsFunc(
+		warnings,
+		func(w string) bool { return strings.Contains(w, "1 rules citing several files") },
+	) {
+		t.Errorf("no warning for the rule citing two files: %v", warnings)
+	}
 }

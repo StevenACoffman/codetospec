@@ -156,7 +156,7 @@ func (c *Checker) Run(ctx context.Context, nodes []graph.Node) (map[string]Verdi
 	}
 	var rules []graph.Node
 	for _, n := range nodes {
-		if n.Type == graph.TypeRule && n.Extra[graph.ExtraExtractedBy] == "" {
+		if graph.Reviewable(&n) {
 			rules = append(rules, n)
 		}
 	}
@@ -471,7 +471,8 @@ func (c *Checker) citedExcerpt(sources []extract.Ref) (string, error) {
 // Annotate writes verdicts into the rule nodes (Extra["crosscheck"]) and,
 // for repaired rules, replaces their citations with the grounded ones. A rule
 // whose check failed, or that has no verdict at all, is annotated
-// VerdictUnchecked; a mechanical rule is annotated VerdictMechanical.
+// VerdictUnchecked; a mechanical rule is annotated VerdictMechanical, and an
+// inherited one keeps the verdict of the spec it comes from.
 func Annotate(nodes []graph.Node, verdictsByRule map[string]Verdict) []graph.Node {
 	for i := range nodes {
 		if nodes[i].Type != graph.TypeRule {
@@ -483,6 +484,9 @@ func Annotate(nodes []graph.Node, verdictsByRule map[string]Verdict) []graph.Nod
 		if nodes[i].Extra[graph.ExtraExtractedBy] != "" {
 			nodes[i].Extra["crosscheck"] = VerdictMechanical
 			continue
+		}
+		if nodes[i].Extra[graph.ExtraInheritedFrom] != "" {
+			continue // its spec's verdict, set when it was built
 		}
 		v, ok := verdictsByRule[nodes[i].ID]
 		if !ok || v.Failed {

@@ -117,6 +117,15 @@ modèle reproduit cher et approximativement, ou pas du tout :
   comparaison avec un local tenant une valeur de requête
   (`actual := r.Header.Get(H)`) se lit côte à côte : « `r.Header.Get(H)`
   ne vaut pas `expected` ».
+- **Règles héritées de la spec de `pkg/`** (`-inherit <graphe>`) : une fois
+  `pkg/` scanné comme spec à part (`./scanwebapp.sh pkg`), chaque service en
+  hérite les règles LLM dont la citation recouvre du code qu'il atteint — y
+  compris les méthodes, un type atteint atteignant ses méthodes — citées dans
+  `pkg/` (racine `webapp`), domaine `shared-<domaine>`, avec
+  `inherited_from: pkg` et le verdict de la spec. Une règle citant plusieurs
+  fichiers n'est pas héritée (avertissement : un fait n'a qu'une citation) ;
+  les règles d'extracteur de la spec non plus. `scanwebapp.sh` le passe dès
+  que `~/spec-graphs/pkg` existe (`PKG_GRAPH`).
 - **Contrats d'en-tête** (`rule`, « Contrat d'en-tête : H ») : attributs
   `header`, `contract` (`sends` | `requires` | `forwards`) et `secret` (le nom
   du secret dans le magasin, `secrets.GSM("backend_to_gateway_secret", 1)`,

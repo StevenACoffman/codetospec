@@ -2,6 +2,7 @@ package main
 
 import (
 	"go/ast"
+	"go/token"
 	"path"
 	"strconv"
 	"strings"
@@ -11,13 +12,15 @@ import (
 // its package directory and name (pkg/web/serve, HandleGraphQL).
 type declKey struct{ dir, name string }
 
-// reached returns the shared functions and variables the service's code
-// reaches: those it names — called or passed as values, as webapp passes
-// middlewares — and, in turn, those they name, across packages. Methods
-// are not followed (x.M() names no package), and neither are interfaces:
-// what is reached is a lower bound, never a guess. This is what makes a
-// shared rule the service's: the gateway imports serve but never reaches
-// its GraphQL middleware.
+// reached returns the shared declarations the service's code reaches:
+// the functions, variables and types it names — called, passed as values,
+// as webapp passes middlewares, or used as types — and, in turn, those
+// they name, across packages. A reached type reaches its methods: x.M()
+// names no package, but x's type was named where x was built or received.
+// Interfaces are not followed to their implementations: what is reached
+// is a lower bound, never a guess. This is what makes a shared rule the
+// service's: the gateway imports serve but never reaches its GraphQL
+// middleware.
 func reached(service []source, shared sharedCode) map[declKey]bool {
 	decls := indexDecls(shared.sources)
 	names := packageNames(shared.sources)
@@ -40,32 +43,73 @@ func reached(service []source, shared sharedCode) map[declKey]bool {
 		queue = queue[1:]
 		d := decls[k]
 		visit(d.file, d.node)
+		for _, m := range d.methods {
+			if !found[m] {
+				found[m] = true
+				queue = append(queue, m)
+			}
+		}
 	}
 	return found
 }
 
 // sharedDecl is the code of a shared declaration and its file.
 type sharedDecl struct {
-	file *source
-	node ast.Node // a function's declaration, a variable's value
+	file    *source
+	node    ast.Node  // a function's declaration, a variable's value, a type's spec
+	methods []declKey // a type's methods, keyed "Type.Method"
 }
 
-// indexDecls indexes the package functions and variables of sources.
+// indexDecls indexes the package functions, variables, types and methods
+// of sources; a type lists its methods.
 func indexDecls(sources []source) map[declKey]sharedDecl {
 	decls := make(map[declKey]sharedDecl)
+	var methods []declKey
 	for i := range sources {
 		s := &sources[i]
 		dir := path.Dir(s.name)
 		for _, fn := range funcDecls(s.file) {
-			if fn.Recv == nil {
-				decls[declKey{dir, fn.Name.Name}] = sharedDecl{file: s, node: fn}
+			name := fn.Name.Name
+			if fn.Recv != nil {
+				recv := receiverName(fn)
+				if recv == "" {
+					continue // a generic receiver: not followed
+				}
+				name = recv + "." + name
+				methods = append(methods, declKey{dir, name})
 			}
+			decls[declKey{dir, name}] = sharedDecl{file: s, node: fn}
 		}
 		for _, v := range packageVars(s.file) {
 			decls[declKey{dir, v.name}] = sharedDecl{file: s, node: v.value}
 		}
+		for _, t := range typeSpecs(s.file) {
+			decls[declKey{dir, t.Name.Name}] = sharedDecl{file: s, node: t}
+		}
+	}
+	for _, m := range methods {
+		typeName, _, _ := strings.Cut(m.name, ".")
+		if t, ok := decls[declKey{m.dir, typeName}]; ok {
+			t.methods = append(t.methods, m)
+			decls[declKey{m.dir, typeName}] = t
+		}
 	}
 	return decls
+}
+
+// typeSpecs lists file's type declarations.
+func typeSpecs(file *ast.File) []*ast.TypeSpec {
+	var specs []*ast.TypeSpec
+	for _, decl := range file.Decls {
+		if gen, ok := decl.(*ast.GenDecl); ok && gen.Tok == token.TYPE {
+			for _, spec := range gen.Specs {
+				if t, isType := spec.(*ast.TypeSpec); isType {
+					specs = append(specs, t)
+				}
+			}
+		}
+	}
+	return specs
 }
 
 // packageNames maps each shared package directory to its package name.

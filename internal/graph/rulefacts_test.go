@@ -170,3 +170,34 @@ func TestMechanicalRuleRoute(t *testing.T) {
 		t.Fatalf("rule edges %v lack exposed_by %s", rule.Edges, endpoint.ID)
 	}
 }
+
+// TestBuildInheritedRule: a rule fact inherited from another spec is
+// labeled with it — never as an extractor's — and keeps its verdict,
+// origin and confidence.
+func TestBuildInheritedRule(t *testing.T) {
+	f := ruleFact("rule.inherited")
+	f.Attrs[extract.AttrInheritedFrom] = "pkg"
+	f.Attrs[extract.AttrCrosscheck] = "supported"
+	f.Attrs[extract.AttrOrigin] = "implicit"
+	f.Attrs[extract.AttrConfidence] = "0.80"
+	nodes := graph.Build([]extract.Fact{f}, nil, extract.DomainResolver{}, "en")
+	for _, n := range nodes {
+		if n.Type != graph.TypeRule {
+			continue
+		}
+		want := map[string]string{
+			graph.ExtraInheritedFrom: "pkg", "crosscheck": "supported",
+			"origin": "implicit", "confidence": "0.80",
+		}
+		for k, v := range want {
+			if n.Extra[k] != v {
+				t.Errorf("extra[%s] = %q, want %q", k, n.Extra[k], v)
+			}
+		}
+		if n.Extra[graph.ExtraExtractedBy] != "" || graph.Reviewable(&n) {
+			t.Errorf("an inherited rule reads as extracted or reviewable: %v", n.Extra)
+		}
+		return
+	}
+	t.Fatal("no rule node")
+}

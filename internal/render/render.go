@@ -156,6 +156,9 @@ func Frontmatter(n graph.Node) string {
 	if v := n.Extra[graph.ExtraExtractedBy]; v != "" {
 		fmt.Fprintf(&b, "%s: %s\n", graph.ExtraExtractedBy, v)
 	}
+	if v := n.Extra[graph.ExtraInheritedFrom]; v != "" {
+		fmt.Fprintf(&b, "%s: %s\n", graph.ExtraInheritedFrom, v)
+	}
 	if v := n.Extra["grounding"]; v != "" {
 		fmt.Fprintf(&b, "grounding: %s\n", v)
 	}
@@ -581,6 +584,7 @@ type frontmatterDoc struct {
 	Confidence *float64 `yaml:"confidence"`
 	Crosscheck string   `yaml:"crosscheck"`
 	Extracted  string   `yaml:"extracted_by"`
+	Inherited  string   `yaml:"inherited_from"`
 	Grounding  string   `yaml:"grounding"`
 	Missing    string   `yaml:"grounding_missing"`
 	Widened    string   `yaml:"grounding_widened"`
@@ -634,6 +638,9 @@ func ParseNode(content string) (graph.Node, error) {
 	}
 	if doc.Extracted != "" {
 		extra[graph.ExtraExtractedBy] = doc.Extracted
+	}
+	if doc.Inherited != "" {
+		extra[graph.ExtraInheritedFrom] = doc.Inherited
 	}
 	if doc.Grounding != "" {
 		extra["grounding"] = doc.Grounding

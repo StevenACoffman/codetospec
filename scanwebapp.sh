@@ -2,6 +2,7 @@
 # scanwebapp.sh — generate a codetospec spec for one Khan/webapp Go service.
 #
 # Usage: ./scanwebapp.sh <service> [extra codetospec run flags…]
+#        ./scanwebapp.sh pkg [flags…]     # webapp's shared code, scanned once
 #   e.g. ./scanwebapp.sh users
 #        ./scanwebapp.sh users --crosscheck
 #        DRY_RUN=1 ./scanwebapp.sh users      # build + extract only, no LLM call
@@ -21,6 +22,12 @@
 #   3. run codetospec on the service with those facts, against Gemini's
 #      OpenAI-compatible endpoint, with the key from $GEMINI_API_KEY.
 #
+# Shared code: `./scanwebapp.sh pkg` scans $WEBAPP_DIR/pkg as a spec of its
+# own (~/spec-graphs/pkg: no service extractors). A service scan then
+# inherits that spec's rules about the pkg/ code the service reaches (cited
+# in pkg/, labeled inherited_from: pkg) — scan pkg first, and rescan
+# services after rescanning it.
+#
 # Environment (all optional except the API key):
 #   GEMINI_API_KEY   Gemini key (or LLM_API_KEY); never printed
 #   WEBAPP_DIR       webapp checkout            (default: ~/khan/webapp)
@@ -38,6 +45,8 @@
 #                    no acceptance criteria; full: the LLM consolidates all)
 #   SCIP             1|0                        (default: 1 — index with scip-go
 #                    for precise citation spans; first run downloads it)
+#   PKG_GRAPH        pkg spec to inherit from   (default: <OUT_DIR>/../pkg
+#                    when it exists; empty disables inheriting)
 #   DRY_RUN=1        stop before calling the LLM, print the command
 #
 # Note: codetospec counts prompt+completion tokens only; Gemini also bills
@@ -79,7 +88,16 @@ esac
 repo_dir=$(cd "$(dirname "$0")" && pwd)
 webapp_dir=${WEBAPP_DIR:-$HOME/khan/webapp}
 service_dir=$webapp_dir/services/$service
+scip_root=services/$service # what scip-go indexes, relative to webapp
+if [ "$service" = pkg ]; then
+    # webapp's shared code: a spec of its own, which services inherit from.
+    service_dir=$webapp_dir/pkg
+    scip_root=pkg
+fi
 out_dir=${OUT_DIR:-$HOME/spec-graphs/$service}
+# The pkg spec a service inherits rules from; unset → the sibling of
+# out_dir, empty → none.
+pkg_graph=${PKG_GRAPH-$(dirname "$out_dir")/pkg}
 model=${LLM_MODEL:-gemini-3.8-flash}
 spec_lang=${SPEC_LANG:-en}
 workers=${WORKERS:-4}
@@ -114,7 +132,7 @@ else
     die "go is not on PATH; install Go >= 1.27 first"
 fi
 [ -d "$service_dir" ] || die "no such service: $service_dir"
-[ -f "$service_dir/gqlgen.yml" ] ||
+[ "$service" = pkg ] || [ -f "$service_dir/gqlgen.yml" ] ||
     printf 'scanwebapp: note: %s has no gqlgen.yml: only its net/http handlers, access policies and tables get mechanical rules\n' "$service_dir" >&2
 case "$spec_lang" in fr | en) ;; *) die "SPEC_LANG must be fr or en, got '$spec_lang'" ;; esac
 case "$reduce_mode" in full | merge) ;; *) die "REDUCE_MODE must be full or merge, got '$reduce_mode'" ;; esac
@@ -138,31 +156,39 @@ fi
 # --- 2. extract ------------------------------------------------------------
 
 mkdir -p "$out_dir/.codetospec"
-facts_file=$out_dir/.codetospec/webapp-extractor.facts.json
-printf '==> extracting %s → %s\n' "$service_dir" "$facts_file" >&2
-"$repo_dir/bin/webapp-extract" -root "$service_dir" -lang "$spec_lang" >"$facts_file"
-count() { grep -o "\"kind\":\"$1\"" "$facts_file" | wc -l | tr -d ' '; }
-printf '    rules %s · domains %s · endpoints %s · entities %s · constants %s · docs %s · cross-service calls %s\n' \
-    "$(count rule)" "$(count domain)" "$(count route)" "$(count table)" \
-    "$(count constant)" "$(count doc)" "$(count dependency)" >&2
-facts_args=(--facts "$facts_file")
+facts_args=()
+if [ "$service" != pkg ]; then
+    facts_file=$out_dir/.codetospec/webapp-extractor.facts.json
+    inherit_args=()
+    if [ -n "$pkg_graph" ] && [ -d "$pkg_graph/nodes/rules" ]; then
+        inherit_args=(-inherit "$pkg_graph")
+    fi
+    printf '==> extracting %s → %s\n' "$service_dir" "$facts_file" >&2
+    "$repo_dir/bin/webapp-extract" -root "$service_dir" -lang "$spec_lang" "${inherit_args[@]}" >"$facts_file"
+    count() { grep -o "\"kind\":\"$1\"" "$facts_file" | wc -l | tr -d ' '; }
+    printf '    rules %s (inherited from %s: %s) · domains %s · endpoints %s · entities %s · constants %s · docs %s · cross-service calls %s\n' \
+        "$(count rule)" "${pkg_graph:-none}" "$(grep -o '"inherited_from":' "$facts_file" | wc -l | tr -d ' ')" \
+        "$(count domain)" "$(count route)" "$(count table)" \
+        "$(count constant)" "$(count doc)" "$(count dependency)" >&2
+    facts_args+=(--facts "$facts_file")
 
-# net/http routes: optional, a failed package load only loses the routes.
-routes_file=$out_dir/.codetospec/go-routes.facts.json
-if (cd "$service_dir" && "$repo_dir/bin/go-extract" -root . -skip-dirs testutil >"$routes_file" 2>"$routes_file.log"); then
-    printf '    %s net/http routes\n' "$(grep -o '"kind":"route"' "$routes_file" | wc -l | tr -d ' ')" >&2
-    facts_args+=(--facts "$routes_file")
-else
-    printf 'scanwebapp: warning: Go route extraction failed (see %s); continuing without it\n' "$routes_file.log" >&2
+    # net/http routes: optional, a failed package load only loses the routes.
+    routes_file=$out_dir/.codetospec/go-routes.facts.json
+    if (cd "$service_dir" && "$repo_dir/bin/go-extract" -root . -skip-dirs testutil >"$routes_file" 2>"$routes_file.log"); then
+        printf '    %s net/http routes\n' "$(grep -o '"kind":"route"' "$routes_file" | wc -l | tr -d ' ')" >&2
+        facts_args+=(--facts "$routes_file")
+    else
+        printf 'scanwebapp: warning: Go route extraction failed (see %s); continuing without it\n' "$routes_file.log" >&2
+    fi
 fi
 
 if [ "$scip" = 1 ]; then
     scip_index=$out_dir/.codetospec/index.scip
     scip_facts=$out_dir/.codetospec/scip.facts.json
-    printf '==> indexing services/%s with scip-go (first run downloads it)\n' "$service" >&2
+    printf '==> indexing %s with scip-go (first run downloads it)\n' "$scip_root" >&2
     (cd "$webapp_dir" && go run "$scip_go" index --quiet --skip-tests \
-        --output "$scip_index" "./services/$service/...")
-    "$repo_dir/bin/scip2facts" --index "$scip_index" --root "services/$service" >"$scip_facts"
+        --output "$scip_index" "./$scip_root/...")
+    "$repo_dir/bin/scip2facts" --index "$scip_index" --root "$scip_root" >"$scip_facts"
     printf '    %s precise symbols\n' "$(grep -o '"kind":"symbol"' "$scip_facts" | wc -l | tr -d ' ')" >&2
     facts_args+=(--facts "$scip_facts")
 fi

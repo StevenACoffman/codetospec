@@ -395,3 +395,17 @@ func TestMechanicalRulesSkipTheReviewer(t *testing.T) {
 		t.Errorf("tally = %+v", got)
 	}
 }
+
+// TestAnnotateKeepsInheritedVerdict: a rule inherited from another spec is
+// not reviewed here; it keeps the verdict it came with.
+func TestAnnotateKeepsInheritedVerdict(t *testing.T) {
+	rule := ruleNode()
+	rule.Extra = map[string]string{graph.ExtraInheritedFrom: "pkg", "crosscheck": VerdictSupported}
+	if graph.Reviewable(&rule) {
+		t.Fatal("an inherited rule is reviewable")
+	}
+	verdicts := map[string]Verdict{rule.ID: {RuleID: rule.ID, Verdict: VerdictUnsupported}}
+	if got := Annotate([]graph.Node{rule}, verdicts)[0].Extra["crosscheck"]; got != VerdictSupported {
+		t.Fatalf("crosscheck = %q, want the inherited %q", got, VerdictSupported)
+	}
+}

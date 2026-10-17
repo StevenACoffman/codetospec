@@ -16,3 +16,19 @@ func newClient(gatewaySecret string) http.Header {
 	userHeaders.Set("X-Ka-Gateway-Secret", gatewaySecret)
 	return userHeaders
 }
+
+// Sender sends with the gateway secret; its method is reached through it.
+type Sender struct{ headers http.Header }
+
+// NewSender builds a Sender.
+func NewSender() *Sender { return &Sender{headers: http.Header{}} }
+
+func (s *Sender) Send(ctx context.Context) error {
+	if s.headers == nil {
+		return errors.InvalidInput("no headers")
+	}
+	return nil
+}
+
+// unreached is called by nothing the service reaches.
+func unreached() int { return 1 }

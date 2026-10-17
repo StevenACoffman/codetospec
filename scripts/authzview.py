@@ -455,6 +455,7 @@ th, td { padding:6px 8px; border-bottom:1px solid var(--line); text-align:left; 
 th { position:sticky; top:0; background:var(--card); font-size:12px; color:var(--muted); font-weight:600 }
 td.c { text-align:center; width:74px } .dot { color:var(--accent); font-size:16px }
 .open .dot { color:var(--open) } tr.op { cursor:pointer } tr.op:hover { background:var(--chip) }
+th.sort { cursor:pointer; user-select:none } th.sort:hover { color:var(--fg) }
 .name { font-family:ui-monospace,Menlo,monospace; font-size:13px } .dom { color:var(--muted); font-size:12px }
 .gap { color:var(--warn); font-weight:600; font-size:12px } .chip { display:inline-block; background:var(--chip);
   border-radius:4px; padding:0 6px; margin:1px 2px; font-family:ui-monospace,Menlo,monospace; font-size:12px }
@@ -535,15 +536,37 @@ function roles() {
       <div>${reach.map((o) => `<span class="chip">${esc(o.name)}</span>`).join(" ")}</div></div>`;
   }).join("");
 }
+let sortCol = "", sortDir = 1; // "": the page's order (domain, operation)
+function sortKey(o, col) {
+  if (col === "op") return o.name.toLowerCase();
+  if (col === "extra") return o.perms.concat(o.checkers).join(" ").toLowerCase();
+  return o.cats.includes(col.slice(4)) ? "0" : "1"; // "cat:<c>": marked rows first
+}
+function sorted(list) {
+  if (!sortCol) return list;
+  return list.map((o, i) => [o, i]).sort(([a, i], [b, j]) => {
+    const ka = sortKey(a, sortCol), kb = sortKey(b, sortCol);
+    if (sortCol === "extra" && (ka === "") !== (kb === "")) return ka === "" ? 1 : -1; // empty last
+    return (ka < kb ? -1 : ka > kb ? 1 : 0) * sortDir || i - j; // ties keep the page's order
+  }).map(([o]) => o);
+}
+function th(col, label) {
+  const on = sortCol === col, arrow = on ? (sortDir > 0 ? " ▲" : " ▼") : "";
+  return `<th class="sort" data-col="${col}" aria-sort="${on ? (sortDir > 0 ? "ascending" : "descending") : "none"}">${label}${arrow}</th>`;
+}
 function matrix() {
-  const rows = filtered().map((o, i) => {
+  const list = sorted(filtered());
+  const rows = list.map((o, i) => {
     const cells = CATS.map(([c]) => `<td class="c ${c}">${o.cats.includes(c) ? '<span class="dot">●</span>' : ""}</td>`).join("");
     const extra = o.perms.map((p) => `<span class="chip">${esc(p)}</span>`).join("") + o.checkers.map((p) => `<span class="chip">${esc(p)}()</span>`).join("");
     const gap = o.root && !o.rules.length ? ' <span class="gap">no mechanical rule</span>' : "";
     return `<tr class="op" data-i="${i}"><td><div class="name">${esc(o.name)}${gap}</div><div class="dom">${esc(o.domain || "")}</div></td>${cells}<td>${extra}</td></tr>`;
   }).join("");
-  $("view").innerHTML = `<div class="wrap"><table><thead><tr><th>Operation</th>${CATS.map(([, l]) => `<th>${l}</th>`).join("")}<th>Permissions · checkers</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-  const list = filtered();
+  $("view").innerHTML = `<div class="wrap"><table><thead><tr>${th("op", "Operation")}${CATS.map(([c, l]) => th("cat:" + c, l)).join("")}${th("extra", "Permissions · checkers")}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  $("view").querySelectorAll("th.sort").forEach((h) => h.addEventListener("click", () => {
+    if (sortCol === h.dataset.col) sortDir = -sortDir; else { sortCol = h.dataset.col; sortDir = 1; }
+    matrix(); // same filters and checkboxes: filtered() reads them
+  }));
   $("view").querySelectorAll("tr.op").forEach((tr) => tr.addEventListener("click", () => {
     const next = tr.nextElementSibling;
     if (next && next.classList.contains("detail")) { next.remove(); return; }

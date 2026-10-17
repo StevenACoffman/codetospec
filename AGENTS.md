@@ -80,6 +80,9 @@ Pipeline : `extract → chunk → map → reduce → crosscheck(+repair) → bui
   aux règles d'extracteur : le `pkg/` partagé de webapp). Grounding, drift,
   verify passent par elle ; `Ref.File()` (`@nom/chemin`) sert de clé et
   d'affichage. Un `Root` vide ne change rien (digests, goldens, caches).
+  Une règle d'extracteur peut être **héritée** d'une autre spec
+  (`inherited_from` + son verdict) : `graph.Reviewable` l'écarte du
+  crosscheck, le rendu n'écrit jamais `extracted_by` pour elle.
 - `internal/communities` — domaines « dispersés » : communautés du graphe
   d'imports (Louvain de gonum + composantes connexes, graine fixe), section
   du README de sortie. gonum est épinglé : une montée de version peut

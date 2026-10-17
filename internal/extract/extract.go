@@ -76,6 +76,15 @@ const (
 	AttrText        = "text"
 	AttrService     = "service"
 	AttrOperation   = "operation"
+	// AttrInheritedFrom, on a rule fact, names the spec the rule comes
+	// from: an LLM rule of shared code (webapp's pkg/ spec) the extractor
+	// found the analyzed code reaches. It then carries that spec's
+	// AttrCrosscheck verdict, AttrOrigin and AttrConfidence, and is never
+	// reviewed again (its citation is outside --src).
+	AttrInheritedFrom = "inherited_from"
+	AttrCrosscheck    = "crosscheck"
+	AttrOrigin        = "origin"
+	AttrConfidence    = "confidence"
 	// AttrAs, on a dependency fact, is the authority the call is made
 	// with: AsServiceAdmin (webapp's service-admin queries, which bypass
 	// user permission checks that accept them) or AsUser (the caller's

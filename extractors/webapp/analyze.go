@@ -33,6 +33,10 @@ type Inputs struct {
 	Supergraph   fs.FS
 	ServiceGraph string // this service's subgraph name, e.g. "USERS"
 	Lang         string // requirement language, "fr" or "en"
+	// Inherit is the spec of webapp's shared code (a codetospec graph of
+	// pkg/) whose rules about code the service reaches it inherits; nil
+	// inherits none.
+	Inherit fs.FS
 	// AccessPkgs names the service's own access packages (permissions):
 	// their exported functions returning bool first are access checks.
 	AccessPkgs []string
@@ -64,6 +68,12 @@ func Analyze(in *Inputs) ([]Fact, []string, error) {
 	known, sharedWarnings := knownChecks(sources, shared.sources, in)
 	found := policies(sources, known)
 	reach := reached(sources, shared)
+	var inherited []Fact
+	if in.Inherit != nil {
+		var inheritWarnings []string
+		inherited, inheritWarnings = inheritFacts(in.Inherit, inheritedSpec, in.Lang, shared, reach)
+		warnings = append(warnings, inheritWarnings...)
+	}
 	resolverFacts, resolverWarnings := resolverScan(sources, schema, known, &w)
 	constFacts, constWarnings := constantFacts(in.GOROOT, sources)
 	entFacts, entWarnings := entityFacts(sources)
@@ -77,6 +87,7 @@ func Analyze(in *Inputs) ([]Fact, []string, error) {
 		sharedFacts(shared, reach, known, &w),
 		contractFacts(sources, shared, reach, &w),
 		servedFacts(sources, &w),
+		inherited,
 		constFacts,
 		entFacts,
 		depFacts,
@@ -560,6 +571,9 @@ func isRootType(typeName string) bool {
 	}
 	return false
 }
+
+// inheritedSpec names the spec of webapp's pkg/ in inherited rules.
+const inheritedSpec = "pkg"
 
 // gqlQuery is GraphQL's query root type.
 const gqlQuery = "Query"

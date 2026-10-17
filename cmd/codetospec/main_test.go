@@ -14,12 +14,12 @@ import (
 	"testing"
 
 	"codetospec/internal/config"
+	"codetospec/internal/drift"
 	"codetospec/internal/extract"
 	"codetospec/internal/graph"
 	"codetospec/internal/grounding"
 	"codetospec/internal/llm"
 	"codetospec/internal/mapper"
-	"codetospec/internal/drift"
 	"codetospec/internal/render"
 	"codetospec/internal/sitter"
 	"codetospec/internal/ui"
@@ -507,7 +507,13 @@ func TestEndToEndRootedRule(t *testing.T) {
  "source":{"path":"pkg/web/check.go","lines":"3-8","root":"webapp"},
  "attrs":{"slug":"shared-check","title":"Shared check",
   "requirement":"IF the header is not ` + "`X-Ka-Secret`" + `, THEN the system shall reject the request.",
-  "ears":"unwanted","nature":"business","domain":"shared-web"}}]}`
+  "ears":"unwanted","nature":"business","domain":"shared-web"}},
+{"kind":"rule","id":"rule.inherited.pkg.web.check","origin":"webapp","certainty":"static",
+ "source":{"path":"pkg/web/check.go","lines":"3-8","root":"webapp"},
+ "attrs":{"slug":"inherited-check","title":"Inherited check",
+  "requirement":"IF the header is not ` + "`X-Ka-Secret`" + `, THEN the system shall refuse the call.",
+  "ears":"unwanted","nature":"business","domain":"shared-web",
+  "inherited_from":"pkg","crosscheck":"supported","origin":"implicit","confidence":"0.80"}}]}`
 	if err := os.WriteFile(factsPath, []byte(facts), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -524,6 +530,18 @@ func TestEndToEndRootedRule(t *testing.T) {
 			t.Errorf("rooted rule lacks %q:\n%s", want, rule)
 		}
 	}
+	inherited, err := fs.ReadFile(os.DirFS(outDir), "nodes/rules/shared-web.inherited-check.md")
+	if err != nil {
+		t.Fatalf("inherited rule not rendered: %v", err)
+	}
+	for _, want := range []string{"inherited_from: pkg", "crosscheck: supported", "origin: implicit", "grounding: grounded"} {
+		if !strings.Contains(string(inherited), want) {
+			t.Errorf("inherited rule lacks %q:\n%s", want, inherited)
+		}
+	}
+	if strings.Contains(string(inherited), "extracted_by:") {
+		t.Errorf("an inherited rule reads as mechanical:\n%s", inherited)
+	}
 	nodes, err := render.LoadDir(outDir)
 	if err != nil {
 		t.Fatalf("LoadDir: %v", err)
@@ -535,8 +553,8 @@ func TestEndToEndRootedRule(t *testing.T) {
 		t.Fatalf("drift on an unchanged tree: %+v", report)
 	}
 	cfg.RefRoots = nil
-	if violations := verify.Run(nodes, cfg.Roots()); len(violations) != 1 {
-		t.Fatalf("without --ref-root, violations = %v; want the rooted citation", violations)
+	if violations := verify.Run(nodes, cfg.Roots()); len(violations) != 2 {
+		t.Fatalf("without --ref-root, violations = %v; want the two rooted citations", violations)
 	}
 }
 

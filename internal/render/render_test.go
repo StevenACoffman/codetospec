@@ -335,6 +335,20 @@ func TestParseNodeKeepsCitationRoot(t *testing.T) {
 	}
 }
 
+// TestParseNodeKeepsInheritedFrom: an inherited rule's label survives the
+// frontmatter round trip.
+func TestParseNodeKeepsInheritedFrom(t *testing.T) {
+	n := testNodes()[0]
+	n.Extra = map[string]string{graph.ExtraInheritedFrom: "pkg", "crosscheck": "supported"}
+	parsed, err := ParseNode(NodeMarkdown(n, locale.For("en")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Extra[graph.ExtraInheritedFrom] != "pkg" {
+		t.Fatalf("inherited_from after round trip = %q", parsed.Extra[graph.ExtraInheritedFrom])
+	}
+}
+
 func TestDomainDiagramGroupsSplitNamespaces(t *testing.T) {
 	const goMain = "main" // Go's command package, split by directory
 	domain := func(slug string, dependsOn ...string) graph.Node {

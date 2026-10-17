@@ -61,6 +61,12 @@ const (
 	attrService     = "service"
 	attrOperation   = "operation"
 	attrAs          = "as" // a dependency's authority: asServiceAdmin, asUser
+	// An inherited rule's (see inheritFacts; codetospec's
+	// extract.AttrInheritedFrom and siblings).
+	attrInheritedFrom = "inherited_from"
+	attrCrosscheck    = "crosscheck"
+	attrOrigin        = "origin"
+	attrConfidence    = "confidence"
 )
 
 // Values of attrAs (codetospec's extract.AsServiceAdmin, extract.AsUser).

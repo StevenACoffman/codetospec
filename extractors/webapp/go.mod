@@ -1,4 +1,4 @@
-module codetospec/extractors/webapp
+module github.com/StevenACoffman/codetospec/extractors/webapp
 
 go 1.26
 

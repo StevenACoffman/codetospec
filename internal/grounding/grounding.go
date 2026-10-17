@@ -17,8 +17,8 @@ import (
 	"strconv"
 	"strings"
 
-	"codetospec/internal/extract"
-	"codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/graph"
 )
 
 // Status is the outcome of checking one rule.

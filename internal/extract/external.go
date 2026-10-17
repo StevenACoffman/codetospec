@@ -37,7 +37,12 @@ type FactsEnvelope struct {
 // timeout; stderr is forwarded to debug logs. Any failure (non-zero exit,
 // invalid JSON, wrong schema) is returned as an error so the caller can
 // degrade gracefully.
-func RunExtractor(ctx context.Context, cfg ExtractorConfig, src, lang string) ([]Fact, error) {
+func RunExtractor(
+	ctx context.Context,
+	log *slog.Logger,
+	cfg ExtractorConfig,
+	src, lang string,
+) ([]Fact, error) {
 	timeout := cfg.Timeout
 	if timeout <= 0 {
 		timeout = 300 * time.Second
@@ -58,7 +63,7 @@ func RunExtractor(ctx context.Context, cfg ExtractorConfig, src, lang string) ([
 
 	err := cmd.Run()
 	if stderr.Len() > 0 {
-		slog.DebugContext(
+		log.DebugContext(
 			ctx,
 			"extractor stderr",
 			"name",

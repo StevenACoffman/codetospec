@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"codetospec/internal/extract"
-	"codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/graph"
 )
 
 func writeSource(t *testing.T, dir, rel, content string) {
@@ -116,7 +116,10 @@ func TestDigestReadsNamedRoot(t *testing.T) {
 	if local == rooted {
 		t.Fatal("a rooted citation hashed like the --src file")
 	}
-	if _, err := Digest(srcRoots(src), []extract.Ref{{Path: "x.go", Lines: "1-2", Root: "webapp"}}); err == nil {
+	if _, unrootedErr := Digest(
+		srcRoots(src),
+		[]extract.Ref{{Path: "x.go", Lines: "1-2", Root: "webapp"}},
+	); unrootedErr == nil {
 		t.Fatal("an unknown root digested")
 	}
 }

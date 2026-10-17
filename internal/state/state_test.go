@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"codetospec/internal/state"
+	"github.com/StevenACoffman/codetospec/internal/state"
 )
 
 // TestTokensLastRun: a new run (Open) resets the latest-run counters and

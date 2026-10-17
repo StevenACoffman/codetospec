@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"codetospec/internal/extract"
-	"codetospec/internal/locale"
-	"codetospec/internal/reducer"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/locale"
+	"github.com/StevenACoffman/codetospec/internal/reducer"
 )
 
 func fixtureFacts() []extract.Fact {

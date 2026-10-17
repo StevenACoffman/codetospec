@@ -3,7 +3,7 @@ package textsim_test
 import (
 	"testing"
 
-	"codetospec/internal/textsim"
+	"github.com/StevenACoffman/codetospec/internal/textsim"
 )
 
 func TestJaccard(t *testing.T) {

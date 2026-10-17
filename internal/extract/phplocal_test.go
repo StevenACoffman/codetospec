@@ -4,6 +4,7 @@ package extract
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,7 +38,7 @@ func TestPHPExtractorOnFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	facts, err := RunExtractor(context.Background(), ExtractorConfig{
+	facts, err := RunExtractor(context.Background(), slog.New(slog.NewTextHandler(t.Output(), nil)), ExtractorConfig{
 		Name:    "php",
 		Cmd:     "php",
 		Args:    []string{filepath.Join(extractorDir, "extract.php"), "--root", "{src}"},

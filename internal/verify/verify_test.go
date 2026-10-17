@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"codetospec/internal/extract"
-	"codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/graph"
 )
 
 var fixtureRoot = filepath.Join("..", "..", "testdata", "fixture")
@@ -38,14 +38,20 @@ func validDomain() graph.Node {
 }
 
 func TestRunAcceptsValidGraph(t *testing.T) {
-	violations := Run([]graph.Node{validRule(), validDomain()}, extract.Roots{Src: os.DirFS(fixtureRoot)})
+	violations := Run(
+		[]graph.Node{validRule(), validDomain()},
+		extract.Roots{Src: os.DirFS(fixtureRoot)},
+	)
 	if len(violations) != 0 {
 		t.Fatalf("violations = %v, want none", violations)
 	}
 }
 
 func TestRunRejectsDuplicateID(t *testing.T) {
-	violations := Run([]graph.Node{validDomain(), validDomain()}, extract.Roots{Src: os.DirFS(fixtureRoot)})
+	violations := Run(
+		[]graph.Node{validDomain(), validDomain()},
+		extract.Roots{Src: os.DirFS(fixtureRoot)},
+	)
 	if !hasCheck(violations, "duplicate-id") {
 		t.Fatalf("violations = %v, want duplicate-id", violations)
 	}

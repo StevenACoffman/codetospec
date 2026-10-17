@@ -14,11 +14,11 @@ import (
 	"strings"
 	"sync"
 
-	"codetospec/internal/extract"
-	"codetospec/internal/llm"
-	"codetospec/internal/locale"
-	"codetospec/internal/sitter"
-	"codetospec/internal/state"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/llm"
+	"github.com/StevenACoffman/codetospec/internal/locale"
+	"github.com/StevenACoffman/codetospec/internal/sitter"
+	"github.com/StevenACoffman/codetospec/internal/state"
 )
 
 // EARSKinds enumerates the accepted EARS pattern kinds.
@@ -147,7 +147,9 @@ type Note struct {
 
 // Mapper drives the map phase.
 type Mapper struct {
-	LLM          llm.Chatter
+	LLM llm.Chatter
+	// Log receives progress and degraded-mode warnings (required).
+	Log          *slog.Logger
 	Model        string // model id, folded into the cache key
 	Lang         string // "fr" | "en"
 	Workers      int
@@ -208,7 +210,7 @@ func (m *Mapper) Run(ctx context.Context, chunks []sitter.Chunk) ([]Output, erro
 			m.OnUnit(out, usage)
 		}
 		if done%25 == 0 {
-			slog.InfoContext(ctx, "map progress", "done", done, "total", len(chunks))
+			m.Log.InfoContext(ctx, "map progress", "done", done, "total", len(chunks))
 		}
 	}
 
@@ -255,7 +257,7 @@ func (m *Mapper) mapChunk(ctx context.Context, chunk sitter.Chunk) (Output, llm.
 		var cached Output
 		switch unmarshalErr := json.Unmarshal(data, &cached); {
 		case unmarshalErr != nil:
-			slog.WarnContext(ctx, "corrupt map cache, re-mapping", "path", outPath)
+			m.Log.WarnContext(ctx, "corrupt map cache, re-mapping", "path", outPath)
 		case cached.PromptKey == promptKey:
 			// The domain is assignment metadata, not part of the reply: take
 			// the current one so a domain change regroups cached outputs
@@ -295,7 +297,7 @@ func (m *Mapper) mapChunk(ctx context.Context, chunk sitter.Chunk) (Output, llm.
 	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
 		return Output{}, usage, err
 	default:
-		slog.WarnContext(ctx, "chunk failed", "chunk", chunk.ID, "path", chunk.Path, "err", err)
+		m.Log.WarnContext(ctx, "chunk failed", "chunk", chunk.ID, "path", chunk.Path, "err", err)
 		out.Failed = true
 		out.Error = err.Error()
 	}

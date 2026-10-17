@@ -11,7 +11,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"codetospec/internal/sitter"
+	"github.com/StevenACoffman/codetospec/internal/sitter"
 )
 
 // File is one source file discovered under the repository root.

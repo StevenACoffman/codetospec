@@ -2,13 +2,14 @@ package mapper
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"codetospec/internal/llm"
-	"codetospec/internal/sitter"
+	"github.com/StevenACoffman/codetospec/internal/llm"
+	"github.com/StevenACoffman/codetospec/internal/sitter"
 )
 
 // chatFunc adapts a function to the llm.Chatter interface.
@@ -34,6 +35,7 @@ func testChunk() sitter.Chunk {
 func newMapper(t *testing.T, chat llm.Chatter) *Mapper {
 	t.Helper()
 	return &Mapper{
+		Log:          slog.New(slog.NewTextHandler(t.Output(), nil)),
 		LLM:          chat,
 		Lang:         "fr",
 		Workers:      2,

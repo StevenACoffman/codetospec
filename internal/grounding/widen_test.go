@@ -6,9 +6,9 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"codetospec/internal/extract"
-	"codetospec/internal/graph"
-	"codetospec/internal/grounding"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/grounding"
 )
 
 // plan.go: the rule cites lines 1-2; the values sit further down.

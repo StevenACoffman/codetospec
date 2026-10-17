@@ -51,6 +51,7 @@ type Readme struct {
 	ReadmeCounts
 	ReadmeCoverage
 	ReadmeReview
+	ReadmeModel
 }
 
 // ReadmeCounts opens the README: title and node counts.
@@ -83,8 +84,24 @@ type ReadmeReview struct {
 	DuplicatesHeading, DuplicatesIntroFmt string // %d pairs, intra, cross
 	SplitsHeading, SplitsIntroFmt         string // %d split domains
 	SplitFmt                              string // %d files, %d communities
+	SharedHeading, SharedIntroFmt         string // %d shared entities
 	AndMoreFmt                            string // %d omitted entries
 	DomainsHeading                        string
+}
+
+// ReadmeModel is the README comparison with human domain models.
+type ReadmeModel struct {
+	ModelHeading          string
+	ModelIntroFmt         string // %d model files, %d lint warnings, %d threshold percent
+	ModelEntitiesFmt      string // %d/%d model entities found in the code
+	ModelInvariantsFmt    string // %d/%d invariants a rule states
+	ModelMissingFmt       string // %d model entities missing from the code
+	ModelAmbiguousFmt     string // %d model entities matching several
+	ModelStaleMappingsFmt string // %d mappings matching nothing
+	ModelUnmodeledFmt     string // %d code entities in no model
+	ModelUnmatchedFmt     string // %d invariants no rule states
+	ModelClosestFmt       string // %s rule id, %d similarity percent
+	ModelUnstatedRulesFmt string // %d rules stating no invariant
 }
 
 // newText builds the Text of lang ("fr" or "en"). Each field holds its
@@ -203,6 +220,56 @@ func newReadme(tr translate) Readme {
 		ReadmeCounts:   newReadmeCounts(tr),
 		ReadmeCoverage: newReadmeCoverage(tr),
 		ReadmeReview:   newReadmeReview(tr),
+		ReadmeModel:    newReadmeModel(tr),
+	}
+}
+
+func newReadmeModel(tr translate) ReadmeModel {
+	return ReadmeModel{
+		ModelHeading: tr(
+			"## Modèle de domaine",
+			"## Domain model",
+		),
+		ModelIntroFmt: tr(
+			"Comparaison sans LLM avec %d fichier(s) de modèle modelith (%d avertissements de lint, détaillés par `modelith lint`). "+"Invariants et règles sont appariés par similarité de mots (seuil %d %%) : une piste à vérifier, pas un verdict.",
+			"Compared without an LLM with %d modelith model file(s) (%d lint warnings, listed by `modelith lint`). "+"Invariants and rules are paired by word similarity (threshold %d%%): a lead to check, not a verdict.",
+		),
+		ModelEntitiesFmt: tr(
+			"- Entités du modèle trouvées dans le code : %d/%d",
+			"- Model entities found in the code: %d/%d",
+		),
+		ModelInvariantsFmt: tr(
+			"- Invariants énoncés par une règle : %d/%d",
+			"- Invariants a rule states: %d/%d",
+		),
+		ModelMissingFmt: tr(
+			"%d entités du modèle n'ont pas d'entité de code du même nom : un autre nom (à déclarer sous `domain_model_entities`), ou pas encore dans le code ?",
+			"%d model entities have no code entity of the same name: named differently (map them under `domain_model_entities`), or not in the code yet?",
+		),
+		ModelAmbiguousFmt: tr(
+			"%d entités du modèle correspondent à plusieurs entités de code : laquelle est-ce (à déclarer sous `domain_model_entities`) ?",
+			"%d model entities match several code entities: which one is it (map it under `domain_model_entities`)?",
+		),
+		ModelStaleMappingsFmt: tr(
+			"%d correspondances de `domain_model_entities` ne trouvent rien : entité renommée, ou faute de frappe ?",
+			"%d `domain_model_entities` mappings match nothing: a renamed entity, or a typo?",
+		),
+		ModelUnmodeledFmt: tr(
+			"%d entités de code ne figurent dans aucun modèle : à ajouter au modèle, ou hors de son périmètre ?",
+			"%d code entities appear in no model: worth adding to the model, or outside its scope?",
+		),
+		ModelUnmatchedFmt: tr(
+			"%d invariants ne correspondent à aucune règle : pas implémentés, ou manqués par l'extraction ?",
+			"%d invariants match no rule: not implemented, or missed by the extraction?",
+		),
+		ModelClosestFmt: tr(
+			"plus proche : `%s`, %d %%",
+			"closest: `%s`, %d%%",
+		),
+		ModelUnstatedRulesFmt: tr(
+			"%d règles sur des entités modélisées n'énoncent aucun invariant du modèle : à ajouter au modèle ?",
+			"%d rules about modeled entities state no invariant of the model: worth adding to it?",
+		),
 	}
 }
 
@@ -326,6 +393,14 @@ func newReadmeReview(tr translate) ReadmeReview {
 		SplitFmt: tr(
 			"%d fichiers dans %d communautés",
 			"%d files in %d communities",
+		),
+		SharedHeading: tr(
+			"## Entités partagées",
+			"## Shared entities",
+		),
+		SharedIntroFmt: tr(
+			"%d entités sont touchées par des règles de plusieurs domaines : un noyau partagé à nommer comme tel, ou une frontière de domaine qui traverse un concept ?",
+			"%d entities are touched by rules of several domains: a shared kernel to name as such, or a domain boundary running through one concept?",
 		),
 		DuplicatesHeading: tr(
 			"## Doublons candidates",

@@ -8,10 +8,10 @@ import (
 	"io/fs"
 	"reflect"
 
-	"codetospec/internal/extract"
-	"codetospec/internal/graph"
-	"codetospec/internal/render"
-	"codetospec/internal/sitter"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/render"
+	"github.com/StevenACoffman/codetospec/internal/sitter"
 )
 
 // Violation is one failed integrity check.

@@ -1,0 +1,8 @@
+kind: DomainModel
+version: v1
+entities:
+  Visit:
+    definition: One stay.
+    relationships:
+      - entity: Nowhere
+        cardinality: "1:n"

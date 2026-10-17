@@ -6,7 +6,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/extract"
 )
 
 // TestRootsReadFile: a citation reads from --src, or from the root it

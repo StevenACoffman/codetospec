@@ -2,13 +2,14 @@ package crosscheck
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"testing"
 
-	"codetospec/internal/extract"
-	"codetospec/internal/graph"
-	"codetospec/internal/llm"
-	"codetospec/internal/mapper"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/llm"
+	"github.com/StevenACoffman/codetospec/internal/mapper"
 )
 
 type chatFunc func(ctx context.Context, msgs []llm.Message) (string, llm.Usage, error)
@@ -38,6 +39,7 @@ const supportedReply = `{"verdict": "supported", "reason": "ok"}`
 func newChecker(t *testing.T, chat llm.Chatter) *Checker {
 	t.Helper()
 	return &Checker{
+		Log:     slog.New(slog.NewTextHandler(t.Output(), nil)),
 		LLM:     chat,
 		Lang:    "fr",
 		Workers: 2,
@@ -184,50 +186,94 @@ func TestCrosscheckCacheByInputHash(t *testing.T) {
 	}
 }
 
-func TestRepairRecitesToGroundedSymbol(t *testing.T) {
+// prorataFile is the fixture file the repair tests cite.
+const prorataFile = "app/Services/Billing/ProrataCalculator.php"
+
+// calculateSymbol is the one precise symbol of prorataFile.
+func calculateSymbol(path string) []mapper.SymbolContext {
+	if path != prorataFile {
+		return nil
+	}
+	return []mapper.SymbolContext{{
+		Name: "calculate", StartLine: 12, EndLine: 24,
+		Kind: "method", Signature: "func calculate()",
+	}}
+}
+
+// repairChat scripts a review that flags the rule with firstReason, a
+// repair that re-cites calculate, then replies reReview to every re-review,
+// checking that no re-review sees firstReason.
+func repairChat(t *testing.T, firstReason, reReview string) chatFunc {
+	t.Helper()
 	call := 0
-	c := newChecker(
-		t,
-		chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
-			call++
-			if call == 1 { // adversarial verify -> unsupported
-				return `{"verdict": "unsupported", "reason": "Les lignes citées ne montrent aucune logique."}`, llm.Usage{}, nil
-			}
-			// repair call: must carry the symbol catalog; re-cite the symbol span.
-			user := msgs[1].Content
-			if !strings.Contains(user, "AVAILABLE_SYMBOLS") ||
-				!strings.Contains(user, "calculate (method) lines 12-24") {
+	return func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+		call++
+		user := msgs[1].Content
+		switch call {
+		case 1:
+			return `{"verdict": "unsupported", "reason": "` + firstReason + `"}`, llm.Usage{}, nil
+		case 2:
+			if !strings.Contains(user, "calculate (method) lines 12-24") {
 				t.Errorf("repair prompt missing symbol catalog:\n%s", user)
 			}
-			return `{"citations": [{"path": "app/Services/Billing/ProrataCalculator.php", "lines": "12-24"}], "reason": "corps de calculate"}`, llm.Usage{}, nil
-		}),
-	)
-	c.Repair = true
-	c.SymbolsFor = func(path string) []mapper.SymbolContext {
-		if path != "app/Services/Billing/ProrataCalculator.php" {
-			return nil
-		}
-		return []mapper.SymbolContext{
-			{
-				Name:      "calculate",
-				StartLine: 12,
-				EndLine:   24,
-				Kind:      "method",
-				Signature: "func calculate()",
-			},
+			return `{"citations": [{"path": "` + prorataFile + `", "lines": "12-24"}],` +
+				` "reason": "corps de calculate"}`, llm.Usage{}, nil
+		default:
+			if strings.Contains(user, firstReason) || !strings.Contains(user, "12 >") {
+				t.Errorf("re-review prompt shows the first reason or lacks the repair:\n%s", user)
+			}
+			return reReview, llm.Usage{}, nil
 		}
 	}
+}
 
-	verdicts, err := c.Run(context.Background(), []graph.Node{ruleNode()})
-	if err != nil {
-		t.Fatalf("Run: %v", err)
+// TestRepairIsReviewedAgain: a grounded repair is adopted only when a fresh
+// review, which never sees the first verdict or its reason, supports it.
+func TestRepairIsReviewedAgain(t *testing.T) {
+	const firstReason = "Les lignes citées ne montrent aucune logique."
+	cases := map[string]struct {
+		reReview      string
+		want          string // verdict
+		wantReview    string // RepairReview
+		wantCitations int
+	}{
+		"supported: repair adopted": {
+			reReview:      `{"verdict": "supported", "reason": "calculate facture au prorata"}`,
+			want:          VerdictRepaired,
+			wantReview:    VerdictSupported,
+			wantCitations: 1,
+		},
+		"partial: first verdict kept": {
+			reReview:   `{"verdict": "partial", "reason": "seuil absent"}`,
+			want:       VerdictUnsupported,
+			wantReview: VerdictPartial,
+		},
+		"review failure: first verdict kept": {
+			reReview:   `not json`,
+			want:       VerdictUnsupported,
+			wantReview: VerdictUnchecked,
+		},
 	}
-	v := verdicts["rule.services.prorata-activation"]
-	if v.Verdict != VerdictRepaired {
-		t.Fatalf("verdict = %q, want repaired", v.Verdict)
-	}
-	if len(v.NewCitations) != 1 || v.NewCitations[0].Lines != "12-24" {
-		t.Fatalf("new citations = %+v, want the symbol span 12-24", v.NewCitations)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := newChecker(t, repairChat(t, firstReason, tc.reReview))
+			c.Repair = true
+			c.SymbolsFor = calculateSymbol
+
+			verdicts, err := c.Run(context.Background(), []graph.Node{ruleNode()})
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			v := verdicts["rule.services.prorata-activation"]
+			if v.Verdict != tc.want || v.RepairReview != tc.wantReview {
+				t.Fatalf("verdict = %q, repair review = %q; want %q, %q",
+					v.Verdict, v.RepairReview, tc.want, tc.wantReview)
+			}
+			if len(v.NewCitations) != tc.wantCitations || v.Reason != firstReason {
+				t.Errorf("new citations = %+v, reason = %q; want %d citations, the first reason",
+					v.NewCitations, v.Reason, tc.wantCitations)
+			}
+		})
 	}
 }
 

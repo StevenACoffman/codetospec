@@ -13,9 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StevenACoffman/codetospec/internal/extract"
 	"gopkg.in/yaml.v3"
-
-	"codetospec/internal/extract"
 )
 
 // Extractor configures one external facts extractor command.
@@ -45,6 +44,9 @@ type fileConfig struct {
 	FactsFiles     []string    `yaml:"facts_files"`
 	DomainStrategy string      `yaml:"domain_strategy"`
 	DomainDepth    int         `yaml:"domain_depth"`
+	// DomainModels are modelith model files, relative to --src.
+	DomainModels        []string          `yaml:"domain_models"`
+	DomainModelEntities map[string]string `yaml:"domain_model_entities"`
 }
 
 // Config is the resolved configuration for one command invocation.
@@ -73,6 +75,12 @@ type Config struct {
 	ReduceBatch    int
 	ReduceMode     string // "full" or "merge" (see reducer.ModeMerge)
 	Format         string // drift output format: "text" | "json"
+	// DomainModels are human modelith models (*.modelith.yaml) the graph is
+	// compared with (--domain-model, then domain_models resolved against
+	// --src); DomainModelEntities maps a model entity to the code entity it
+	// is, for names that differ (see domainmodel.Options).
+	DomainModels        []string
+	DomainModelEntities map[string]string
 }
 
 // DefaultExclude lists the directories ignored by default.
@@ -136,9 +144,10 @@ func ParseRun(args []string) (*Config, error) {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	cfg := &Config{}
 	var (
-		configPath string
-		excludeCSV string
-		facts      stringList
+		configPath   string
+		excludeCSV   string
+		facts        stringList
+		domainModels stringList
 	)
 	fs.StringVar(&cfg.Src, "src", "", "root of the analyzed repository (required)")
 	registerRefRoots(fs, cfg)
@@ -167,6 +176,8 @@ func ParseRun(args []string) (*Config, error) {
 		"comma-separated ignored directories",
 	)
 	fs.Var(&facts, "facts", "additional facts JSON file (repeatable)")
+	fs.Var(&domainModels, "domain-model",
+		"human modelith model (*.modelith.yaml) to compare the graph with (repeatable)")
 	fs.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
 	fs.BoolVar(&cfg.NoTUI, "no-tui", false, "disable the full-screen dashboard, log to stderr")
 	registerPassFlags(fs, cfg)
@@ -204,6 +215,16 @@ func ParseRun(args []string) (*Config, error) {
 			cfg.FactsFiles = append(cfg.FactsFiles, f)
 		}
 	}
+	cfg.DomainModels = append([]string(nil), domainModels...)
+	for _, m := range fileCfg.DomainModels {
+		if !filepath.IsAbs(m) {
+			m = filepath.Join(cfg.Src, m)
+		}
+		if !slices.Contains(cfg.DomainModels, m) {
+			cfg.DomainModels = append(cfg.DomainModels, m)
+		}
+	}
+	cfg.DomainModelEntities = fileCfg.DomainModelEntities
 	cfg.Extractors = fileCfg.Extractors
 	cfg.DomainStrategy = fileCfg.DomainStrategy
 	if cfg.DomainStrategy == "" {

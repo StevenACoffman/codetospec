@@ -3,7 +3,7 @@ package graph
 import (
 	"slices"
 
-	"codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/extract"
 )
 
 // handlerSpan is the code serving one endpoint (a route fact's

@@ -2,9 +2,10 @@ package communities_test
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 
-	"codetospec/internal/communities"
+	"github.com/StevenACoffman/codetospec/internal/communities"
 )
 
 // tools is two Go command tools, each with its own library: cmd/one uses
@@ -118,12 +119,34 @@ func TestSplitsResolvesImports(t *testing.T) {
 	}
 }
 
+// TestSplitsDeterministic: repeated runs, and inputs in another order, give
+// the same splits.
 func TestSplitsDeterministic(t *testing.T) {
 	files, imports := tools()
-	first := communities.Splits(files, imports)
-	for range 20 {
-		if got := communities.Splits(files, imports); !reflect.DeepEqual(got, first) {
-			t.Fatalf("run differs: %+v vs %+v", got, first)
-		}
+	want := communities.Splits(files, imports)
+	cases := map[string]struct {
+		files   []communities.File
+		imports []communities.Import
+	}{
+		"same input": {files, imports},
+		"reversed files and imports": {
+			reversed(files), reversed(imports),
+		},
 	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			for range 20 {
+				if got := communities.Splits(tc.files, tc.imports); !reflect.DeepEqual(got, want) {
+					t.Fatalf("run differs: %+v vs %+v", got, want)
+				}
+			}
+		})
+	}
+}
+
+// reversed returns a reversed copy of s.
+func reversed[T any](s []T) []T {
+	out := slices.Clone(s)
+	slices.Reverse(out)
+	return out
 }

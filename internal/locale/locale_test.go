@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"codetospec/internal/locale"
+	"github.com/StevenACoffman/codetospec/internal/locale"
 )
 
 // TestTextsAreComplete guards the translation table: every language fills

@@ -7,6 +7,7 @@
 package communities
 
 import (
+	"cmp"
 	"math/rand/v2"
 	"path"
 	"slices"
@@ -53,11 +54,17 @@ const (
 // the import graph, most split first.
 //
 // Requires: file paths are unique.
-// Ensures:  deterministic for a given input and gonum version.
+// Ensures:  deterministic for a given set of files and imports and a gonum
+// version, whatever their order: edge weights are float sums, so imports
+// are summed in a fixed order.
 func Splits(files []File, imports []Import) []Split {
 	sorted := slices.Clone(files)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Path < sorted[j].Path })
-	g := importGraph(sorted, imports)
+	ordered := slices.Clone(imports)
+	slices.SortFunc(ordered, func(a, b Import) int {
+		return cmp.Or(cmp.Compare(a.From, b.From), cmp.Compare(a.Target, b.Target))
+	})
+	g := importGraph(sorted, ordered)
 	of := communityOf(g)
 	held := make(map[string]map[int]int) // domain → community → files
 	size := make(map[string]int)

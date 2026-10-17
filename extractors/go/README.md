@@ -2,7 +2,7 @@
 
 Extracteur natif codetospec pour l'écosystème Go, sur le protocole
 `codetospec/facts/v1`. Il émet ce que tree-sitter ne peut pas voir : les
-**routes** HTTP et les **tables** SQL.
+**routes** HTTP, les **constantes** numériques et les **tables** SQL.
 
 ## Ce qu'il extrait
 
@@ -23,6 +23,12 @@ Extracteur natif codetospec pour l'écosystème Go, sur le protocole
   écarte les routes enregistrées sous ces dossiers, à toute profondeur :
   les serveurs factices des aides de test (`testutil/hcaptcha.go`) ne sont
   pas des points d'entrée. `scanwebapp.sh` le passe.
+- **Constantes** (`constant`) : chaque constante numérique que le code
+  du module utilise, nommée comme le code l'écrit (`h.StatusBadRequest`
+  avec un import aliasé, `maxRetries` nu), avec sa valeur exacte
+  (`go/constant`), bibliothèque standard comprise. Le grounding retrouve
+  ainsi un « 400 » énoncé derrière `http.StatusBadRequest`. Un nom nu lié à
+  deux valeurs (deux paquets) est écarté.
 - **Tables** (`table`) : `CREATE TABLE` des fichiers `.sql` (schéma sqlc,
   migrations), avec colonnes typées ; les contraintes de table sont ignorées.
 

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"codetospec/internal/llm"
+	"github.com/StevenACoffman/codetospec/internal/llm"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

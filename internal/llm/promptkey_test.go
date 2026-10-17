@@ -3,7 +3,7 @@ package llm_test
 import (
 	"testing"
 
-	"codetospec/internal/llm"
+	"github.com/StevenACoffman/codetospec/internal/llm"
 )
 
 func TestPromptKey(t *testing.T) {

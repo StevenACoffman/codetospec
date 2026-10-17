@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"codetospec/internal/sitter"
+	"github.com/StevenACoffman/codetospec/internal/sitter"
 )
 
 // goFuncs builds a Go file of n functions, each bodyLines long plus its

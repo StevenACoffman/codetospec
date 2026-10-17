@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"codetospec/internal/llm"
+	"github.com/StevenACoffman/codetospec/internal/llm"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"

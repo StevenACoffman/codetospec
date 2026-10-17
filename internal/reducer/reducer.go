@@ -17,11 +17,11 @@ import (
 	"strings"
 	"sync"
 
-	"codetospec/internal/extract"
-	"codetospec/internal/llm"
-	"codetospec/internal/locale"
-	"codetospec/internal/mapper"
-	"codetospec/internal/state"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/llm"
+	"github.com/StevenACoffman/codetospec/internal/locale"
+	"github.com/StevenACoffman/codetospec/internal/mapper"
+	"github.com/StevenACoffman/codetospec/internal/state"
 )
 
 const systemPrompt = `You are a requirements engineer. You consolidate candidate business rules extracted from legacy code into a clean, deduplicated specification for one domain.
@@ -81,7 +81,9 @@ type reducePayload struct {
 
 // Reducer drives the reduce phase.
 type Reducer struct {
-	LLM       llm.Chatter
+	LLM llm.Chatter
+	// Log receives progress and degraded-mode warnings (required).
+	Log       *slog.Logger
 	Model     string // model id, folded into the cache key
 	Lang      string
 	OutDir    string   // <out>/.codetospec/reduce
@@ -181,6 +183,9 @@ func (r *Reducer) consolidate(
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return Output{}, usage, err
 	}
+	if err != nil {
+		r.Log.WarnContext(ctx, "domain failed", "domain", domain, "err", err)
+	}
 	return outcomeFrom(domain, payload, err), usage, nil
 }
 
@@ -198,11 +203,11 @@ func (r *Reducer) reduceDomain(
 		var cached Output
 		switch unmarshalErr := json.Unmarshal(data, &cached); {
 		case unmarshalErr != nil:
-			slog.WarnContext(ctx, "corrupt reduce cache, re-reducing", "path", outPath)
+			r.Log.WarnContext(ctx, "corrupt reduce cache, re-reducing", "path", outPath)
 		case cached.CandidatesHash == hash:
 			return cached, llm.Usage{}, nil // candidates and prompt unchanged
 		default:
-			slog.InfoContext(
+			r.Log.InfoContext(
 				ctx,
 				"reduce cache stale (candidates, model or prompt changed), re-reducing",
 				"domain",
@@ -311,7 +316,7 @@ func (r *Reducer) reduceInBatches(
 		}
 		merged = append(merged, batchRules...)
 	}
-	slog.InfoContext(ctx, "reduced large domain in batches", "domain", domain,
+	r.Log.InfoContext(ctx, "reduced large domain in batches", "domain", domain,
 		"candidates", len(rules), "rules", len(merged), "dropped_candidates", dropped)
 
 	out := Output{Domain: domain}
@@ -367,7 +372,7 @@ func (r *Reducer) reduceBatchAdaptive(
 		return append(left, right...), summary, nil
 	}
 	*dropped += len(rules)
-	slog.WarnContext(
+	r.Log.WarnContext(
 		ctx,
 		"dropping unprocessable reduce batch",
 		"domain",
@@ -384,7 +389,6 @@ func (r *Reducer) reduceBatchAdaptive(
 func outcomeFrom(domain string, payload reducePayload, err error) Output {
 	out := Output{Domain: domain}
 	if err != nil {
-		slog.Warn("domain failed", "domain", domain, "err", err)
 		out.Failed = true
 		out.Error = err.Error()
 		return out

@@ -207,7 +207,8 @@ modèle reproduit cher et approximativement, ou pas du tout :
   pour tout service qui référence le type), avec `handler_path` ; les règles
   d'autorisation y sont reliées (`exposed_by`).
 - **Entités** (`table`) : chaque `datastore.RegisterKind("Kind", new(T))`,
-  colonnes = champs de `T` tels que Datastore les stocke (tag `datastore`).
+  colonnes = champs de `T` tels que Datastore les stocke (tag `datastore`),
+  `description` = le commentaire de doc de `T`, sur une ligne.
 - **Constantes** (`constant`) : constantes numériques du service et
   `http.Status*` (lus dans GOROOT), pour le grounding.
 - **Docs** (`doc`) : description GraphQL du champ et de ses arguments,

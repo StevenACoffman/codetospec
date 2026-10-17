@@ -57,6 +57,10 @@ const (
 	attrHandler     = "handler"
 	attrHandlerPath = "handler_path"
 	attrColumns     = "columns"
+	// attrDescription, on a table fact, is the entity's authored
+	// description: its struct's doc comment (codetospec's
+	// extract.AttrDescription).
+	attrDescription = "description"
 	attrText        = "text"
 	attrService     = "service"
 	attrOperation   = "operation"

@@ -1,9 +1,9 @@
 package reducer
 
 import (
-	"codetospec/internal/extract"
-	"codetospec/internal/mapper"
-	"codetospec/internal/textsim"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/mapper"
+	"github.com/StevenACoffman/codetospec/internal/textsim"
 )
 
 // Reduce modes (Reducer.Mode).

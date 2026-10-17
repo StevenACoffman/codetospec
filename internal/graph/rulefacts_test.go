@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"codetospec/internal/extract"
-	"codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/graph"
 )
 
 // ruleFact is a valid mechanical rule fact; tests override single fields.

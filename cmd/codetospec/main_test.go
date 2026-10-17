@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io/fs"
+	"log/slog"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -13,17 +14,17 @@ import (
 	"strings"
 	"testing"
 
-	"codetospec/internal/config"
-	"codetospec/internal/drift"
-	"codetospec/internal/extract"
-	"codetospec/internal/graph"
-	"codetospec/internal/grounding"
-	"codetospec/internal/llm"
-	"codetospec/internal/mapper"
-	"codetospec/internal/render"
-	"codetospec/internal/sitter"
-	"codetospec/internal/ui"
-	"codetospec/internal/verify"
+	"github.com/StevenACoffman/codetospec/internal/config"
+	"github.com/StevenACoffman/codetospec/internal/drift"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/grounding"
+	"github.com/StevenACoffman/codetospec/internal/llm"
+	"github.com/StevenACoffman/codetospec/internal/mapper"
+	"github.com/StevenACoffman/codetospec/internal/render"
+	"github.com/StevenACoffman/codetospec/internal/sitter"
+	"github.com/StevenACoffman/codetospec/internal/ui"
+	"github.com/StevenACoffman/codetospec/internal/verify"
 )
 
 // mockLLM is a deterministic OpenAI-compatible endpoint: it answers map
@@ -188,7 +189,12 @@ func TestEndToEndRunOnFixture(t *testing.T) {
 	outDir := t.TempDir()
 	cfg := e2eConfig(t, server.URL, outDir)
 
-	if err := runPipeline(context.Background(), cfg, ui.Discard{}); err != nil {
+	if err := runPipeline(
+		context.Background(),
+		cfg,
+		ui.Discard{},
+		slog.New(slog.NewTextHandler(t.Output(), nil)),
+	); err != nil {
 		t.Fatalf("runPipeline: %v", err)
 	}
 
@@ -297,10 +303,16 @@ func TestEndToEndRunOnFixture(t *testing.T) {
 	}
 
 	// The verify and stats commands must succeed on the produced graph.
-	if code := verifyCommand(&config.Config{Src: cfg.Src, Out: outDir}); code != 0 {
+	if code := verifyCommand(
+		&config.Config{Src: cfg.Src, Out: outDir},
+		slog.New(slog.NewTextHandler(t.Output(), nil)),
+	); code != 0 {
 		t.Errorf("verify command exit = %d, want 0", code)
 	}
-	if code := statsCommand(&config.Config{Out: outDir}); code != 0 {
+	if code := statsCommand(
+		&config.Config{Out: outDir},
+		slog.New(slog.NewTextHandler(t.Output(), nil)),
+	); code != 0 {
 		t.Errorf("stats command exit = %d, want 0", code)
 	}
 }
@@ -313,11 +325,21 @@ func TestEndToEndDeterministicRerun(t *testing.T) {
 	outDir := t.TempDir()
 	cfg := e2eConfig(t, server.URL, outDir)
 
-	if err := runPipeline(context.Background(), cfg, ui.Discard{}); err != nil {
+	if err := runPipeline(
+		context.Background(),
+		cfg,
+		ui.Discard{},
+		slog.New(slog.NewTextHandler(t.Output(), nil)),
+	); err != nil {
 		t.Fatalf("first run: %v", err)
 	}
 	first := snapshotOutput(t, outDir)
-	if err := runPipeline(context.Background(), cfg, ui.Discard{}); err != nil {
+	if err := runPipeline(
+		context.Background(),
+		cfg,
+		ui.Discard{},
+		slog.New(slog.NewTextHandler(t.Output(), nil)),
+	); err != nil {
 		t.Fatalf("second run: %v", err)
 	}
 	second := snapshotOutput(t, outDir)
@@ -373,7 +395,12 @@ func TestEndToEndEnglish(t *testing.T) {
 	cfg := e2eConfig(t, server.URL, outDir)
 	cfg.Lang = "en"
 
-	if err := runPipeline(context.Background(), cfg, ui.Discard{}); err != nil {
+	if err := runPipeline(
+		context.Background(),
+		cfg,
+		ui.Discard{},
+		slog.New(slog.NewTextHandler(t.Output(), nil)),
+	); err != nil {
 		t.Fatalf("runPipeline: %v", err)
 	}
 	readme, err := fs.ReadFile(os.DirFS(outDir), "README.md")
@@ -395,6 +422,79 @@ func TestEndToEndEnglish(t *testing.T) {
 	}
 	if violations := verify.Run(nodes, cfg.Roots()); len(violations) != 0 {
 		t.Fatalf("verify violations: %v", violations)
+	}
+}
+
+// TestEndToEndDomainModel: a human modelith model is linted before any LLM
+// call and compared with the built graph in the README; an invalid one
+// fails the run.
+func TestEndToEndDomainModel(t *testing.T) {
+	server := mockLLM(t)
+	defer server.Close()
+	modelDir := t.TempDir()
+	write := func(name, content string) string {
+		path := filepath.Join(modelDir, name)
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	valid := write("billing.modelith.yaml", `kind: DomainModel
+version: v1
+entities:
+  Invoice:
+    definition: A bill sent to a subscriber.
+    invariants:
+      - id: prorated-first-month
+        statement: A subscriber activating mid-month is billed prorata.
+  Customer:
+    definition: Someone who pays invoices.
+`)
+	outDir := t.TempDir()
+	cfg := e2eConfig(t, server.URL, outDir)
+	cfg.Lang = "en"
+	cfg.DomainModels = []string{valid}
+	if err := runPipeline(
+		context.Background(),
+		cfg,
+		ui.Discard{},
+		slog.New(slog.NewTextHandler(t.Output(), nil)),
+	); err != nil {
+		t.Fatalf("runPipeline: %v", err)
+	}
+	readme, err := fs.ReadFile(os.DirFS(outDir), "README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"## Domain model",
+		"- Model entities found in the code: 1/2", // Invoice is the invoices table
+		"- `billing.Customer`",
+	} {
+		if !strings.Contains(string(readme), want) {
+			t.Errorf("README lacks %q:\n%s", want, readme)
+		}
+	}
+
+	invalid := write("broken.modelith.yaml", `kind: DomainModel
+version: v1
+entities:
+  Invoice:
+    definition: A bill.
+    relationships:
+      - entity: Nowhere
+        cardinality: "1:n"
+`)
+	cfg = e2eConfig(t, server.URL, t.TempDir())
+	cfg.DomainModels = []string{invalid}
+	runErr := runPipeline(
+		context.Background(),
+		cfg,
+		ui.Discard{},
+		slog.New(slog.NewTextHandler(t.Output(), nil)),
+	)
+	if runErr == nil || !strings.Contains(runErr.Error(), "lint error") {
+		t.Fatalf("runPipeline with an invalid model: err = %v, want a lint error", runErr)
 	}
 }
 
@@ -430,7 +530,12 @@ func TestEndToEndMechanicalRule(t *testing.T) {
 	}
 	cfg.FactsFiles = append(cfg.FactsFiles, factsPath)
 
-	if err := runPipeline(context.Background(), cfg, ui.Discard{}); err != nil {
+	if err := runPipeline(
+		context.Background(),
+		cfg,
+		ui.Discard{},
+		slog.New(slog.NewTextHandler(t.Output(), nil)),
+	); err != nil {
 		t.Fatalf("runPipeline: %v", err)
 	}
 	outFS := os.DirFS(outDir)
@@ -518,7 +623,12 @@ func TestEndToEndRootedRule(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.FactsFiles = append(cfg.FactsFiles, factsPath)
-	if err := runPipeline(context.Background(), cfg, ui.Discard{}); err != nil {
+	if err := runPipeline(
+		context.Background(),
+		cfg,
+		ui.Discard{},
+		slog.New(slog.NewTextHandler(t.Output(), nil)),
+	); err != nil {
 		t.Fatalf("runPipeline: %v", err)
 	}
 	rule, err := fs.ReadFile(os.DirFS(outDir), "nodes/rules/shared-web.shared-check.md")

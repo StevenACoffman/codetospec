@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"codetospec/internal/extract"
-	"codetospec/internal/grounding"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/grounding"
 )
 
 // TestPlantedFaults measures the grounding check against known defects
@@ -55,7 +55,10 @@ func TestPlantedFaults(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			citations, err := grounding.Load(extract.Roots{Src: fsys}, []extract.Ref{{Path: prorata, Lines: cited}})
+			citations, err := grounding.Load(
+				extract.Roots{Src: fsys},
+				[]extract.Ref{{Path: prorata, Lines: cited}},
+			)
 			if err != nil {
 				t.Fatalf("Load: %v", err)
 			}

@@ -10,10 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	"codetospec/internal/communities"
-	"codetospec/internal/extract"
-	"codetospec/internal/graph"
-	"codetospec/internal/locale"
+	"github.com/StevenACoffman/codetospec/internal/communities"
+	"github.com/StevenACoffman/codetospec/internal/domainmodel"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/locale"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -239,6 +240,16 @@ func TestWriteEnglish(t *testing.T) {
 	meta.Lang = "en"
 	meta.DomainSplits = []communities.Split{{Domain: "main", Communities: 2, Files: 6}}
 	meta.FilesGenerated = 4
+	meta.SharedEntities = []graph.SharedEntity{
+		{ID: "entity.invoice", Title: "Invoice", Domains: []string{"billing", "tax"}},
+	}
+	meta.DomainModel = &domainmodel.Report{
+		Models: []string{"billing.modelith.yaml"},
+		Entities: []domainmodel.Entity{
+			{Name: "billing.Invoice", Code: domainmodel.CodeEntity{ID: "entity.invoice"}},
+			{Name: "billing.Customer"},
+		},
+	}
 	if err := Write(outDir, testNodes(), meta); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -253,6 +264,9 @@ func TestWriteEnglish(t *testing.T) {
 				"# Generated specification", "## Coverage", "- Adversarial crosscheck:",
 				", 1 unchecked", "## Ungrounded rules", "## Domains",
 				"## Scattered domains", "- `main`: 6 files in 2 communities",
+				"## Shared entities", "- `Invoice` (`entity.invoice`): `billing`, `tax`",
+				"## Domain model", "- Model entities found in the code: 1/2",
+				"- `billing.Customer`",
 				"- Generated files (not mapped, \"Code generated … DO NOT EDIT.\" header): 4",
 			},
 			notWant: []string{"Spécification", "Couverture", "Domaines", "non vérifiées"},

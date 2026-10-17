@@ -4,8 +4,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"codetospec/internal/extract"
-	"codetospec/internal/grounding"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/grounding"
 )
 
 // handler is a Go file whose values hide behind constants and templates.

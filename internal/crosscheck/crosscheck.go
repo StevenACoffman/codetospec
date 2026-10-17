@@ -23,12 +23,12 @@ import (
 	"strings"
 	"sync"
 
-	"codetospec/internal/extract"
-	"codetospec/internal/graph"
-	"codetospec/internal/llm"
-	"codetospec/internal/locale"
-	"codetospec/internal/mapper"
-	"codetospec/internal/state"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/llm"
+	"github.com/StevenACoffman/codetospec/internal/locale"
+	"github.com/StevenACoffman/codetospec/internal/mapper"
+	"github.com/StevenACoffman/codetospec/internal/state"
 )
 
 // Verdict values, from strongest to weakest support.
@@ -93,8 +93,14 @@ type Verdict struct {
 	Reason       string        `json:"reason"`
 	InputHash    string        `json:"input_hash"`
 	NewCitations []extract.Ref `json:"new_citations,omitempty"` // set when Verdict == "repaired"
-	Failed       bool          `json:"failed,omitempty"`
-	Error        string        `json:"error,omitempty"`
+	// RepairReview is the fresh review's verdict on a repaired citation
+	// (unchecked when that review failed), and RepairReason its reason; both
+	// empty when no grounded citation was proposed. A repair is adopted only
+	// on "supported".
+	RepairReview string `json:"repair_review,omitempty"`
+	RepairReason string `json:"repair_reason,omitempty"`
+	Failed       bool   `json:"failed,omitempty"`
+	Error        string `json:"error,omitempty"`
 }
 
 // verdictPayload mirrors the JSON schema requested from the LLM.
@@ -131,7 +137,9 @@ type repairPayload struct {
 
 // Checker drives the adversarial cross-check phase.
 type Checker struct {
-	LLM     llm.Chatter
+	LLM llm.Chatter
+	// Log receives progress and degraded-mode warnings (required).
+	Log     *slog.Logger
 	Model   string // model id, folded into the cache key
 	Lang    string
 	Workers int
@@ -227,6 +235,50 @@ func (c *Checker) checkRule(ctx context.Context, rule graph.Node) (Verdict, llm.
 		}
 	}
 
+	payload, usage, err := c.review(ctx, &rule, excerpt)
+	v := Verdict{RuleID: rule.ID, InputHash: hash}
+	switch {
+	case err == nil:
+		v.Verdict = payload.Verdict
+		v.Reason = payload.Reason
+	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
+		return Verdict{}, usage, err
+	default:
+		c.Log.WarnContext(ctx, "crosscheck failed", "rule", rule.ID, "err", err)
+		v.Failed = true
+		v.Error = err.Error()
+	}
+
+	if c.Repair && (v.Verdict == VerdictUnsupported || v.Verdict == VerdictPartial) {
+		r, repairUsage, repairErr := c.tryRepair(ctx, &rule, v.Reason)
+		usage.Add(repairUsage)
+		if repairErr != nil {
+			return Verdict{}, usage, repairErr
+		}
+		v.RepairReview, v.RepairReason = r.review, r.reason
+		if r.review == VerdictSupported {
+			v.Verdict, v.NewCitations = VerdictRepaired, r.citations
+		}
+	}
+
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return Verdict{}, usage, fmt.Errorf("encode verdict: %w", err)
+	}
+	if writeErr := state.WriteFileAtomic(outPath, append(data, '\n')); writeErr != nil {
+		return Verdict{}, usage, fmt.Errorf("write verdict: %w", writeErr)
+	}
+	return v, usage, nil
+}
+
+// review asks the reviewer to refute rule against the cited excerpt. It
+// takes the rule and its cited code only: no earlier verdict, reason or
+// repair can reach the reviewer, so a re-review is as blind as the first.
+func (c *Checker) review(
+	ctx context.Context,
+	rule *graph.Node,
+	excerpt string,
+) (verdictPayload, llm.Usage, error) {
 	criteria := "-"
 	if lines := graph.RuleCriteria(rule.Body); len(lines) > 0 {
 		criteria = strings.Join(lines, "\n")
@@ -234,13 +286,9 @@ func (c *Checker) checkRule(ctx context.Context, rule graph.Node) (Verdict, llm.
 	userPrompt := fmt.Sprintf(userPromptFormat,
 		rule.ID, rule.Title, graph.RuleRequirement(rule.Body), criteria, excerpt)
 	msgs := []llm.Message{
-		{
-			Role:    "system",
-			Content: locale.For(c.Lang).Prompt(systemPrompt),
-		},
+		{Role: "system", Content: locale.For(c.Lang).Prompt(systemPrompt)},
 		{Role: "user", Content: userPrompt},
 	}
-
 	var usage llm.Usage
 	payload, err := llm.ChatJSON(ctx, c.LLM, msgs, 2, func(u llm.Usage) { usage.Add(u) },
 		func(reply string) (verdictPayload, error) {
@@ -262,43 +310,56 @@ func (c *Checker) checkRule(ctx context.Context, rule graph.Node) (Verdict, llm.
 			}
 			return p, nil
 		})
-
-	v := Verdict{RuleID: rule.ID, InputHash: hash}
-	switch {
-	case err == nil:
-		v.Verdict = payload.Verdict
-		v.Reason = payload.Reason
-	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
-		return Verdict{}, usage, err
-	default:
-		slog.WarnContext(ctx, "crosscheck failed", "rule", rule.ID, "err", err)
-		v.Failed = true
-		v.Error = err.Error()
-	}
-
-	// Repair pass: a flagged rule gets one chance to re-cite the exact span
-	// of a precise symbol that implements it.
-	if c.Repair && (v.Verdict == VerdictUnsupported || v.Verdict == VerdictPartial) {
-		newCitations, repairUsage, repairErr := c.repairRule(ctx, rule, v.Reason)
-		usage.Add(repairUsage)
-		if errors.Is(repairErr, context.Canceled) ||
-			errors.Is(repairErr, context.DeadlineExceeded) {
-			return Verdict{}, usage, repairErr
-		}
-		if len(newCitations) > 0 {
-			v.Verdict = VerdictRepaired
-			v.NewCitations = newCitations
-		}
-	}
-
-	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		return Verdict{}, usage, fmt.Errorf("encode verdict: %w", err)
+		return verdictPayload{}, usage, fmt.Errorf("review %s: %w", rule.ID, err)
 	}
-	if err := state.WriteFileAtomic(outPath, append(data, '\n')); err != nil {
-		return Verdict{}, usage, fmt.Errorf("write verdict: %w", err)
+	return payload, usage, nil
+}
+
+// repairOutcome is what a repair attempt found: the grounded citations it
+// proposed, and the fresh review's verdict and reason on them. All empty
+// when no grounded citation was proposed.
+type repairOutcome struct {
+	citations      []extract.Ref
+	review, reason string
+}
+
+// tryRepair gives a flagged rule one chance to re-cite the exact span of a
+// precise symbol, then has the new citation reviewed afresh. Only a
+// "supported" review may adopt it: repair saw why the first review rejected
+// the rule, so its answer is a new claim, not a verdict.
+//
+// Requires: reason is the first review's reason for flagging rule.
+// Ensures:  review is VerdictUnchecked when the re-review could not run; the
+// error is non-nil only on cancellation.
+func (c *Checker) tryRepair(
+	ctx context.Context,
+	rule *graph.Node,
+	reason string,
+) (repairOutcome, llm.Usage, error) {
+	citations, usage, err := c.repairRule(ctx, rule, reason)
+	if err != nil || len(citations) == 0 {
+		return repairOutcome{}, usage, err
 	}
-	return v, usage, nil
+	out := repairOutcome{citations: citations}
+	excerpt, err := c.citedExcerpt(citations)
+	var payload verdictPayload
+	if err == nil {
+		repaired := *rule
+		repaired.Sources = citations
+		var reviewUsage llm.Usage
+		payload, reviewUsage, err = c.review(ctx, &repaired, excerpt)
+		usage.Add(reviewUsage)
+	}
+	switch {
+	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
+		return repairOutcome{}, usage, err
+	case err != nil:
+		out.review, out.reason = VerdictUnchecked, err.Error()
+	default:
+		out.review, out.reason = payload.Verdict, payload.Reason
+	}
+	return out, usage, nil
 }
 
 // repairRule asks the model to re-cite the exact span of a precise symbol
@@ -307,7 +368,7 @@ func (c *Checker) checkRule(ctx context.Context, rule graph.Node) (Verdict, llm.
 // overlap a real symbol body. Without precise symbols it does nothing.
 func (c *Checker) repairRule(
 	ctx context.Context,
-	rule graph.Node,
+	rule *graph.Node,
 	reason string,
 ) ([]extract.Ref, llm.Usage, error) {
 	if c.SymbolsFor == nil {
@@ -541,11 +602,21 @@ func Count(nodes []graph.Node) Tally {
 // shapes a verdict: model, language, both prompts and whether repair runs.
 func (c *Checker) promptKey() string {
 	text := locale.For(c.Lang)
-	return llm.PromptKey(c.Model,
+	parts := []string{
 		text.Prompt(systemPrompt), userPromptFormat,
 		text.Prompt(repairSystemPrompt), repairUserPromptFormat,
-		strconv.FormatBool(c.Repair))
+		strconv.FormatBool(c.Repair),
+	}
+	if c.Repair {
+		// How a repair is adopted is part of what a cached verdict means:
+		// verdicts cached before repairs were re-reviewed are judged again.
+		parts = append(parts, repairPolicy)
+	}
+	return llm.PromptKey(c.Model, parts...)
 }
+
+// repairPolicy states how a repaired citation is adopted (see tryRepair).
+const repairPolicy = "a repaired citation is adopted only when a fresh blind review supports it"
 
 // inputHash keys a cached verdict: the prompt key plus the rule and the
 // exact cited code it was judged against.

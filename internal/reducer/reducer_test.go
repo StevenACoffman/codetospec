@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 
-	"codetospec/internal/extract"
-	"codetospec/internal/llm"
-	"codetospec/internal/mapper"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/llm"
+	"github.com/StevenACoffman/codetospec/internal/mapper"
 )
 
 type chatFunc func(ctx context.Context, msgs []llm.Message) (string, llm.Usage, error)
@@ -34,6 +35,7 @@ func candidates() map[string][]mapper.Rule {
 func newReducer(t *testing.T, chat llm.Chatter) *Reducer {
 	t.Helper()
 	return &Reducer{
+		Log:       slog.New(slog.NewTextHandler(t.Output(), nil)),
 		LLM:       chat,
 		Lang:      "fr",
 		OutDir:    t.TempDir(),

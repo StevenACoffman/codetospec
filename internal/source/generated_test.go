@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"codetospec/internal/source"
+	"github.com/StevenACoffman/codetospec/internal/source"
 )
 
 func TestWalkMarksGeneratedFiles(t *testing.T) {

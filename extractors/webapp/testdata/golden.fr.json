@@ -2060,6 +2060,7 @@
     "id": "table.webapp.UserNonce",
     "attrs": {
       "columns": "value:string, Kind:string, expires:time.Time, A:int64, B:int64",
+      "description": "UserNonce is a typed, per-user nonce.",
       "name": "UserNonce"
     },
     "source": {

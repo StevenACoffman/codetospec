@@ -5,8 +5,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"codetospec/internal/extract"
-	"codetospec/internal/grounding"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/grounding"
 )
 
 // billingPath is where billing lives in the test file system.
@@ -171,7 +171,10 @@ func TestLoadErrors(t *testing.T) {
 
 func TestLoadClampsToFileLength(t *testing.T) {
 	fsys := fstest.MapFS{"a.go": {Data: []byte("x := 42\n")}}
-	citations, err := grounding.Load(extract.Roots{Src: fsys}, []extract.Ref{{Path: "a.go", Lines: "1-99"}})
+	citations, err := grounding.Load(
+		extract.Roots{Src: fsys},
+		[]extract.Ref{{Path: "a.go", Lines: "1-99"}},
+	)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -193,7 +196,10 @@ func TestCheckCodeLayout(t *testing.T) {
 		"ok := acl.ActorHasPermission(\n\tktx,\n\tcapabilities.CanEditContent,\n)\n" +
 		"limited := ratelimit.ByIP(ktx, \"link_\"+loginType)\n"
 	fsys := fstest.MapFS{path: {Data: []byte(code)}}
-	citations, err := grounding.Load(extract.Roots{Src: fsys}, []extract.Ref{{Path: path, Lines: "1-7"}})
+	citations, err := grounding.Load(
+		extract.Roots{Src: fsys},
+		[]extract.Ref{{Path: path, Lines: "1-7"}},
+	)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}

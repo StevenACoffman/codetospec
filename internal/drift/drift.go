@@ -11,8 +11,8 @@ import (
 	"sort"
 	"strings"
 
-	"codetospec/internal/extract"
-	"codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/graph"
 )
 
 // Status classifies a rule against the current source tree.

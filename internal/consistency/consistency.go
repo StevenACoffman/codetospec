@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"sort"
 
-	"codetospec/internal/graph"
-	"codetospec/internal/textsim"
+	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/textsim"
 )
 
 // DuplicatePair is two rules whose requirements are near-identical.

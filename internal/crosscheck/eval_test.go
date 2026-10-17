@@ -1,13 +1,14 @@
 package crosscheck_test
 
 import (
+	"log/slog"
 	"os"
 	"testing"
 
-	"codetospec/internal/crosscheck"
-	"codetospec/internal/extract"
-	"codetospec/internal/graph"
-	"codetospec/internal/llm"
+	"github.com/StevenACoffman/codetospec/internal/crosscheck"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/llm"
 )
 
 // TestEvalPlantedFaults measures how often the LLM crosscheck refutes rules
@@ -61,6 +62,7 @@ func TestEvalPlantedFaults(t *testing.T) {
 	}
 
 	checker := &crosscheck.Checker{
+		Log:     slog.New(slog.NewTextHandler(t.Output(), nil)),
 		LLM:     llm.NewClient(baseURL, os.Getenv("LLM_API_KEY"), model, 4096),
 		Model:   model,
 		Lang:    "fr",

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"codetospec/internal/extract"
-	"codetospec/internal/llm"
-	"codetospec/internal/sitter"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/llm"
+	"github.com/StevenACoffman/codetospec/internal/sitter"
 )
 
 // Ungrounded returns the values a requirement states that cited, the text of

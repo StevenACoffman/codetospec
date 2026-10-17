@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"codetospec/internal/extract"
-	"codetospec/internal/locale"
-	"codetospec/internal/mapper"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/locale"
+	"github.com/StevenACoffman/codetospec/internal/mapper"
 )
 
 // ExtraExtractedBy is the Extra key naming the extractor that produced a

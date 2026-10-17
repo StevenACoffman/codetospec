@@ -7,17 +7,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
-	"codetospec/internal/communities"
-	"codetospec/internal/consistency"
-	"codetospec/internal/extract"
-	"codetospec/internal/graph"
-	"codetospec/internal/locale"
+	"github.com/StevenACoffman/codetospec/internal/communities"
+	"github.com/StevenACoffman/codetospec/internal/consistency"
+	"github.com/StevenACoffman/codetospec/internal/domainmodel"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/locale"
 	"gopkg.in/yaml.v3"
 )
 
@@ -49,6 +51,12 @@ type Meta struct {
 	DuplicatePairs []consistency.DuplicatePair
 	// RuleFactsRejected counts extractor rule facts dropped as malformed.
 	RuleFactsRejected int
+	// SharedEntities are the entities touched by rules of several domains
+	// (see graph.SharedEntities).
+	SharedEntities []graph.SharedEntity
+	// DomainModel compares the graph with human modelith models; nil when
+	// none was given (--domain-model).
+	DomainModel *domainmodel.Report
 	// Lang is the --lang code selecting the output text (see locale).
 	Lang string
 }
@@ -98,7 +106,7 @@ func NodeFile(n graph.Node) string {
 	switch n.Type {
 	case "domain":
 		return "nodes/domains/" + strings.TrimPrefix(n.ID, "domain.") + ".md"
-	case "entity":
+	case graph.TypeEntity:
 		return "nodes/entities/" + strings.TrimPrefix(n.ID, "entity.") + ".md"
 	case "endpoint":
 		return "nodes/endpoints/" + strings.TrimPrefix(n.ID, "endpoint.") + ".md"
@@ -275,11 +283,14 @@ func countByExtra(nodes []graph.Node, key string) map[string]int {
 	return counts
 }
 
+// percentScale turns a ratio in [0,1] into a percentage.
+const percentScale = 100
+
 func percent(part, total int) string {
 	if total == 0 {
 		return "n/a"
 	}
-	return strconv.Itoa(part*100/total) + "%"
+	return strconv.Itoa(part*percentScale/total) + "%"
 }
 
 func readme(nodes []graph.Node, meta Meta, text *locale.Text) string {
@@ -287,7 +298,7 @@ func readme(nodes []graph.Node, meta Meta, text *locale.Text) string {
 	var b strings.Builder
 	b.WriteString(text.Title + "\n\n" + text.Intro + "\n\n")
 	fmt.Fprintf(&b, text.DomainsFmt+"\n", counts["domain"])
-	fmt.Fprintf(&b, text.EntitiesFmt+"\n", counts["entity"])
+	fmt.Fprintf(&b, text.EntitiesFmt+"\n", counts[graph.TypeEntity])
 	fmt.Fprintf(&b, text.EndpointsFmt+"\n", counts["endpoint"])
 	fmt.Fprintf(&b, text.RulesFmt+"\n", counts[graph.TypeRule])
 	if n := counts[graph.TypeService]; n > 0 {
@@ -360,6 +371,7 @@ func readme(nodes []graph.Node, meta Meta, text *locale.Text) string {
 	b.WriteString(groundingSummary(nodes, text))
 	b.WriteString(ungroundedSection(nodes, text))
 	b.WriteString(splitSection(meta.DomainSplits, text))
+	b.WriteString(sharedSection(meta.SharedEntities, text))
 
 	if len(meta.DuplicatePairs) > 0 {
 		intra, cross := 0, 0
@@ -380,12 +392,14 @@ func readme(nodes []graph.Node, meta Meta, text *locale.Text) string {
 		)
 		shown := meta.DuplicatePairs[:min(len(meta.DuplicatePairs), maxListed)]
 		for _, p := range shown {
-			fmt.Fprintf(&b, "- `%s` ↔ `%s` (%.0f%%)\n", p.A, p.B, p.Similarity*100)
+			fmt.Fprintf(&b, "- `%s` ↔ `%s` (%.0f%%)\n", p.A, p.B, p.Similarity*percentScale)
 		}
 		if len(meta.DuplicatePairs) > len(shown) {
 			fmt.Fprintf(&b, text.AndMoreFmt+"\n", len(meta.DuplicatePairs)-len(shown))
 		}
 	}
+
+	b.WriteString(modelSection(meta.DomainModel, text))
 
 	b.WriteString("\n" + text.DomainsHeading + "\n\n")
 	b.WriteString(domainDiagram(nodes, meta.DomainGroups))
@@ -547,7 +561,7 @@ func llmsTxt(nodes []graph.Node, text *locale.Text) string {
 	var b strings.Builder
 	b.WriteString("# codetospec knowledge graph\n\n")
 	b.WriteString(text.LLMsPreamble + "\n")
-	for _, nodeType := range []string{"domain", "entity", "endpoint", "rule", graph.TypeService} {
+	for _, nodeType := range []string{graph.TypeDomain, graph.TypeEntity, "endpoint", graph.TypeRule, graph.TypeService} {
 		var lines []string
 		for _, n := range nodes {
 			if n.Type == nodeType {
@@ -692,6 +706,129 @@ func LoadDir(outDir string) ([]graph.Node, error) {
 
 // splitSection lists the domains whose files fall into several code
 // communities; "" when there are none.
+
+// modelListing is what the README says of a domain-model comparison: the
+// counts, and each kind of gap as Markdown list items.
+type modelListing struct {
+	found, invariants, stated                     int
+	missing, ambiguous, stale                     []string
+	unmatchedInvariants, unstatedRules, unmodeled []string
+}
+
+// listModel turns a comparison into README list items.
+func listModel(r *domainmodel.Report, text *locale.Text) modelListing {
+	var l modelListing
+	for _, e := range r.Entities {
+		switch {
+		case e.Code.ID != "":
+			l.found++
+		case len(e.Ambiguous) > 0:
+			ids := make([]string, 0, len(e.Ambiguous))
+			for _, c := range e.Ambiguous {
+				ids = append(ids, "`"+c.ID+"`")
+			}
+			l.ambiguous = append(
+				l.ambiguous,
+				fmt.Sprintf("`%s`: %s", e.Name, strings.Join(ids, ", ")),
+			)
+		default:
+			l.missing = append(l.missing, "`"+e.Name+"`")
+		}
+		l.addInvariants(e.Invariants, text)
+		for _, id := range e.Unstated {
+			l.unstatedRules = append(l.unstatedRules, fmt.Sprintf("`%s` (`%s`)", id, e.Name))
+		}
+	}
+	l.addInvariants(r.Invariants, text)
+	for _, c := range r.Unmodeled {
+		l.unmodeled = append(l.unmodeled, fmt.Sprintf("`%s` (`%s`)", c.Title, c.ID))
+	}
+	for _, m := range r.StaleMappings {
+		l.stale = append(l.stale, "`"+m+"`")
+	}
+	return l
+}
+
+// addInvariants counts invariants and lists those no rule states, with the
+// closest rule as a lead.
+func (l *modelListing) addInvariants(list []domainmodel.Invariant, text *locale.Text) {
+	for _, inv := range list {
+		l.invariants++
+		if inv.Rule != "" {
+			l.stated++
+			continue
+		}
+		item := fmt.Sprintf("`%s` · `%s`", inv.Owner, inv.ID)
+		if inv.Closest != "" {
+			item += " (" + fmt.Sprintf(text.ModelClosestFmt, inv.Closest,
+				int(math.Round(inv.Similarity*percentScale))) + ")"
+		}
+		l.unmatchedInvariants = append(l.unmatchedInvariants, item)
+	}
+}
+
+// modelSection reports the comparison with human domain models: summary
+// counts, then each kind of gap as a question, capped at maxListed.
+func modelSection(r *domainmodel.Report, text *locale.Text) string {
+	if r == nil {
+		return ""
+	}
+	l := listModel(r, text)
+	var b strings.Builder
+	b.WriteString("\n" + text.ModelHeading + "\n\n")
+	fmt.Fprintf(&b, text.ModelIntroFmt+"\n\n", len(r.Models), r.Warnings,
+		int(domainmodel.DefaultThreshold*percentScale))
+	fmt.Fprintf(&b, text.ModelEntitiesFmt+"\n", l.found, len(r.Entities))
+	fmt.Fprintf(&b, text.ModelInvariantsFmt+"\n", l.stated, l.invariants)
+	for _, list := range []struct {
+		intro string
+		items []string
+	}{
+		{text.ModelMissingFmt, l.missing},
+		{text.ModelAmbiguousFmt, l.ambiguous},
+		{text.ModelStaleMappingsFmt, l.stale},
+		{text.ModelUnmatchedFmt, l.unmatchedInvariants},
+		{text.ModelUnstatedRulesFmt, l.unstatedRules},
+		{text.ModelUnmodeledFmt, l.unmodeled},
+	} {
+		b.WriteString(itemList(list.intro, list.items, text))
+	}
+	return b.String()
+}
+
+// itemList writes a counted intro and its items, capped at maxListed; ""
+// when there are none.
+func itemList(introFmt string, items []string, text *locale.Text) string {
+	if len(items) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n")
+	fmt.Fprintf(&b, introFmt+"\n\n", len(items))
+	shown := items[:min(len(items), maxListed)]
+	for _, item := range shown {
+		b.WriteString("- " + item + "\n")
+	}
+	if len(items) > len(shown) {
+		fmt.Fprintf(&b, text.AndMoreFmt+"\n", len(items)-len(shown))
+	}
+	return b.String()
+}
+
+// sharedSection lists the entities several domains touch, with those
+// domains.
+func sharedSection(shared []graph.SharedEntity, text *locale.Text) string {
+	if len(shared) == 0 {
+		return ""
+	}
+	items := make([]string, 0, len(shared))
+	for _, e := range shared {
+		items = append(items, fmt.Sprintf("`%s` (`%s`): `%s`",
+			e.Title, e.ID, strings.Join(e.Domains, "`, `")))
+	}
+	return "\n" + text.SharedHeading + "\n" + itemList(text.SharedIntroFmt, items, text)
+}
+
 func splitSection(splits []communities.Split, text *locale.Text) string {
 	if len(splits) == 0 {
 		return ""

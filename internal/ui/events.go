@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"codetospec/internal/graph"
-	"codetospec/internal/llm"
+	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/llm"
 )
 
 // Sink receives pipeline progress events. Implementations must be safe for
@@ -119,10 +119,10 @@ type PhaseUsage struct {
 func PrintSummary(e RunFinished) {
 	fmt.Printf(
 		"nodes: %d domains, %d entities, %d endpoints, %d rules\n",
-		e.NodesByType["domain"],
-		e.NodesByType["entity"],
+		e.NodesByType[graph.TypeDomain],
+		e.NodesByType[graph.TypeEntity],
 		e.NodesByType["endpoint"],
-		e.NodesByType["rule"],
+		e.NodesByType[graph.TypeRule],
 	)
 	fmt.Printf("coverage: endpoints %d/%d, entities %d/%d\n",
 		e.Coverage.EndpointsReferenced, e.Coverage.EndpointsTotal,
@@ -161,26 +161,28 @@ type Discard struct{}
 // Emit implements Sink.
 func (Discard) Emit(any) {}
 
-// Plain logs events through slog, preserving the original non-TUI output.
-type Plain struct{}
+// Plain logs events to Log, the non-TUI output.
+type Plain struct {
+	Log *slog.Logger
+}
 
 // Emit implements Sink.
-func (Plain) Emit(event any) {
+func (p Plain) Emit(event any) {
 	switch e := event.(type) {
 	case FactsMerged:
-		slog.Info("extract done", "facts", e.Total)
+		p.Log.Info("extract done", "facts", e.Total)
 	case Chunked:
-		slog.Info("chunking done", "chunks", e.Chunks)
+		p.Log.Info("chunking done", "chunks", e.Chunks)
 	case ExtractorFinished:
-		slog.Info("extractor finished", "name", e.Name, "status", e.Status, "facts", e.Facts)
+		p.Log.Info("extractor finished", "name", e.Name, "status", e.Status, "facts", e.Facts)
 	case MapUnit:
 		if e.Done%25 == 0 {
-			slog.Info("map progress", "done", e.Done, "total", e.Total)
+			p.Log.Info("map progress", "done", e.Done, "total", e.Total)
 		}
 	case ReduceUnit:
-		slog.Info("reduce progress", "domain", e.Domain, "done", e.Done, "total", e.Total)
+		p.Log.Info("reduce progress", "domain", e.Domain, "done", e.Done, "total", e.Total)
 	case CrosscheckUnit:
-		slog.Info(
+		p.Log.Info(
 			"crosscheck progress",
 			"rule",
 			e.RuleID,
@@ -192,7 +194,7 @@ func (Plain) Emit(event any) {
 			e.Total,
 		)
 	case LogLine:
-		slog.Log(context.Background(), e.Level, e.Message)
+		p.Log.Log(context.Background(), e.Level, e.Message)
 	case RunFinished:
 		if e.Err == nil {
 			PrintSummary(e)

@@ -111,9 +111,12 @@ the LLM inside a loop it does not control:
   never counted as a pass.
 - **Flagged rules are repaired, not just flagged** (`--repair`, needs a SCIP
   index): a rule the reviewer rejected gets one chance to re-cite the exact
-  span of a precise symbol that implements it. The new citation is accepted
-  only if it mechanically overlaps a real symbol body — grounded by
-  construction.
+  span of a precise symbol that implements it. The new citation must
+  overlap a real symbol body, so it is grounded by construction. It is then
+  reviewed again, blind: the reviewer never sees the first verdict or why the
+  rule was rejected. The repair is adopted only if that review says
+  `supported`; otherwise the rule keeps its first verdict and citation, and
+  the cached verdict records the re-review (`repair_review`).
 - **Rules are classified**, not just listed: `nature` (business /
   presentation / technical) and `origin` (explicit / implicit) separate real
   business rules from plumbing; `confidence` × `crosscheck` gives a triage
@@ -215,7 +218,9 @@ template and name different operations. It also lists **scattered domains**:
 domains whose files fall into several communities of the import graph
 (gonum's Louvain, split into connected parts, fixed seed), a sign a domain
 lumps unrelated code together (every Go `main` package, a catch-all schema
-file). A route fact may carry its handler's code span (`handler_path`,
+file). It also lists **shared entities**: entities that rules of several
+domains touch, either a shared kernel to name as such or a sign a domain
+boundary runs through one concept. A route fact may carry its handler's code span (`handler_path`,
 `handler_lines`): any rule citing that span is linked to the endpoint
 (`exposed_by`) without the LLM, so the link holds on a warm cache.
 
@@ -238,6 +243,31 @@ llms.txt; default `fr`),
 file globs), `--facts extra.facts.json` (inject facts from anywhere),
 `--ref-root name=dir` (repeatable; also on `verify` and `drift`: an extra
 source tree extractor rules may cite, see below).
+
+**Human domain models.** `--domain-model billing.modelith.yaml` (repeatable;
+or `domain_models:` in `codetospec.yaml`, relative to `--src`) compares the
+graph with a [modelith](https://github.com/stacklok/modelith) model that
+people wrote, without an LLM and without changing the model. The model is
+linted first: a lint error fails the run before any LLM call. The output
+README then gets a **Domain model** section listing:
+
+- model entities with no code entity: matched by name, with case and
+  punctuation ignored and a regular plural accepted (`Invoice` matches the
+  `invoices` table)
+- code entities that no model names
+- invariants that no rule states
+- rules about modeled entities that state no invariant
+
+Invariants are matched to the rules that touch their entity by word
+similarity (Jaccard ≥ 0.3, EARS keywords ignored). A pairing is a lead to
+check, not a verdict, and it works only when the model and `--lang` use the
+same language. When names differ, map them in the config file:
+
+```yaml
+domain_models: [docs/billing.modelith.yaml]
+domain_model_entities:
+  billing.Ticket: PaperTicket   # model entity → code entity title or node id
+```
 
 ## Output
 
@@ -285,6 +315,8 @@ extractors:
 `static` or `proved` (runtime-verified). Facts merge by id with priority
 `proved` > extractor > tree-sitter, so a runtime-proved route overrides a
 statically guessed one. A failing extractor is a warning, not a fatal error.
+A `table` fact may carry `description`, the entity's authored description
+(a struct's doc comment, on one line); the entity page shows it.
 
 Arguments may use `{src}` (the analyzed root) and `{lang}` (`--lang`).
 Two more kinds let an extractor contribute beyond structure (contract in

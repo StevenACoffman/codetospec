@@ -2,12 +2,13 @@ package mapper_test
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"testing"
 
-	"codetospec/internal/llm"
-	"codetospec/internal/mapper"
-	"codetospec/internal/sitter"
+	"github.com/StevenACoffman/codetospec/internal/llm"
+	"github.com/StevenACoffman/codetospec/internal/mapper"
+	"github.com/StevenACoffman/codetospec/internal/sitter"
 )
 
 // scripted is an llm.Chatter replying with replies in order, the last one
@@ -97,6 +98,7 @@ func TestRegroundIsNeverWorse(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			chat := &scripted{replies: append([]string{tc.first}, tc.fixes...)}
 			m := &mapper.Mapper{
+				Log:          slog.New(slog.NewTextHandler(t.Output(), nil)),
 				LLM:          chat,
 				Lang:         "en",
 				Workers:      1,
@@ -145,6 +147,7 @@ func TestRegroundCachedOutputs(t *testing.T) {
 				t.Helper()
 				chat := &scripted{replies: replies}
 				m := &mapper.Mapper{
+					Log: slog.New(slog.NewTextHandler(t.Output(), nil)),
 					LLM: chat, Lang: "en", Workers: 1, OutDir: dir,
 					EndpointsFor: func(string) []string { return nil },
 					Ungrounded:   numbersMissing,
@@ -158,6 +161,7 @@ func TestRegroundCachedOutputs(t *testing.T) {
 			}
 			// Fill the cache without a checker, as an older run did.
 			fill := &mapper.Mapper{
+				Log: slog.New(slog.NewTextHandler(t.Output(), nil)),
 				LLM: &scripted{replies: []string{ruleReply(ungrounded)}}, Lang: "en", Workers: 1,
 				OutDir: dir, EndpointsFor: func(string) []string { return nil },
 			}

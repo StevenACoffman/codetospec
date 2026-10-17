@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"codetospec/internal/extract"
-	"codetospec/internal/locale"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/locale"
 )
 
 // TypeService is the Node.Type of an external service the code calls.

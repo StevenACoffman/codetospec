@@ -1,4 +1,4 @@
-module codetospec/extractors/go
+module github.com/StevenACoffman/codetospec/extractors/go
 
 go 1.26
 

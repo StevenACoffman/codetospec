@@ -3,7 +3,7 @@ package extract_test
 import (
 	"testing"
 
-	"codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/extract"
 )
 
 // hintPath is the file every test hint covers.

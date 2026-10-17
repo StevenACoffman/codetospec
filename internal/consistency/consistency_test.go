@@ -3,7 +3,7 @@ package consistency
 import (
 	"testing"
 
-	"codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/graph"
 )
 
 func rule(id, requirement string) graph.Node {

@@ -20,14 +20,16 @@ type registration struct {
 
 // structDecl is a struct type declaration with its datastore columns.
 type structDecl struct {
-	file       string
-	start, end int
-	columns    []string // "name:type"
+	file        string
+	start, end  int
+	columns     []string // "name:type"
+	description string   // its doc comment on one line; "" when none
 }
 
 // entityFacts turns every Datastore kind the service registers into a
 // "table" fact: name = the kind, columns = the registered struct's fields as
-// Datastore stores them, source = the struct declaration.
+// Datastore stores them, description = the struct's doc comment, source =
+// the struct declaration.
 func entityFacts(sources []source) ([]Fact, []string) {
 	var (
 		warnings []string
@@ -58,13 +60,17 @@ func entityFacts(sources []source) ([]Fact, []string) {
 			)
 			continue
 		}
+		attrs := map[string]string{
+			attrName:    r.kind,
+			attrColumns: strings.Join(decl.columns, ", "),
+		}
+		if decl.description != "" {
+			attrs[attrDescription] = decl.description
+		}
 		facts = append(facts, Fact{
-			Kind: kindTable,
-			ID:   "table.webapp." + r.kind,
-			Attrs: map[string]string{
-				attrName:    r.kind,
-				attrColumns: strings.Join(decl.columns, ", "),
-			},
+			Kind:      kindTable,
+			ID:        "table.webapp." + r.kind,
+			Attrs:     attrs,
 			Source:    Ref{Path: decl.file, Lines: lines(decl.start, decl.end)},
 			Origin:    origin,
 			Certainty: certain,
@@ -119,14 +125,28 @@ func structDecls(fset *token.FileSet, file *ast.File, name string) map[string]st
 				continue
 			}
 			decls[ts.Name.Name] = structDecl{
-				file:    name,
-				start:   fset.Position(ts.Pos()).Line,
-				end:     fset.Position(ts.End()).Line,
-				columns: datastoreColumns(fset, st),
+				file:        name,
+				start:       fset.Position(ts.Pos()).Line,
+				end:         fset.Position(ts.End()).Line,
+				columns:     datastoreColumns(fset, st),
+				description: typeDoc(gen, ts),
 			}
 		}
 	}
 	return decls
+}
+
+// typeDoc is the doc comment of a type, on one line: the spec's own, or
+// its declaration's when the declaration holds this type only.
+func typeDoc(gen *ast.GenDecl, ts *ast.TypeSpec) string {
+	doc := ts.Doc
+	if doc == nil && len(gen.Specs) == 1 {
+		doc = gen.Doc
+	}
+	if doc == nil {
+		return ""
+	}
+	return strings.Join(strings.Fields(doc.Text()), " ")
 }
 
 // datastoreColumns lists the fields Datastore stores: the `datastore:"name"`

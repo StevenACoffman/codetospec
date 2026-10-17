@@ -5,8 +5,8 @@ package main
 import (
 	"fmt"
 
-	"codetospec/internal/llm"
-	"codetospec/internal/ui"
+	"github.com/StevenACoffman/codetospec/internal/llm"
+	"github.com/StevenACoffman/codetospec/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

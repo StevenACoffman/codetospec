@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"os"
@@ -17,24 +18,25 @@ import (
 	"strings"
 	"syscall"
 
-	"codetospec/internal/communities"
-	"codetospec/internal/config"
-	"codetospec/internal/consistency"
-	"codetospec/internal/crosscheck"
-	"codetospec/internal/drift"
-	"codetospec/internal/extract"
-	"codetospec/internal/graph"
-	"codetospec/internal/grounding"
-	"codetospec/internal/llm"
-	"codetospec/internal/locale"
-	"codetospec/internal/mapper"
-	"codetospec/internal/reducer"
-	"codetospec/internal/render"
-	"codetospec/internal/sitter"
-	"codetospec/internal/source"
-	"codetospec/internal/state"
-	"codetospec/internal/ui"
-	"codetospec/internal/verify"
+	"github.com/StevenACoffman/codetospec/internal/communities"
+	"github.com/StevenACoffman/codetospec/internal/config"
+	"github.com/StevenACoffman/codetospec/internal/consistency"
+	"github.com/StevenACoffman/codetospec/internal/crosscheck"
+	"github.com/StevenACoffman/codetospec/internal/domainmodel"
+	"github.com/StevenACoffman/codetospec/internal/drift"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/grounding"
+	"github.com/StevenACoffman/codetospec/internal/llm"
+	"github.com/StevenACoffman/codetospec/internal/locale"
+	"github.com/StevenACoffman/codetospec/internal/mapper"
+	"github.com/StevenACoffman/codetospec/internal/reducer"
+	"github.com/StevenACoffman/codetospec/internal/render"
+	"github.com/StevenACoffman/codetospec/internal/sitter"
+	"github.com/StevenACoffman/codetospec/internal/source"
+	"github.com/StevenACoffman/codetospec/internal/state"
+	"github.com/StevenACoffman/codetospec/internal/ui"
+	"github.com/StevenACoffman/codetospec/internal/verify"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -66,13 +68,13 @@ func run(args []string) int {
 		if useTUI(cfg) {
 			return runTUI(ctx, cfg)
 		}
-		setupLogging(cfg.LogLevel)
-		if err := runPipeline(ctx, cfg, ui.Plain{}); err != nil {
-			if errors.Is(err, context.Canceled) {
-				slog.Warn("interrupted, state saved; rerun to resume")
+		logger := newLogger(os.Stderr, cfg.LogLevel)
+		if runErr := runPipeline(ctx, cfg, ui.Plain{Log: logger}, logger); runErr != nil {
+			if errors.Is(runErr, context.Canceled) {
+				logger.WarnContext(ctx, "interrupted, state saved; rerun to resume")
 				return 130
 			}
-			slog.Error("run failed", "err", err)
+			logger.ErrorContext(ctx, "run failed", "err", runErr)
 			return 1
 		}
 		return 0
@@ -82,36 +84,35 @@ func run(args []string) int {
 			fmt.Fprintln(os.Stderr, err)
 			return 2
 		}
-		setupLogging(cfg.LogLevel)
-		return verifyCommand(cfg)
+		return verifyCommand(cfg, newLogger(os.Stderr, cfg.LogLevel))
 	case "drift":
 		cfg, err := config.ParseDrift(args[1:])
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 2
 		}
-		setupLogging(cfg.LogLevel)
-		return driftCommand(cfg)
+		return driftCommand(cfg, newLogger(os.Stderr, cfg.LogLevel))
 	case "stats":
 		cfg, err := config.ParseStats(args[1:])
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 2
 		}
-		setupLogging(cfg.LogLevel)
-		return statsCommand(cfg)
+		return statsCommand(cfg, newLogger(os.Stderr, cfg.LogLevel))
 	default:
 		fmt.Fprintln(os.Stderr, usageText)
 		return 2
 	}
 }
 
-func setupLogging(level string) {
+// newLogger returns the logger a command passes down to every phase: text
+// lines on w at level (--log-level; info when unparsable).
+func newLogger(w io.Writer, level string) *slog.Logger {
 	var l slog.Level
 	if err := l.UnmarshalText([]byte(level)); err != nil {
 		l = slog.LevelInfo
 	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: l})))
+	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: l}))
 }
 
 // useTUI enables the dashboard on an interactive terminal unless --no-tui.
@@ -133,17 +134,18 @@ func runTUI(ctx context.Context, cfg *config.Config) int {
 		tea.WithAltScreen(),
 	)
 	sink := ui.TUISink{Program: program}
-	slog.SetDefault(slog.New(ui.LogHandler{Sink: sink, Min: slog.LevelWarn}))
+	// While the dashboard owns the terminal, warnings go to its log pane.
+	dashboardLog := slog.New(ui.LogHandler{Sink: sink, Min: slog.LevelWarn})
 
 	go func() {
 		// runPipeline emits RunFinished itself, which quits the program.
-		_ = runPipeline(runCtx, cfg, sink)
+		_ = runPipeline(runCtx, cfg, sink, dashboardLog)
 	}()
 
 	finalModel, err := program.Run()
-	setupLogging(cfg.LogLevel)
+	logger := newLogger(os.Stderr, cfg.LogLevel)
 	if err != nil {
-		slog.ErrorContext(ctx, "tui failed", "err", err)
+		logger.ErrorContext(ctx, "tui failed", "err", err)
 		return 1
 	}
 	model, ok := finalModel.(ui.Model)
@@ -175,7 +177,12 @@ func runTUI(ctx context.Context, cfg *config.Config) int {
 // runPipeline is the full run sequence: extract, chunk, map, reduce, build,
 // verify, render. Progress is reported through the sink, which also receives
 // a final RunFinished event (consumed by the TUI and the plain summary).
-func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err error) {
+func runPipeline(
+	ctx context.Context,
+	cfg *config.Config,
+	sink ui.Sink,
+	logger *slog.Logger,
+) (err error) {
 	final := ui.RunFinished{Extractors: map[string]string{}}
 	defer func() {
 		final.Err = err
@@ -184,6 +191,15 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 	sink.Emit(ui.RunStarted{Src: cfg.Src, Out: cfg.Out, Model: cfg.Model, Workers: cfg.Workers})
 
 	resolver := extract.DomainResolver{Strategy: cfg.DomainStrategy, Depth: cfg.DomainDepth}
+
+	// Human domain models, linted first: an invalid one fails the run
+	// before any LLM call.
+	var domainModels *domainmodel.Set
+	if len(cfg.DomainModels) > 0 {
+		if domainModels, err = domainmodel.Load(cfg.DomainModels); err != nil {
+			return err
+		}
+	}
 
 	// Walk and extract layer A (tree-sitter).
 	files, err := source.Walk(cfg.Src, cfg.Exclude)
@@ -197,7 +213,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 	for _, f := range files {
 		data, readErr := os.ReadFile(f.AbsPath)
 		if readErr != nil {
-			slog.WarnContext(ctx, "unreadable file skipped", "path", f.Path, "err", readErr)
+			logger.WarnContext(ctx, "unreadable file skipped", "path", f.Path, "err", readErr)
 			continue
 		}
 		fileData[f.Path] = data
@@ -208,7 +224,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		}
 		info, parseErr := sitter.Parse(f.Language, data)
 		if parseErr != nil {
-			slog.WarnContext(
+			logger.WarnContext(
 				ctx,
 				"parse failed, falling back to line chunks",
 				"path",
@@ -225,7 +241,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		sitterFacts = append(sitterFacts, facts...)
 		sink.Emit(ui.FileExtracted{Path: f.Path, Language: f.Language, Facts: len(facts)})
 	}
-	slog.InfoContext(
+	logger.InfoContext(
 		ctx,
 		"extract: universal layer done",
 		"files",
@@ -242,7 +258,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		if timeoutErr != nil {
 			return timeoutErr
 		}
-		facts, extErr := extract.RunExtractor(ctx, extract.ExtractorConfig{
+		facts, extErr := extract.RunExtractor(ctx, logger, extract.ExtractorConfig{
 			Name:    e.Name,
 			Cmd:     e.Cmd,
 			Args:    e.Args,
@@ -252,7 +268,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			slog.WarnContext(ctx, "extractor failed", "name", e.Name, "err", extErr)
+			logger.WarnContext(ctx, "extractor failed", "name", e.Name, "err", extErr)
 			extractorStatus[e.Name] = "failed"
 			sink.Emit(ui.ExtractorFinished{Name: e.Name, Status: "failed"})
 			continue
@@ -357,6 +373,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		Constants:        grounding.Constants(facts),
 	}
 	m := &mapper.Mapper{
+		Log: logger,
 		Ungrounded: func(requirement string, cited []string) []string {
 			result := grounding.Check(
 				requirement,
@@ -398,7 +415,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 				s.AddTokens("map", usage.PromptTokens, usage.CompletionTokens)
 				done = s.ChunksDone
 			}); err != nil {
-				slog.WarnContext(ctx, "state save failed", "err", err)
+				logger.WarnContext(ctx, "state save failed", "err", err)
 			}
 			sink.Emit(ui.MapUnit{
 				Path:   out.Path,
@@ -435,6 +452,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		return err
 	}
 	r := &reducer.Reducer{
+		Log:       logger,
 		LLM:       client,
 		Model:     cfg.Model,
 		Lang:      cfg.Lang,
@@ -454,7 +472,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 				s.AddTokens("reduce", usage.PromptTokens, usage.CompletionTokens)
 				done = s.DomainsDone
 			}); err != nil {
-				slog.WarnContext(ctx, "state save failed", "err", err)
+				logger.WarnContext(ctx, "state save failed", "err", err)
 			}
 			sink.Emit(ui.ReduceUnit{
 				Domain: out.Domain,
@@ -492,6 +510,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		}
 		checkDone := 0
 		checker := &crosscheck.Checker{
+			Log:     logger,
 			LLM:     client,
 			Model:   cfg.Model,
 			Lang:    cfg.Lang,
@@ -506,7 +525,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 				if err := st.Update(func(s *state.State) {
 					s.AddTokens("crosscheck", usage.PromptTokens, usage.CompletionTokens)
 				}); err != nil {
-					slog.WarnContext(ctx, "state save failed", "err", err)
+					logger.WarnContext(ctx, "state save failed", "err", err)
 				}
 				checkDone++
 				sink.Emit(ui.CrosscheckUnit{
@@ -551,7 +570,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 	if len(violations) > 0 {
 		for _, v := range violations {
 			final.Violations = append(final.Violations, v.String())
-			slog.ErrorContext(
+			logger.ErrorContext(
 				ctx,
 				"verification failed",
 				"node",
@@ -587,6 +606,7 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		CrosscheckUnchecked:   checkTally.Unchecked,
 		CrosscheckMechanical:  checkTally.Mechanical,
 		DuplicatePairs:        consistency.FindDuplicates(nodes, consistency.DefaultThreshold),
+		SharedEntities:        graph.SharedEntities(nodes),
 		Lang:                  cfg.Lang,
 		RuleFactsRejected:     len(rejectedRules),
 	}
@@ -594,6 +614,11 @@ func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err err
 		if status != "ok" {
 			meta.ExtractorsFailed = append(meta.ExtractorsFailed, name)
 		}
+	}
+	if domainModels != nil {
+		report := domainmodel.Compare(domainModels, nodes,
+			domainmodel.Options{Entities: cfg.DomainModelEntities})
+		meta.DomainModel = &report
 	}
 	sink.Emit(ui.PhaseChanged{Phase: "render"})
 	if err := render.Write(cfg.Out, nodes, meta); err != nil {
@@ -795,14 +820,14 @@ func sortedKeys(m map[string]string) []string {
 	return keys
 }
 
-func verifyCommand(cfg *config.Config) int {
+func verifyCommand(cfg *config.Config, logger *slog.Logger) int {
 	nodes, err := render.LoadDir(cfg.Out)
 	if err != nil {
-		slog.Error("cannot load graph", "err", err)
+		logger.Error("cannot load graph", "err", err)
 		return 1
 	}
 	if len(nodes) == 0 {
-		slog.Error("no nodes found", "out", cfg.Out)
+		logger.Error("no nodes found", "out", cfg.Out)
 		return 1
 	}
 	violations := verify.Run(nodes, cfg.Roots())
@@ -816,10 +841,10 @@ func verifyCommand(cfg *config.Config) int {
 	return 0
 }
 
-func driftCommand(cfg *config.Config) int {
+func driftCommand(cfg *config.Config, logger *slog.Logger) int {
 	nodes, err := render.LoadDir(cfg.Out)
 	if err != nil {
-		slog.Error("cannot load graph", "err", err)
+		logger.Error("cannot load graph", "err", err)
 		return 1
 	}
 	report := drift.Check(nodes, cfg.Roots())
@@ -831,7 +856,7 @@ func driftCommand(cfg *config.Config) int {
 		}
 		data, err := json.MarshalIndent(payload, "", "  ")
 		if err != nil {
-			slog.Error("encode drift report", "err", err)
+			logger.Error("encode drift report", "err", err)
 			return 1
 		}
 		fmt.Println(string(data))
@@ -850,10 +875,10 @@ func driftCommand(cfg *config.Config) int {
 	return 0
 }
 
-func statsCommand(cfg *config.Config) int {
+func statsCommand(cfg *config.Config, logger *slog.Logger) int {
 	s, err := state.Load(filepath.Join(cfg.Out, ".codetospec", "state.json"))
 	if err != nil {
-		slog.Error("cannot load state", "err", err)
+		logger.Error("cannot load state", "err", err)
 		return 1
 	}
 	fmt.Printf("phase: %s (started %s)\n", s.Phase, s.StartedAt)

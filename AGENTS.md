@@ -43,8 +43,11 @@ Pipeline : `extract → chunk → map → reduce → crosscheck(+repair) → bui
   chaque ligne du code de son numéro absolu (`numberedContent`) : sinon le
   modèle *compte* les lignes et dérive (citations off-by-N sur gros chunks). Le crosscheck
   (`--crosscheck`) réfute chaque règle ; avec `--repair` (+ index SCIP), une
-  règle rejetée re-cite le span exact d'un symbole précis, adopté seulement
-  s'il chevauche un vrai corps de symbole (grounding mécanique).
+  règle rejetée re-cite le span exact d'un symbole précis. La citation doit
+  chevaucher un vrai corps de symbole (grounding mécanique), puis elle est
+  re-revue à l'aveugle (`review` ne reçoit ni le premier verdict ni sa
+  raison). Elle n'est adoptée que si cette revue dit `supported` ; sinon la
+  règle garde son verdict (`repair_review` le trace).
 - `internal/{graph,verify,render}` — assemblage déterministe, contrôles, écriture.
 - `internal/drift` — digest du code cité par règle (frontmatter `digest:`) ;
   commande `drift` = re-hache et signale les règles périmées (déterministe).
@@ -89,6 +92,17 @@ Pipeline : `extract → chunk → map → reduce → crosscheck(+repair) → bui
   changer les communautés.
 - `internal/consistency` — détection de règles quasi-doublons (Jaccard sur
   les exigences), listées dans le README de sortie.
+- `graph.SharedEntities` — entités touchées par des règles de plusieurs
+  domaines (liens `touches` du reduce), section « Entités partagées » du
+  README de sortie : noyau partagé ou frontière mal placée.
+- `internal/domainmodel` — comparaison avec des modèles modelith écrits
+  par des humains (`--domain-model`, lecture seule, sans LLM), via
+  `github.com/StevenACoffman/indomain` (fork importable de modelith, admis
+  dans le module principal). Lint d'abord : une erreur arrête le run avant
+  tout appel LLM. Entités appariées par nom (normalisé, pluriel régulier
+  accepté, ou `domain_model_entities`), invariants ↔ règles qui touchent
+  l'entité par Jaccard (seuil 0,3, mots des patrons EARS retirés) ; section
+  du README de sortie. Hors `promptKey` : aucun cache invalidé.
 - `cmd/codetospec/main.go` — séquence complète.
 
 ## Extracteurs = modules Go SÉPARÉS
@@ -146,6 +160,11 @@ indépendants (le `depends_on` est calculé au build).
 - Sortie déterministe : tris stables partout, deux runs cache chaud =
   identiques octet pour octet. Ne jamais introduire d'ordre non déterministe.
 - Code/commentaires/identifiants en **anglais** ; comms utilisateur en français.
+- Pas de logger global : `main` construit un `*slog.Logger` (`newLogger`) et
+  le passe explicitement (`runPipeline`, champs `Log` de `Mapper`,
+  `Reducer`, `Checker`, argument de `extract.RunExtractor`, `ui.Plain`).
+  Jamais `slog.SetDefault` ni `slog.Info` ; les tests passent un logger sur
+  `t.Output()`.
 - Golden tests render : `go test ./internal/render -update` pour régénérer.
 - README tenu à jour à chaque feature livrée (concis).
 

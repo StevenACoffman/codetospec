@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"codetospec/internal/sitter"
+	"github.com/StevenACoffman/codetospec/internal/sitter"
 )
 
 // Fact is a mechanically provable statement about the codebase.
@@ -74,6 +74,10 @@ const (
 	AttrValue       = "value"
 	AttrRoute       = "route"
 	AttrText        = "text"
+	// AttrDescription, on a table fact, is the entity's authored
+	// description (a struct's doc comment, a schema comment): what the
+	// entity is, in its authors' words. The entity page shows it.
+	AttrDescription = "description"
 	AttrService     = "service"
 	AttrOperation   = "operation"
 	// AttrInheritedFrom, on a rule fact, names the spec the rule comes

@@ -3,8 +3,8 @@ package extract_test
 import (
 	"testing"
 
-	"codetospec/internal/extract"
-	"codetospec/internal/sitter"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/sitter"
 )
 
 // parsed returns the tree-sitter information of each Go file, as the

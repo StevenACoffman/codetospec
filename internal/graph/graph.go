@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	"codetospec/internal/extract"
-	"codetospec/internal/locale"
-	"codetospec/internal/reducer"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/locale"
+	"github.com/StevenACoffman/codetospec/internal/reducer"
 )
 
 // Node is one markdown file in the spec graph.
@@ -75,6 +75,7 @@ func RuleCriteria(body string) []string {
 const (
 	EdgeBelongsTo = "belongs_to" // rule → its domain
 	EdgeExposedBy = "exposed_by" // rule → an endpoint it guards or serves
+	EdgeTouches   = "touches"    // rule → an entity it reads or writes
 )
 
 // TypeRule is the Node.Type of a business rule.
@@ -82,6 +83,9 @@ const TypeRule = "rule"
 
 // TypeDomain is the node type of a domain.
 const TypeDomain = "domain"
+
+// TypeEntity is the node type of a data entity (a table fact).
+const TypeEntity = "entity"
 
 // StatusGenerated is the only node status in v0.1.
 const StatusGenerated = "generated"
@@ -177,13 +181,17 @@ func entityNodes(facts []extract.Fact, text *locale.Text) []Node {
 			name = strings.TrimPrefix(f.ID, "table.")
 		}
 		var body strings.Builder
-		body.WriteString(text.Table + "`" + name + "`\n\n" + text.Columns + "\n")
+		body.WriteString(text.Table + "`" + name + "`\n\n")
+		if description := f.Attrs[extract.AttrDescription]; description != "" {
+			body.WriteString(description + "\n\n")
+		}
+		body.WriteString(text.Columns + "\n")
 		for _, col := range splitColumns(f.Attrs["columns"]) {
 			body.WriteString("- `" + col + "`\n")
 		}
 		nodes = append(nodes, Node{
 			ID:      EntityID(f),
-			Type:    "entity",
+			Type:    TypeEntity,
 			Status:  StatusGenerated,
 			Sources: []extract.Ref{f.Source},
 			Title:   name,
@@ -307,7 +315,7 @@ func ruleAndDomainNodes(
 func reducedRuleNode(domain string, rule *reducer.Rule, text *locale.Text) Node {
 	edges := []Edge{{Type: EdgeBelongsTo, To: "domain." + domain}}
 	for _, e := range dedupSorted(rule.Entities) {
-		edges = append(edges, Edge{Type: "touches", To: e})
+		edges = append(edges, Edge{Type: EdgeTouches, To: e})
 	}
 	for _, e := range dedupSorted(rule.Endpoints) {
 		edges = append(edges, Edge{Type: EdgeExposedBy, To: e})
@@ -486,7 +494,7 @@ func edgeTypeRank(t string) int {
 	switch t {
 	case EdgeBelongsTo:
 		return 0
-	case "touches":
+	case EdgeTouches:
 		return 1
 	case EdgeExposedBy:
 		return 2
@@ -526,7 +534,7 @@ func ComputeCoverage(nodes []Node) Coverage {
 			continue
 		}
 		for _, e := range n.Edges {
-			if e.Type == "touches" || e.Type == EdgeExposedBy {
+			if e.Type == EdgeTouches || e.Type == EdgeExposedBy {
 				referenced[e.To] = true
 			}
 		}
@@ -538,7 +546,7 @@ func ComputeCoverage(nodes []Node) Coverage {
 			if referenced[n.ID] {
 				cov.EndpointsReferenced++
 			}
-		case "entity":
+		case TypeEntity:
 			cov.EntitiesTotal++
 			if referenced[n.ID] {
 				cov.EntitiesTouched++

@@ -25,10 +25,18 @@ type Extractor struct {
 	Timeout string   `yaml:"timeout"`
 }
 
+// Defaults of the run flags.
+const (
+	defaultExtractorTimeout = 300 * time.Second
+	defaultWorkers          = 4
+	defaultMaxTokens        = 4096
+	defaultReduceBatch      = 30
+)
+
 // TimeoutDuration parses the configured timeout, defaulting to 300s.
 func (e Extractor) TimeoutDuration() (time.Duration, error) {
 	if e.Timeout == "" {
-		return 300 * time.Second, nil
+		return defaultExtractorTimeout, nil
 	}
 	d, err := time.ParseDuration(e.Timeout)
 	if err != nil {
@@ -47,6 +55,7 @@ type fileConfig struct {
 	// DomainModels are modelith model files, relative to --src.
 	DomainModels        []string          `yaml:"domain_models"`
 	DomainModelEntities map[string]string `yaml:"domain_model_entities"`
+	WriteDomainModel    bool              `yaml:"write_domain_model"`
 }
 
 // Config is the resolved configuration for one command invocation.
@@ -81,10 +90,16 @@ type Config struct {
 	// is, for names that differ (see domainmodel.Options).
 	DomainModels        []string
 	DomainModelEntities map[string]string
+	// WriteDomainModel writes modelith models under <out>/models: the human
+	// models enhanced with what the code shows, and generated ones for the
+	// entities they do not name (--write-domain-model).
+	WriteDomainModel bool
 }
 
 // DefaultExclude lists the directories ignored by default.
-var DefaultExclude = []string{"vendor", "node_modules", "storage", "dist", "build", ".git"}
+func DefaultExclude() []string {
+	return []string{"vendor", "node_modules", "storage", "dist", "build", ".git"}
+}
 
 // stringList is a repeatable string flag.
 type stringList []string
@@ -141,7 +156,7 @@ func (c *Config) Roots() extract.Roots {
 
 // ParseRun resolves the run command configuration.
 func ParseRun(args []string) (*Config, error) {
-	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	flags := flag.NewFlagSet("run", flag.ContinueOnError)
 	cfg := &Config{}
 	var (
 		configPath   string
@@ -149,45 +164,52 @@ func ParseRun(args []string) (*Config, error) {
 		facts        stringList
 		domainModels stringList
 	)
-	fs.StringVar(&cfg.Src, "src", "", "root of the analyzed repository (required)")
-	registerRefRoots(fs, cfg)
-	fs.StringVar(&cfg.Out, "out", "", "output graph directory (required)")
-	fs.StringVar(
+	flags.StringVar(&cfg.Src, "src", "", "root of the analyzed repository (required)")
+	registerRefRoots(flags, cfg)
+	flags.StringVar(&cfg.Out, "out", "", "output graph directory (required)")
+	flags.StringVar(
 		&configPath,
 		"config",
 		"",
 		"config file (default <src>/codetospec.yaml when present)",
 	)
-	fs.StringVar(&cfg.BaseURL, "base-url", os.Getenv("LLM_BASE_URL"), "OpenAI-compatible endpoint")
-	fs.StringVar(
+	flags.StringVar(
+		&cfg.BaseURL,
+		"base-url",
+		os.Getenv("LLM_BASE_URL"),
+		"OpenAI-compatible endpoint",
+	)
+	flags.StringVar(
 		&cfg.APIKey,
 		"api-key",
 		os.Getenv("LLM_API_KEY"),
 		"API key (empty accepted for local vLLM)",
 	)
-	fs.StringVar(&cfg.Model, "model", os.Getenv("LLM_MODEL"), "model name")
-	fs.StringVar(&cfg.Lang, "lang", "fr", "requirements language (fr or en)")
-	fs.IntVar(&cfg.Workers, "workers", 4, "map parallelism")
-	fs.IntVar(&cfg.MaxTokens, "max-tokens", 4096, "generation cap per LLM call")
-	fs.StringVar(
+	flags.StringVar(&cfg.Model, "model", os.Getenv("LLM_MODEL"), "model name")
+	flags.StringVar(&cfg.Lang, "lang", "fr", "requirements language (fr or en)")
+	flags.IntVar(&cfg.Workers, "workers", defaultWorkers, "map parallelism")
+	flags.IntVar(&cfg.MaxTokens, "max-tokens", defaultMaxTokens, "generation cap per LLM call")
+	flags.StringVar(
 		&excludeCSV,
 		"exclude",
-		strings.Join(DefaultExclude, ","),
+		strings.Join(DefaultExclude(), ","),
 		"comma-separated ignored directories",
 	)
-	fs.Var(&facts, "facts", "additional facts JSON file (repeatable)")
-	fs.Var(&domainModels, "domain-model",
+	flags.Var(&facts, "facts", "additional facts JSON file (repeatable)")
+	flags.BoolVar(&cfg.WriteDomainModel, "write-domain-model", false,
+		"write modelith models under <out>/models: human models enhanced, and generated ones")
+	flags.Var(&domainModels, "domain-model",
 		"human modelith model (*.modelith.yaml) to compare the graph with (repeatable)")
-	fs.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
-	fs.BoolVar(&cfg.NoTUI, "no-tui", false, "disable the full-screen dashboard, log to stderr")
-	registerPassFlags(fs, cfg)
-	fs.IntVar(
+	flags.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
+	flags.BoolVar(&cfg.NoTUI, "no-tui", false, "disable the full-screen dashboard, log to stderr")
+	registerPassFlags(flags, cfg)
+	flags.IntVar(
 		&cfg.DomainDepth,
 		"domain-depth",
 		1,
 		"namespace segments (after the root) forming a domain; 2-3 splits a single-root repo (e.g. core-controller-sdk)",
 	)
-	if err := fs.Parse(args); err != nil {
+	if err := flags.Parse(args); err != nil {
 		return nil, err
 	}
 
@@ -198,60 +220,78 @@ func ParseRun(args []string) (*Config, error) {
 		cfg.Crosscheck = true
 	}
 	explicit := map[string]bool{}
-	fs.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
+	flags.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
 
 	fileCfg, err := loadFile(configPath, cfg.Src)
 	if err != nil {
 		return nil, err
 	}
-
-	cfg.Exclude = splitCSV(excludeCSV)
-	if !explicit["exclude"] && len(fileCfg.Exclude) > 0 {
-		cfg.Exclude = fileCfg.Exclude
-	}
-	cfg.FactsFiles = append([]string(nil), facts...)
-	for _, f := range fileCfg.FactsFiles {
-		if !slices.Contains(cfg.FactsFiles, f) {
-			cfg.FactsFiles = append(cfg.FactsFiles, f)
-		}
-	}
-	cfg.DomainModels = append([]string(nil), domainModels...)
-	for _, m := range fileCfg.DomainModels {
-		if !filepath.IsAbs(m) {
-			m = filepath.Join(cfg.Src, m)
-		}
-		if !slices.Contains(cfg.DomainModels, m) {
-			cfg.DomainModels = append(cfg.DomainModels, m)
-		}
-	}
-	cfg.DomainModelEntities = fileCfg.DomainModelEntities
-	cfg.Extractors = fileCfg.Extractors
-	cfg.DomainStrategy = fileCfg.DomainStrategy
-	if cfg.DomainStrategy == "" {
-		cfg.DomainStrategy = "auto"
-	}
-	if !explicit["domain-depth"] && fileCfg.DomainDepth > 0 {
-		cfg.DomainDepth = fileCfg.DomainDepth
-	}
-	if cfg.DomainDepth < 1 {
-		cfg.DomainDepth = 1
-	}
-
-	if err := cfg.validateRun(); err != nil {
+	cfg.merge(
+		&fileCfg,
+		explicit,
+		&cliLists{exclude: excludeCSV, facts: facts, models: domainModels},
+	)
+	if err = cfg.validateRun(); err != nil {
 		return nil, err
 	}
 	return cfg, nil
 }
 
+// cliLists are the list flags of the run command, before merging.
+type cliLists struct {
+	exclude       string // comma-separated
+	facts, models []string
+}
+
+// merge completes cfg from the config file: a flag given on the command
+// line wins over the file (explicit), list flags are extended by the file's
+// entries, and the file's model paths are relative to --src.
+func (c *Config) merge(fileCfg *fileConfig, explicit map[string]bool, lists *cliLists) {
+	c.Exclude = splitCSV(lists.exclude)
+	if !explicit["exclude"] && len(fileCfg.Exclude) > 0 {
+		c.Exclude = fileCfg.Exclude
+	}
+	c.FactsFiles = append([]string(nil), lists.facts...)
+	for _, f := range fileCfg.FactsFiles {
+		if !slices.Contains(c.FactsFiles, f) {
+			c.FactsFiles = append(c.FactsFiles, f)
+		}
+	}
+	c.DomainModels = append([]string(nil), lists.models...)
+	for _, m := range fileCfg.DomainModels {
+		if !filepath.IsAbs(m) {
+			m = filepath.Join(c.Src, m)
+		}
+		if !slices.Contains(c.DomainModels, m) {
+			c.DomainModels = append(c.DomainModels, m)
+		}
+	}
+	c.DomainModelEntities = fileCfg.DomainModelEntities
+	if !explicit["write-domain-model"] && fileCfg.WriteDomainModel {
+		c.WriteDomainModel = true
+	}
+	c.Extractors = fileCfg.Extractors
+	c.DomainStrategy = fileCfg.DomainStrategy
+	if c.DomainStrategy == "" {
+		c.DomainStrategy = "auto"
+	}
+	if !explicit["domain-depth"] && fileCfg.DomainDepth > 0 {
+		c.DomainDepth = fileCfg.DomainDepth
+	}
+	if c.DomainDepth < 1 {
+		c.DomainDepth = 1
+	}
+}
+
 // ParseVerify resolves the verify command configuration.
 func ParseVerify(args []string) (*Config, error) {
-	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
+	flags := flag.NewFlagSet("verify", flag.ContinueOnError)
 	cfg := &Config{}
-	fs.StringVar(&cfg.Src, "src", "", "root of the analyzed repository (required)")
-	registerRefRoots(fs, cfg)
-	fs.StringVar(&cfg.Out, "out", "", "graph directory to verify (required)")
-	fs.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
-	if err := fs.Parse(args); err != nil {
+	flags.StringVar(&cfg.Src, "src", "", "root of the analyzed repository (required)")
+	registerRefRoots(flags, cfg)
+	flags.StringVar(&cfg.Out, "out", "", "graph directory to verify (required)")
+	flags.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
+	if err := flags.Parse(args); err != nil {
 		return nil, err
 	}
 	if cfg.Src == "" || cfg.Out == "" {
@@ -263,14 +303,14 @@ func ParseVerify(args []string) (*Config, error) {
 // ParseDrift resolves the drift command configuration (verify flags plus an
 // output format for CI).
 func ParseDrift(args []string) (*Config, error) {
-	fs := flag.NewFlagSet("drift", flag.ContinueOnError)
+	flags := flag.NewFlagSet("drift", flag.ContinueOnError)
 	cfg := &Config{}
-	fs.StringVar(&cfg.Src, "src", "", "root of the analyzed repository (required)")
-	registerRefRoots(fs, cfg)
-	fs.StringVar(&cfg.Out, "out", "", "graph directory to check (required)")
-	fs.StringVar(&cfg.Format, "format", "text", "output format: text or json")
-	fs.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
-	if err := fs.Parse(args); err != nil {
+	flags.StringVar(&cfg.Src, "src", "", "root of the analyzed repository (required)")
+	registerRefRoots(flags, cfg)
+	flags.StringVar(&cfg.Out, "out", "", "graph directory to check (required)")
+	flags.StringVar(&cfg.Format, "format", "text", "output format: text or json")
+	flags.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
+	if err := flags.Parse(args); err != nil {
 		return nil, err
 	}
 	if cfg.Src == "" || cfg.Out == "" {
@@ -284,11 +324,11 @@ func ParseDrift(args []string) (*Config, error) {
 
 // ParseStats resolves the stats command configuration.
 func ParseStats(args []string) (*Config, error) {
-	fs := flag.NewFlagSet("stats", flag.ContinueOnError)
+	flags := flag.NewFlagSet("stats", flag.ContinueOnError)
 	cfg := &Config{}
-	fs.StringVar(&cfg.Out, "out", "", "graph directory (required)")
-	fs.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
-	if err := fs.Parse(args); err != nil {
+	flags.StringVar(&cfg.Out, "out", "", "graph directory (required)")
+	flags.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
+	if err := flags.Parse(args); err != nil {
 		return nil, err
 	}
 	if cfg.Out == "" {
@@ -358,11 +398,11 @@ func loadFile(configPath, src string) (fileConfig, error) {
 	if path == "" {
 		return fc, nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return fc, fmt.Errorf("read config %s: %w", path, err)
 	}
-	if err := yaml.Unmarshal(data, &fc); err != nil {
+	if err = yaml.Unmarshal(data, &fc); err != nil {
 		return fc, fmt.Errorf("parse config %s: %w", path, err)
 	}
 	return fc, nil
@@ -402,7 +442,7 @@ func registerPassFlags(flags *flag.FlagSet, cfg *Config) {
 	flags.IntVar(
 		&cfg.ReduceBatch,
 		"reduce-batch",
-		30,
+		defaultReduceBatch,
 		"max candidate rules per reduce call; larger domains are batched then merged",
 	)
 	flags.StringVar(

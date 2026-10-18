@@ -70,7 +70,7 @@ type Store struct {
 // token counters.
 func Open(path, srcPath string) (*Store, error) {
 	store := &Store{path: path}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	switch {
 	case err == nil:
 		if unmarshalErr := json.Unmarshal(data, &store.s); unmarshalErr != nil {
@@ -104,11 +104,11 @@ func Open(path, srcPath string) (*Store, error) {
 // Load reads a state file without creating a store; used by the stats command.
 func Load(path string) (State, error) {
 	var s State
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return s, fmt.Errorf("load state %s: %w", path, err)
 	}
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err = json.Unmarshal(data, &s); err != nil {
 		return s, fmt.Errorf("load state %s: %w", path, err)
 	}
 	return s, nil
@@ -152,10 +152,11 @@ func (st *Store) saveLocked() error {
 }
 
 // WriteFileAtomic writes data to path via a temporary file and rename, so a
-// crash never leaves a truncated file behind.
+// crash never leaves a truncated file behind. A failure to remove the
+// temporary file after an error is reported with it.
 func WriteFileAtomic(path string, data []byte) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("create dir %s: %w", dir, err)
 	}
 	tmp, err := os.CreateTemp(dir, ".tmp-*")
@@ -163,18 +164,12 @@ func WriteFileAtomic(path string, data []byte) error {
 		return fmt.Errorf("create temp file in %s: %w", dir, err)
 	}
 	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return fmt.Errorf("write %s: %w", tmpName, err)
+	_, writeErr := tmp.Write(data)
+	if written := errors.Join(writeErr, tmp.Close()); written != nil {
+		return errors.Join(fmt.Errorf("write %s: %w", tmpName, written), os.Remove(tmpName))
 	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return fmt.Errorf("close %s: %w", tmpName, err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		os.Remove(tmpName)
-		return fmt.Errorf("rename to %s: %w", path, err)
+	if renameErr := os.Rename(tmpName, path); renameErr != nil {
+		return errors.Join(fmt.Errorf("rename to %s: %w", path, renameErr), os.Remove(tmpName))
 	}
 	return nil
 }

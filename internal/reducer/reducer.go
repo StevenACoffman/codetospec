@@ -3,6 +3,7 @@
 package reducer
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -15,13 +16,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/llm"
 	"github.com/StevenACoffman/codetospec/internal/locale"
 	"github.com/StevenACoffman/codetospec/internal/mapper"
 	"github.com/StevenACoffman/codetospec/internal/state"
+	"github.com/StevenACoffman/codetospec/internal/workpool"
 )
 
 const systemPrompt = `You are a requirements engineer. You consolidate candidate business rules extracted from legacy code into a clean, deduplicated specification for one domain.
@@ -101,7 +102,7 @@ type Reducer struct {
 // cached output still matches their candidates are reused. Results are
 // returned sorted by domain for determinism.
 func (r *Reducer) Run(ctx context.Context, candidates map[string][]mapper.Rule) ([]Output, error) {
-	if err := os.MkdirAll(r.OutDir, 0o755); err != nil {
+	if err := os.MkdirAll(r.OutDir, 0o750); err != nil {
 		return nil, fmt.Errorf("create reduce dir: %w", err)
 	}
 	domains := make([]string, 0, len(candidates))
@@ -110,53 +111,37 @@ func (r *Reducer) Run(ctx context.Context, candidates map[string][]mapper.Rule) 
 	}
 	sort.Strings(domains)
 
-	workers := max(r.Workers, 1)
-	jobs := make(chan string)
 	var (
-		wg      sync.WaitGroup
-		mu      sync.Mutex
 		outputs []Output
 		runErr  error
 	)
-	record := func(out Output, usage llm.Usage, err error) {
-		mu.Lock()
-		defer mu.Unlock()
-		if err != nil {
-			if runErr == nil {
-				runErr = err
+	workpool.Run(ctx, r.Workers, domains,
+		func(ctx context.Context, domain *string) reduced {
+			out, usage, err := r.reduceDomain(ctx, *domain, candidates[*domain])
+			return reduced{out: out, usage: usage, err: err}
+		},
+		func(res reduced) {
+			if res.err != nil {
+				runErr = cmp.Or(runErr, res.err)
+				return
 			}
-			return
-		}
-		outputs = append(outputs, out)
-		if r.OnUnit != nil {
-			r.OnUnit(out, usage)
-		}
-	}
-
-	for range workers {
-		wg.Go(func() {
-			for domain := range jobs {
-				out, usage, err := r.reduceDomain(ctx, domain, candidates[domain])
-				record(out, usage, err)
+			outputs = append(outputs, res.out)
+			if r.OnUnit != nil {
+				r.OnUnit(res.out, res.usage)
 			}
 		})
-	}
-feed:
-	for _, domain := range domains {
-		select {
-		case <-ctx.Done():
-			break feed
-		case jobs <- domain:
-		}
-	}
-	close(jobs)
-	wg.Wait()
-
 	if runErr == nil && ctx.Err() != nil {
 		runErr = ctx.Err()
 	}
 	sort.SliceStable(outputs, func(i, j int) bool { return outputs[i].Domain < outputs[j].Domain })
 	return outputs, runErr
+}
+
+// reduced is one domain's result.
+type reduced struct {
+	out   Output
+	usage llm.Usage
+	err   error
 }
 
 // DefaultBatchSize caps how many candidate rules go into one reduce call.
@@ -179,7 +164,7 @@ func (r *Reducer) consolidate(
 	if len(rules) > batchSize {
 		return r.reduceInBatches(ctx, domain, rules, batchSize)
 	}
-	payload, usage, err := r.reduceBatch(ctx, domain, rules, 2)
+	payload, usage, err := r.reduceBatch(ctx, domain, rules, reduceCorrections)
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return Output{}, usage, err
 	}
@@ -199,7 +184,7 @@ func (r *Reducer) reduceDomain(
 ) (Output, llm.Usage, error) {
 	outPath := filepath.Join(r.OutDir, domain+".json")
 	hash := candidatesHash(r.promptKey(), rules)
-	if data, err := os.ReadFile(outPath); err == nil {
+	if data, err := os.ReadFile(filepath.Clean(outPath)); err == nil {
 		var cached Output
 		switch unmarshalErr := json.Unmarshal(data, &cached); {
 		case unmarshalErr != nil:
@@ -241,7 +226,7 @@ func (r *Reducer) reduceDomain(
 	if err != nil {
 		return Output{}, usage, fmt.Errorf("encode reduce output: %w", err)
 	}
-	if err := state.WriteFileAtomic(outPath, append(data, '\n')); err != nil {
+	if err = state.WriteFileAtomic(outPath, append(data, '\n')); err != nil {
 		return Output{}, usage, fmt.Errorf("write reduce output: %w", err)
 	}
 	return out, usage, nil
@@ -279,15 +264,22 @@ func (r *Reducer) reduceBatch(
 	return payload, usage, err
 }
 
-// reduceFloor is the smallest batch we still try to reduce; a batch this
-// small that still fails to produce valid JSON is genuinely unprocessable
-// and gets dropped rather than split further.
-const reduceFloor = 5
+// reduceCorrections is how many times a malformed reduce reply is sent back
+// for correction (the smallest batch only; larger ones are split instead).
+const reduceCorrections = 2
+
+// halves is how many parts a failing batch is split into.
+const halves = 2
+
+// MinBatchSize is the smallest batch still reduced; a batch this small that
+// still fails to produce valid JSON is genuinely unprocessable and gets
+// dropped rather than split further.
+const MinBatchSize = 5
 
 // reduceInBatches reduces a large domain in fixed-size batches, then merges
 // the batch outputs deterministically (dedup by identical requirement,
 // slugs renumbered on collision). A batch that truncates its JSON is split
-// in half and retried down to reduceFloor, so growth in output size can
+// in half and retried down to MinBatchSize, so growth in output size can
 // never lose a whole batch (let alone a domain).
 func (r *Reducer) reduceInBatches(
 	ctx context.Context,
@@ -331,7 +323,7 @@ func (r *Reducer) reduceInBatches(
 }
 
 // reduceBatchAdaptive reduces one batch, halving and retrying on failure
-// until batches succeed or shrink to reduceFloor. Returns cancellation
+// until batches succeed or shrink to MinBatchSize. Returns cancellation
 // errors; persistent small-batch failures are counted in *dropped, not
 // returned.
 func (r *Reducer) reduceBatchAdaptive(
@@ -344,8 +336,8 @@ func (r *Reducer) reduceBatchAdaptive(
 	// Fail fast while we can still halve; allow real correction rounds only
 	// at the floor, where halving is no longer an option.
 	maxRepairs := 0
-	if len(rules) <= reduceFloor {
-		maxRepairs = 2
+	if len(rules) <= MinBatchSize {
+		maxRepairs = reduceCorrections
 	}
 	payload, batchUsage, err := r.reduceBatch(ctx, domain, rules, maxRepairs)
 	usage.Add(batchUsage)
@@ -355,15 +347,27 @@ func (r *Reducer) reduceBatchAdaptive(
 	if err == nil {
 		return payload.Rules, payload.DomainSummary, nil
 	}
-	if len(rules) > reduceFloor {
-		mid := len(rules) / 2
-		left, leftSummary, err := r.reduceBatchAdaptive(ctx, domain, rules[:mid], usage, dropped)
-		if err != nil {
-			return nil, "", err
+	if len(rules) > MinBatchSize {
+		mid := len(rules) / halves
+		left, leftSummary, leftErr := r.reduceBatchAdaptive(
+			ctx,
+			domain,
+			rules[:mid],
+			usage,
+			dropped,
+		)
+		if leftErr != nil {
+			return nil, "", leftErr
 		}
-		right, rightSummary, err := r.reduceBatchAdaptive(ctx, domain, rules[mid:], usage, dropped)
-		if err != nil {
-			return nil, "", err
+		right, rightSummary, rightErr := r.reduceBatchAdaptive(
+			ctx,
+			domain,
+			rules[mid:],
+			usage,
+			dropped,
+		)
+		if rightErr != nil {
+			return nil, "", rightErr
 		}
 		summary := leftSummary
 		if summary == "" {
@@ -465,75 +469,50 @@ func validateReduceReply(
 		slugs[slug] = true
 		rule.Slug = slug
 	}
-	for i, rule := range payload.Rules {
-		if !mapper.EARSKinds[rule.EarsKind] {
-			return payload, fmt.Errorf(
-				"rules[%d].ears_kind %q is not one of ubiquitous|event|state|unwanted|optional",
-				i,
-				rule.EarsKind,
-			)
+	for i := range payload.Rules {
+		rule := &payload.Rules[i]
+		if err := checkCitations(i, rule.Citations, allowedCitations); err != nil {
+			return payload, err
 		}
-		if len(rule.Citations) == 0 {
-			return payload, fmt.Errorf("rules[%d] has no citation", i)
+		labels := mapper.Labels{
+			EarsKind: rule.EarsKind, Nature: rule.Nature, Origin: rule.Origin,
+			Confidence: rule.Confidence, Entities: rule.Entities, Endpoints: rule.Endpoints,
 		}
-		for _, c := range rule.Citations {
-			if _, _, err := extract.ParseLines(c.Lines); err != nil {
-				return payload, fmt.Errorf("rules[%d]: %w", i, err)
-			}
-			if !allowedCitations[citationKey(c)] {
-				return payload, fmt.Errorf(
-					"rules[%d] cites %s:%s which is not among the candidate citations",
-					i,
-					c.Path,
-					c.Lines,
-				)
-			}
-		}
-		if bad := notSubset(rule.Entities, allowedEntities); bad != "" {
-			return payload, fmt.Errorf(
-				"rules[%d].entities contains %q which is not in ALLOWED_ENTITIES",
-				i,
-				bad,
-			)
-		}
-		if bad := notSubset(rule.Endpoints, allowedEndpoints); bad != "" {
-			return payload, fmt.Errorf(
-				"rules[%d].endpoints contains %q which is not in ALLOWED_ENDPOINTS",
-				i,
-				bad,
-			)
-		}
-		if !mapper.Natures[rule.Nature] {
-			return payload, fmt.Errorf(
-				"rules[%d].nature %q is not one of business|presentation|technical",
-				i,
-				rule.Nature,
-			)
-		}
-		if !mapper.Origins[rule.Origin] {
-			return payload, fmt.Errorf(
-				"rules[%d].origin %q is not one of explicit|implicit",
-				i,
-				rule.Origin,
-			)
-		}
-		if rule.Confidence < 0 || rule.Confidence > 1 {
-			return payload, fmt.Errorf(
-				"rules[%d].confidence %v is outside [0,1]",
-				i,
-				rule.Confidence,
-			)
+		if err := mapper.CheckLabels(&labels, allowedEntities, allowedEndpoints); err != nil {
+			return payload, fmt.Errorf("rules[%d].%w", i, err)
 		}
 	}
 	return payload, nil
 }
 
-// normalizeSlug lowercases, slugifies and truncates a slug to 5 words.
+// checkCitations requires rule i to cite at least one span, each copied
+// verbatim from the candidates.
+func checkCitations(i int, citations []extract.Ref, allowed map[string]bool) error {
+	if len(citations) == 0 {
+		return fmt.Errorf("rules[%d] has no citation", i)
+	}
+	for _, c := range citations {
+		if _, _, err := extract.ParseLines(c.Lines); err != nil {
+			return fmt.Errorf("rules[%d]: %w", i, err)
+		}
+		if !allowed[citationKey(c)] {
+			return fmt.Errorf("rules[%d] cites %s:%s which is not among the candidate citations",
+				i, c.Path, c.Lines)
+		}
+	}
+	return nil
+}
+
+// slugWords is the most words a rule slug keeps.
+const slugWords = 5
+
+// normalizeSlug lowercases, slugifies and truncates a slug to slugWords
+// words.
 func normalizeSlug(s string) string {
 	slug := extract.Slugify(s)
 	words := strings.Split(slug, "-")
-	if len(words) > 5 {
-		words = words[:5]
+	if len(words) > slugWords {
+		words = words[:slugWords]
 	}
 	return strings.Join(words, "-")
 }
@@ -595,20 +574,6 @@ func citationSet(rules []mapper.Rule) map[string]bool {
 
 func citationKey(c extract.Ref) string {
 	return c.Path + "|" + c.Lines
-}
-
-// notSubset returns the first element of values missing from allowed.
-func notSubset(values, allowed []string) string {
-	set := make(map[string]bool, len(allowed))
-	for _, a := range allowed {
-		set[a] = true
-	}
-	for _, v := range values {
-		if !set[v] {
-			return v
-		}
-	}
-	return ""
 }
 
 func mustJSON(v any) string {

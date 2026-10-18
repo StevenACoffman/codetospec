@@ -1,20 +1,22 @@
-package sitter
+package sitter_test
 
 import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/StevenACoffman/codetospec/internal/sitter"
 )
 
 func noopDomain(namespace, path string, line int) string { return "test" }
 
 func TestChunkFileOneChunkPerDefinition(t *testing.T) {
 	content := readFixture(t, "app/Services/Billing/ProrataCalculator.php")
-	info, err := Parse("php", content)
+	info, err := sitter.NewParser().Parse("php", content)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	chunks := ChunkFile(
+	chunks := sitter.ChunkFile(
 		"app/Services/Billing/ProrataCalculator.php",
 		"php",
 		content,
@@ -55,11 +57,11 @@ func TestChunkFileLargeClassSplitsPerMethod(t *testing.T) {
 	b.WriteString("}\n")
 	content := []byte(b.String())
 
-	info, err := Parse("php", content)
+	info, err := sitter.NewParser().Parse("php", content)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	chunks := ChunkFile("big.php", "php", content, info, noopDomain)
+	chunks := sitter.ChunkFile("big.php", "php", content, info, noopDomain)
 	if len(chunks) != 2 {
 		t.Fatalf("chunks = %d, want 2 (one per method)", len(chunks))
 	}
@@ -93,7 +95,7 @@ func TestChunkFileFallbackWindows(t *testing.T) {
 	for i := 1; i <= 600; i++ {
 		fmt.Fprintf(&b, "line %d\n", i)
 	}
-	chunks := ChunkFile("data.xyz", "", []byte(b.String()), nil, noopDomain)
+	chunks := sitter.ChunkFile("data.xyz", "", []byte(b.String()), nil, noopDomain)
 	if len(chunks) != 3 {
 		t.Fatalf("chunks = %d, want 3", len(chunks))
 	}
@@ -117,7 +119,7 @@ func TestChunkFileFallbackWindows(t *testing.T) {
 }
 
 func TestChunkFileEmptyFile(t *testing.T) {
-	if chunks := ChunkFile("empty.xyz", "", nil, nil, noopDomain); len(chunks) != 0 {
+	if chunks := sitter.ChunkFile("empty.xyz", "", nil, nil, noopDomain); len(chunks) != 0 {
 		t.Fatalf("chunks = %d, want 0", len(chunks))
 	}
 }

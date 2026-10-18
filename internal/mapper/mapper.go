@@ -3,6 +3,7 @@
 package mapper
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,22 +13,22 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/llm"
 	"github.com/StevenACoffman/codetospec/internal/locale"
 	"github.com/StevenACoffman/codetospec/internal/sitter"
 	"github.com/StevenACoffman/codetospec/internal/state"
+	"github.com/StevenACoffman/codetospec/internal/workpool"
 )
 
-// EARSKinds enumerates the accepted EARS pattern kinds.
-var EARSKinds = map[string]bool{
-	"ubiquitous": true,
-	"event":      true,
-	"state":      true,
-	"unwanted":   true,
-	"optional":   true,
+// IsEARSKind reports whether kind is an accepted EARS pattern kind.
+func IsEARSKind(kind string) bool {
+	switch kind {
+	case "ubiquitous", "event", "state", "unwanted", "optional":
+		return true
+	}
+	return false
 }
 
 const systemPrompt = `You are a senior software archaeologist. You read legacy source code in any language and extract candidate business rules.
@@ -66,7 +67,7 @@ OUTPUT JSON SCHEMA:
 // declaration is shown as non-citable CONTEXT with its own real line numbers,
 // and only the CODE (body) lines are numbered from the chunk start — keeping
 // every citable line number true to the source.
-func numberedContent(chunk sitter.Chunk) string {
+func numberedContent(chunk *sitter.Chunk) string {
 	var b strings.Builder
 	if chunk.Context != "" {
 		b.WriteString(
@@ -96,11 +97,21 @@ type Rule struct {
 	Confidence  float64       `json:"confidence"`
 }
 
-// Natures classifies what a rule describes.
-var Natures = map[string]bool{"business": true, "presentation": true, "technical": true}
+// IsNature reports whether nature classifies what a rule describes:
+// business, presentation or technical.
+func IsNature(nature string) bool {
+	switch nature {
+	case "business", "presentation", "technical":
+		return true
+	}
+	return false
+}
 
-// Origins classifies how directly a rule is stated in the code.
-var Origins = map[string]bool{"explicit": true, "implicit": true}
+// IsOrigin reports whether origin says how directly a rule is stated in the
+// code: explicit or implicit.
+func IsOrigin(origin string) bool {
+	return origin == "explicit" || origin == "implicit"
+}
 
 // Output is the persisted result of mapping one chunk.
 type Output struct {
@@ -178,62 +189,42 @@ type Mapper struct {
 	Reground bool
 }
 
+// mapProgressEvery is how many mapped chunks separate two progress logs.
+const mapProgressEvery = 25
+
+// mapCorrections is how many times a malformed map reply is sent back for
+// correction before the chunk is recorded as failed.
+const mapCorrections = 2
+
 // Run maps every chunk, reusing a chunk's cached output when it was produced
-// by the same model and prompt templates. Results are returned sorted by (path, start line).
+// by the same model and prompt templates. Results are returned sorted by
+// (path, start line).
 func (m *Mapper) Run(ctx context.Context, chunks []sitter.Chunk) ([]Output, error) {
-	if err := os.MkdirAll(m.OutDir, 0o755); err != nil {
+	if err := os.MkdirAll(m.OutDir, 0o750); err != nil {
 		return nil, fmt.Errorf("create map dir: %w", err)
 	}
-	workers := max(m.Workers, 1)
-
-	jobs := make(chan sitter.Chunk)
 	var (
-		wg      sync.WaitGroup
-		mu      sync.Mutex
 		outputs []Output
-		done    int
 		runErr  error
 	)
-
-	record := func(out Output, usage llm.Usage, err error) {
-		mu.Lock()
-		defer mu.Unlock()
-		if err != nil {
-			if runErr == nil {
-				runErr = err
+	workpool.Run(ctx, m.Workers, chunks,
+		func(ctx context.Context, chunk *sitter.Chunk) mapped {
+			out, usage, err := m.mapChunk(ctx, chunk)
+			return mapped{out: out, usage: usage, err: err}
+		},
+		func(r mapped) {
+			if r.err != nil {
+				runErr = cmp.Or(runErr, r.err)
+				return
 			}
-			return
-		}
-		outputs = append(outputs, out)
-		done++
-		if m.OnUnit != nil {
-			m.OnUnit(out, usage)
-		}
-		if done%25 == 0 {
-			m.Log.InfoContext(ctx, "map progress", "done", done, "total", len(chunks))
-		}
-	}
-
-	for range workers {
-		wg.Go(func() {
-			for chunk := range jobs {
-				out, usage, err := m.mapChunk(ctx, chunk)
-				record(out, usage, err)
+			outputs = append(outputs, r.out)
+			if m.OnUnit != nil {
+				m.OnUnit(r.out, r.usage)
+			}
+			if len(outputs)%mapProgressEvery == 0 {
+				m.Log.InfoContext(ctx, "map progress", "done", len(outputs), "total", len(chunks))
 			}
 		})
-	}
-
-feed:
-	for _, chunk := range chunks {
-		select {
-		case <-ctx.Done():
-			break feed
-		case jobs <- chunk:
-		}
-	}
-	close(jobs)
-	wg.Wait()
-
 	if runErr == nil && ctx.Err() != nil {
 		runErr = ctx.Err()
 	}
@@ -246,14 +237,21 @@ feed:
 	return outputs, runErr
 }
 
+// mapped is one chunk's result.
+type mapped struct {
+	out   Output
+	usage llm.Usage
+	err   error
+}
+
 // mapChunk maps one chunk, reusing a cached output when present.
-func (m *Mapper) mapChunk(ctx context.Context, chunk sitter.Chunk) (Output, llm.Usage, error) {
+func (m *Mapper) mapChunk(ctx context.Context, chunk *sitter.Chunk) (Output, llm.Usage, error) {
 	// The file name keys the chunk content; PromptKey keys everything else
 	// that shapes the reply, including the chunk's context sections.
 	outPath := filepath.Join(m.OutDir, chunk.ID+".json")
-	sections := m.symbolsSection(&chunk) + m.rulesSection(&chunk) + m.docsSection(&chunk)
+	sections := m.symbolsSection(chunk) + m.rulesSection(chunk) + m.docsSection(chunk)
 	promptKey := m.promptKey(sections)
-	if data, err := os.ReadFile(outPath); err == nil {
+	if data, err := os.ReadFile(filepath.Clean(outPath)); err == nil {
 		var cached Output
 		switch unmarshalErr := json.Unmarshal(data, &cached); {
 		case unmarshalErr != nil:
@@ -263,21 +261,28 @@ func (m *Mapper) mapChunk(ctx context.Context, chunk sitter.Chunk) (Output, llm.
 			// the current one so a domain change regroups cached outputs
 			// instead of silently keeping the old grouping.
 			cached.Domain = chunk.Domain
-			return m.regroundCached(ctx, &cached, &chunk, sections, outPath)
+			return m.regroundCached(ctx, &cached, chunk, sections, outPath)
 		}
 	}
 
 	allowedEndpoints := m.EndpointsFor(chunk.Path)
-	msgs := m.prompt(&chunk, sections, allowedEndpoints)
+	msgs := m.prompt(chunk, sections, allowedEndpoints)
 	var usage llm.Usage
 	validate := func(reply string) (mapPayload, error) {
 		return validateMapReply(reply, chunk, m.Entities, allowedEndpoints)
 	}
-	payload, err := llm.ChatJSON(ctx, m.LLM, msgs, 2, func(u llm.Usage) { usage.Add(u) }, validate)
+	payload, err := llm.ChatJSON(
+		ctx,
+		m.LLM,
+		msgs,
+		mapCorrections,
+		func(u llm.Usage) { usage.Add(u) },
+		validate,
+	)
 	regrounded := false
 	if err == nil && m.Ungrounded != nil {
 		var regroundUsage llm.Usage
-		payload, regroundUsage, regrounded = m.reground(ctx, msgs, payload, &chunk, validate)
+		payload, regroundUsage, regrounded = m.reground(ctx, msgs, payload, chunk, validate)
 		usage.Add(regroundUsage)
 	}
 
@@ -302,7 +307,7 @@ func (m *Mapper) mapChunk(ctx context.Context, chunk sitter.Chunk) (Output, llm.
 		out.Error = err.Error()
 	}
 
-	if err := writeOutput(outPath, &out); err != nil {
+	if err = writeOutput(outPath, &out); err != nil {
 		return Output{}, usage, err
 	}
 	return out, usage, nil
@@ -323,7 +328,7 @@ func (m *Mapper) prompt(
 		chunk.Language, namespace, chunk.Domain,
 		mustJSON(m.Entities), mustJSON(allowedEndpoints),
 		sections,
-		numberedContent(*chunk),
+		numberedContent(chunk),
 	)
 	return []llm.Message{
 		{Role: "system", Content: locale.For(m.Lang).Prompt(systemPrompt)},
@@ -350,7 +355,7 @@ func (m *Mapper) regroundCached(
 	}
 	allowedEndpoints := m.EndpointsFor(chunk.Path)
 	validate := func(reply string) (mapPayload, error) {
-		return validateMapReply(reply, *chunk, m.Entities, allowedEndpoints)
+		return validateMapReply(reply, chunk, m.Entities, allowedEndpoints)
 	}
 	fixed, usage, _ := m.reground(
 		ctx,
@@ -471,84 +476,82 @@ func (m *Mapper) symbolsSection(chunk *sitter.Chunk) string {
 // validateMapReply enforces the deterministic contract on one map reply.
 func validateMapReply(
 	reply string,
-	chunk sitter.Chunk,
+	chunk *sitter.Chunk,
 	allowedEntities, allowedEndpoints []string,
 ) (mapPayload, error) {
 	var payload mapPayload
 	if err := json.Unmarshal([]byte(llm.StripFences(reply)), &payload); err != nil {
 		return payload, fmt.Errorf("invalid JSON: %w", err)
 	}
-	for i, rule := range payload.Rules {
-		if !EARSKinds[rule.EarsKind] {
-			return payload, fmt.Errorf(
-				"rules[%d].ears_kind %q is not one of ubiquitous|event|state|unwanted|optional",
-				i,
-				rule.EarsKind,
-			)
+	for i := range payload.Rules {
+		rule := &payload.Rules[i]
+		if err := checkCitations(i, rule.Citations, chunk); err != nil {
+			return payload, err
 		}
-		if len(rule.Citations) == 0 {
-			return payload, fmt.Errorf("rules[%d] has no citation", i)
+		labels := Labels{
+			EarsKind: rule.EarsKind, Nature: rule.Nature, Origin: rule.Origin,
+			Confidence: rule.Confidence, Entities: rule.Entities, Endpoints: rule.Endpoints,
 		}
-		for _, c := range rule.Citations {
-			if c.Path != chunk.Path {
-				return payload, fmt.Errorf(
-					"rules[%d] cites path %q, must be %q",
-					i,
-					c.Path,
-					chunk.Path,
-				)
-			}
-			a, b, err := extract.ParseLines(c.Lines)
-			if err != nil {
-				return payload, fmt.Errorf("rules[%d]: %w", i, err)
-			}
-			if a < chunk.StartLine || b > chunk.EndLine {
-				return payload, fmt.Errorf(
-					"rules[%d] cites lines %s outside %d-%d",
-					i,
-					c.Lines,
-					chunk.StartLine,
-					chunk.EndLine,
-				)
-			}
-		}
-		if bad := notSubset(rule.Entities, allowedEntities); bad != "" {
-			return payload, fmt.Errorf(
-				"rules[%d].entities contains %q which is not in ALLOWED_ENTITIES",
-				i,
-				bad,
-			)
-		}
-		if bad := notSubset(rule.Endpoints, allowedEndpoints); bad != "" {
-			return payload, fmt.Errorf(
-				"rules[%d].endpoints contains %q which is not in ALLOWED_ENDPOINTS",
-				i,
-				bad,
-			)
-		}
-		if !Natures[rule.Nature] {
-			return payload, fmt.Errorf(
-				"rules[%d].nature %q is not one of business|presentation|technical",
-				i,
-				rule.Nature,
-			)
-		}
-		if !Origins[rule.Origin] {
-			return payload, fmt.Errorf(
-				"rules[%d].origin %q is not one of explicit|implicit",
-				i,
-				rule.Origin,
-			)
-		}
-		if rule.Confidence < 0 || rule.Confidence > 1 {
-			return payload, fmt.Errorf(
-				"rules[%d].confidence %v is outside [0,1]",
-				i,
-				rule.Confidence,
-			)
+		if err := CheckLabels(&labels, allowedEntities, allowedEndpoints); err != nil {
+			return payload, fmt.Errorf("rules[%d].%w", i, err)
 		}
 	}
 	return payload, nil
+}
+
+// checkCitations requires rule i to cite at least one span, each within
+// the chunk.
+func checkCitations(i int, citations []extract.Ref, chunk *sitter.Chunk) error {
+	if len(citations) == 0 {
+		return fmt.Errorf("rules[%d] has no citation", i)
+	}
+	for _, c := range citations {
+		if c.Path != chunk.Path {
+			return fmt.Errorf("rules[%d] cites path %q, must be %q", i, c.Path, chunk.Path)
+		}
+		a, b, err := extract.ParseLines(c.Lines)
+		if err != nil {
+			return fmt.Errorf("rules[%d]: %w", i, err)
+		}
+		if a < chunk.StartLine || b > chunk.EndLine {
+			return fmt.Errorf("rules[%d] cites lines %s outside %d-%d",
+				i, c.Lines, chunk.StartLine, chunk.EndLine)
+		}
+	}
+	return nil
+}
+
+// Labels is what a map or reduce rule declares about itself besides its
+// text and citations.
+type Labels struct {
+	EarsKind, Nature, Origin string
+	Confidence               float64
+	Entities, Endpoints      []string
+}
+
+// CheckLabels checks a rule's labels: a known EARS kind, nature and origin,
+// a confidence in [0,1], and entity and endpoint ids among the allowed
+// ones. An error starts with the offending field, for the caller to prefix
+// with the rule's position ("rules[2]."); map and reduce replies share it.
+func CheckLabels(l *Labels, allowedEntities, allowedEndpoints []string) error {
+	switch {
+	case !IsEARSKind(l.EarsKind):
+		return fmt.Errorf("ears_kind %q is not one of ubiquitous|event|state|unwanted|optional",
+			l.EarsKind)
+	case !IsNature(l.Nature):
+		return fmt.Errorf("nature %q is not one of business|presentation|technical", l.Nature)
+	case !IsOrigin(l.Origin):
+		return fmt.Errorf("origin %q is not one of explicit|implicit", l.Origin)
+	case l.Confidence < 0 || l.Confidence > 1:
+		return fmt.Errorf("confidence %v is outside [0,1]", l.Confidence)
+	}
+	if bad := notSubset(l.Entities, allowedEntities); bad != "" {
+		return fmt.Errorf("entities contains %q which is not in ALLOWED_ENTITIES", bad)
+	}
+	if bad := notSubset(l.Endpoints, allowedEndpoints); bad != "" {
+		return fmt.Errorf("endpoints contains %q which is not in ALLOWED_ENDPOINTS", bad)
+	}
+	return nil
 }
 
 // notSubset returns the first element of values missing from allowed.

@@ -1,4 +1,4 @@
-package mapper
+package mapper_test
 
 import (
 	"context"
@@ -9,7 +9,14 @@ import (
 	"testing"
 
 	"github.com/StevenACoffman/codetospec/internal/llm"
+	"github.com/StevenACoffman/codetospec/internal/mapper"
 	"github.com/StevenACoffman/codetospec/internal/sitter"
+)
+
+// The test chunk's file and language.
+const (
+	chunkPath = "app/X.php"
+	langPHP   = "php"
 )
 
 // chatFunc adapts a function to the llm.Chatter interface.
@@ -22,19 +29,19 @@ func (f chatFunc) Chat(ctx context.Context, msgs []llm.Message) (string, llm.Usa
 func testChunk() sitter.Chunk {
 	return sitter.Chunk{
 		ID:        "abcdef0123456789",
-		Path:      "app/X.php",
+		Path:      chunkPath,
 		StartLine: 10,
 		EndLine:   20,
-		Language:  "php",
+		Language:  langPHP,
 		Namespace: `App\X`,
 		Domain:    "x",
 		Content:   "class X {}",
 	}
 }
 
-func newMapper(t *testing.T, chat llm.Chatter) *Mapper {
+func newMapper(t *testing.T, chat llm.Chatter) *mapper.Mapper {
 	t.Helper()
-	return &Mapper{
+	return &mapper.Mapper{
 		Log:          slog.New(slog.NewTextHandler(t.Output(), nil)),
 		LLM:          chat,
 		Lang:         "fr",
@@ -76,8 +83,8 @@ func TestMapNominal(t *testing.T) {
 	if outputs[0].Failed || len(outputs[0].Rules) != 1 {
 		t.Fatalf("output = %+v", outputs[0])
 	}
-	if _, err := os.Stat(filepath.Join(m.OutDir, "abcdef0123456789.json")); err != nil {
-		t.Fatalf("map output file not written: %v", err)
+	if _, statErr := os.Stat(filepath.Join(m.OutDir, "abcdef0123456789.json")); statErr != nil {
+		t.Fatalf("map output file not written: %v", statErr)
 	}
 }
 
@@ -171,11 +178,11 @@ func TestMapInjectsPreciseSymbols(t *testing.T) {
 			return validMapReply, llm.Usage{}, nil
 		}),
 	)
-	m.SymbolsFor = func(path string) []SymbolContext {
-		if path != "app/X.php" {
+	m.SymbolsFor = func(path string) []mapper.SymbolContext {
+		if path != chunkPath {
 			return nil
 		}
-		return []SymbolContext{
+		return []mapper.SymbolContext{
 			{
 				Name:      "calculate",
 				StartLine: 12,
@@ -208,7 +215,7 @@ func TestMapNoSymbolsSectionWhenAbsent(t *testing.T) {
 
 func TestMapPromptNumbersCodeLines(t *testing.T) {
 	chunk := sitter.Chunk{
-		ID: "n0", Path: "app/X.php", StartLine: 659, EndLine: 661, Language: "php", Domain: "x",
+		ID: "n0", Path: chunkPath, StartLine: 659, EndLine: 661, Language: "php", Domain: "x",
 		Content: "function a() {\n    return 1;\n}",
 	}
 	m := newMapper(
@@ -234,34 +241,62 @@ func TestMapPromptNumbersCodeLines(t *testing.T) {
 	}
 }
 
+// TestMapValidationRejectsBadValues: a reply breaking the contract is sent
+// back for correction; one that never complies fails the chunk.
 func TestMapValidationRejectsBadValues(t *testing.T) {
-	chunk := testChunk()
-	cases := map[string]string{
-		"bad ears kind":  strings.ReplaceAll(validMapReply, `"event"`, `"whenever"`),
-		"foreign path":   strings.ReplaceAll(validMapReply, "app/X.php", "other.php"),
-		"unknown entity": strings.ReplaceAll(validMapReply, "entity.invoices", "entity.ghosts"),
-		"confidence out": strings.ReplaceAll(validMapReply, "0.9", "1.7"),
-		"missing citations": strings.ReplaceAll(
-			validMapReply,
-			`[{"path": "app/X.php", "lines": "12-15"}]`,
-			"[]",
-		),
+	cases := map[string]struct {
+		reply   string
+		wantErr string
+	}{
+		"bad ears kind": {
+			strings.ReplaceAll(validMapReply, `"event"`, `"whenever"`), "ears_kind",
+		},
+		"foreign path": {
+			strings.ReplaceAll(validMapReply, chunkPath, "other.php"), "cites path",
+		},
+		"unknown entity": {
+			strings.ReplaceAll(
+				validMapReply,
+				"entity.invoices",
+				"entity.ghosts",
+			),
+			"ALLOWED_ENTITIES",
+		},
+		"confidence out": {
+			strings.ReplaceAll(validMapReply, "0.9", "1.7"), "confidence",
+		},
+		"missing citations": {
+			strings.ReplaceAll(validMapReply, `[{"path": "app/X.php", "lines": "12-15"}]`, "[]"),
+			"no citation",
+		},
 	}
-	for name, reply := range cases {
-		if _, err := validateMapReply(reply, chunk, []string{"entity.invoices"}, nil); err == nil {
-			t.Errorf("%s: validation should fail", name)
-		}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := newMapper(
+				t,
+				chatFunc(func(context.Context, []llm.Message) (string, llm.Usage, error) {
+					return tc.reply, llm.Usage{}, nil
+				}),
+			)
+			outputs, err := m.Run(context.Background(), []sitter.Chunk{testChunk()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !outputs[0].Failed || !strings.Contains(outputs[0].Error, tc.wantErr) {
+				t.Errorf("output = %+v, want a failure naming %q", outputs[0], tc.wantErr)
+			}
+		})
 	}
 }
 
 func TestMapCacheKeyedByModelAndPrompt(t *testing.T) {
 	cases := map[string]struct {
-		change    func(m *Mapper)
+		change    func(m *mapper.Mapper)
 		wantCalls int
 	}{
-		"unchanged":   {change: func(*Mapper) {}, wantCalls: 0},
-		"other model": {change: func(m *Mapper) { m.Model = "model-b" }, wantCalls: 1},
-		"other lang":  {change: func(m *Mapper) { m.Lang = "en" }, wantCalls: 1},
+		"unchanged":   {change: func(*mapper.Mapper) {}, wantCalls: 0},
+		"other model": {change: func(m *mapper.Mapper) { m.Model = "model-b" }, wantCalls: 1},
+		"other lang":  {change: func(m *mapper.Mapper) { m.Lang = "en" }, wantCalls: 1},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -352,15 +387,15 @@ const mechanicalReq = "IF x, THEN y."
 
 func TestMapPromptListsMechanicalRules(t *testing.T) {
 	cases := map[string]struct {
-		rule        Note
+		rule        mapper.Note
 		wantSection bool
 	}{
 		"rule inside the chunk": {
-			Note{StartLine: 12, EndLine: 14, Text: mechanicalReq},
+			mapper.Note{StartLine: 12, EndLine: 14, Text: mechanicalReq},
 			true,
 		},
 		"rule outside the chunk": {
-			Note{StartLine: 40, EndLine: 41, Text: mechanicalReq},
+			mapper.Note{StartLine: 40, EndLine: 41, Text: mechanicalReq},
 			false,
 		},
 	}
@@ -374,7 +409,7 @@ func TestMapPromptListsMechanicalRules(t *testing.T) {
 					return validMapReply, llm.Usage{}, nil
 				}),
 			)
-			m.RulesFor = func(string) []Note { return []Note{tc.rule} }
+			m.RulesFor = func(string) []mapper.Note { return []mapper.Note{tc.rule} }
 			if _, err := m.Run(context.Background(), []sitter.Chunk{testChunk()}); err != nil {
 				t.Fatalf("Run: %v", err)
 			}
@@ -399,8 +434,8 @@ func TestMapCacheKeyedByMechanicalRules(t *testing.T) {
 		calls++
 		return validMapReply, llm.Usage{}, nil
 	})
-	m.RulesFor = func(string) []Note {
-		return []Note{{StartLine: 12, EndLine: 14, Text: mechanicalReq}}
+	m.RulesFor = func(string) []mapper.Note {
+		return []mapper.Note{{StartLine: 12, EndLine: 14, Text: mechanicalReq}}
 	}
 	if _, err := m.Run(context.Background(), []sitter.Chunk{testChunk()}); err != nil {
 		t.Fatalf("second Run: %v", err)
@@ -419,8 +454,8 @@ func TestMapPromptShowsSchemaDocs(t *testing.T) {
 			return validMapReply, llm.Usage{}, nil
 		}),
 	)
-	m.DocsFor = func(string) []Note {
-		return []Note{
+	m.DocsFor = func(string) []mapper.Note {
+		return []mapper.Note{
 			{
 				StartLine: 11,
 				EndLine:   18,

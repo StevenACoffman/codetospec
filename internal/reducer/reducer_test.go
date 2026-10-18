@@ -1,16 +1,18 @@
-package reducer
+package reducer_test
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/llm"
 	"github.com/StevenACoffman/codetospec/internal/mapper"
+	"github.com/StevenACoffman/codetospec/internal/reducer"
 )
 
 type chatFunc func(ctx context.Context, msgs []llm.Message) (string, llm.Usage, error)
@@ -19,27 +21,36 @@ func (f chatFunc) Chat(ctx context.Context, msgs []llm.Message) (string, llm.Usa
 	return f(ctx, msgs)
 }
 
+// Values the candidate fixtures share.
+const (
+	billing    = "billing"
+	earsEvent  = "event"
+	xPath      = "app/X.php"
+	invoices   = "entity.invoices"
+	prorataRef = "prorata-activation"
+)
+
 func candidates() map[string][]mapper.Rule {
 	return map[string][]mapper.Rule{
-		"billing": {{
+		billing: {{
 			Title:       "Prorata",
-			EarsKind:    "event",
+			EarsKind:    earsEvent,
 			Requirement: "QUAND x, le systeme doit y.",
-			Citations:   []extract.Ref{{Path: "app/X.php", Lines: "12-15"}},
-			Entities:    []string{"entity.invoices"},
+			Citations:   []extract.Ref{{Path: xPath, Lines: "12-15"}},
+			Entities:    []string{invoices},
 			Confidence:  0.9,
 		}},
 	}
 }
 
-func newReducer(t *testing.T, chat llm.Chatter) *Reducer {
+func newReducer(t *testing.T, chat llm.Chatter) *reducer.Reducer {
 	t.Helper()
-	return &Reducer{
+	return &reducer.Reducer{
 		Log:       slog.New(slog.NewTextHandler(t.Output(), nil)),
 		LLM:       chat,
 		Lang:      "fr",
 		OutDir:    t.TempDir(),
-		Entities:  []string{"entity.invoices"},
+		Entities:  []string{invoices},
 		Endpoints: []string{"endpoint.post-api-activate"},
 	}
 }
@@ -127,11 +138,9 @@ func TestReduceDoubleFailureMarksDomainFailed(t *testing.T) {
 	}
 }
 
+// TestReduceValidationRules: slugs are repaired mechanically (slugified,
+// truncated to five words, renumbered on collision) instead of sent back.
 func TestReduceValidationRules(t *testing.T) {
-	allowed := map[string]bool{"app/X.php|12-15": true}
-	entities := []string{"entity.invoices"}
-	endpoints := []string{"endpoint.post-api-activate"}
-
 	duplicated := strings.Replace(
 		validReduceReply,
 		`"rules": [{`,
@@ -141,33 +150,43 @@ func TestReduceValidationRules(t *testing.T) {
 "entities": [], "endpoints": [], "acceptance_criteria": ["a", "b"], "nature": "business", "origin": "explicit", "confidence": 0.8}, {`,
 		1,
 	)
-	payload, err := validateReduceReply(duplicated, entities, endpoints, allowed)
-	if err != nil {
-		t.Fatalf("duplicate slug should be repaired, got %v", err)
+	cases := map[string]struct {
+		reply     string
+		wantSlugs []string
+	}{
+		"valid reply": {validReduceReply, []string{prorataRef}},
+		"duplicate slug renumbered": {
+			duplicated, []string{prorataRef, prorataRef + "-2"},
+		},
+		"malformed slug repaired": {
+			strings.ReplaceAll(
+				validReduceReply,
+				"prorata-activation",
+				"Un Slug beaucoup TROP long vraiment",
+			),
+			[]string{"un-slug-beaucoup-trop-long"},
+		},
 	}
-	if payload.Rules[0].Slug == payload.Rules[1].Slug {
-		t.Errorf(
-			"duplicate slugs not disambiguated: %q vs %q",
-			payload.Rules[0].Slug,
-			payload.Rules[1].Slug,
-		)
-	}
-
-	badSlug := strings.ReplaceAll(
-		validReduceReply,
-		"prorata-activation",
-		"Un Slug beaucoup TROP long vraiment",
-	)
-	payload, err = validateReduceReply(badSlug, entities, endpoints, allowed)
-	if err != nil {
-		t.Fatalf("malformed slug should be repaired, got %v", err)
-	}
-	if got := payload.Rules[0].Slug; got != "un-slug-beaucoup-trop-long" {
-		t.Errorf("slug repaired to %q, want un-slug-beaucoup-trop-long", got)
-	}
-
-	if _, err := validateReduceReply(validReduceReply, entities, endpoints, allowed); err != nil {
-		t.Errorf("valid reply rejected: %v", err)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			r := newReducer(
+				t,
+				chatFunc(func(context.Context, []llm.Message) (string, llm.Usage, error) {
+					return tc.reply, llm.Usage{}, nil
+				}),
+			)
+			outputs, err := r.Run(context.Background(), candidates())
+			if err != nil || len(outputs) != 1 || outputs[0].Failed {
+				t.Fatalf("Run: outputs=%+v err=%v", outputs, err)
+			}
+			var slugs []string
+			for _, rule := range outputs[0].Rules {
+				slugs = append(slugs, rule.Slug)
+			}
+			if !reflect.DeepEqual(slugs, tc.wantSlugs) {
+				t.Errorf("slugs = %v, want %v", slugs, tc.wantSlugs)
+			}
+		})
 	}
 }
 
@@ -177,9 +196,9 @@ func TestReduceBatchesLargeDomain(t *testing.T) {
 	for i := range big {
 		big[i] = mapper.Rule{
 			Title:       fmt.Sprintf("Règle %d", i),
-			EarsKind:    "event",
+			EarsKind:    earsEvent,
 			Requirement: fmt.Sprintf("QUAND cas %d, le systeme doit agir.", i),
-			Citations:   []extract.Ref{{Path: "app/X.php", Lines: fmt.Sprintf("%d-%d", i+1, i+2)}},
+			Citations:   []extract.Ref{{Path: xPath, Lines: fmt.Sprintf("%d-%d", i+1, i+2)}},
 		}
 	}
 
@@ -213,7 +232,7 @@ func TestReduceBatchesLargeDomain(t *testing.T) {
 	)
 	r.BatchSize = 50
 
-	outputs, err := r.Run(context.Background(), map[string][]mapper.Rule{"billing": big})
+	outputs, err := r.Run(context.Background(), map[string][]mapper.Rule{billing: big})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -243,14 +262,14 @@ func TestReduceBatchesLargeDomain(t *testing.T) {
 func TestReduceBatchAdaptiveHalvingRecoversMostRules(t *testing.T) {
 	// 80 candidates, batchSize 40. Any batch containing candidate 0 (its
 	// requirement carries "QUAND cas 0,") always returns garbage, forcing the
-	// adaptive halving to isolate it down to reduceFloor. Everything else is
+	// adaptive halving to isolate it down to reducer.MinBatchSize. Everything else is
 	// recovered; only the floor-sized fragment holding candidate 0 is dropped.
 	big := make([]mapper.Rule, 80)
 	for i := range big {
 		big[i] = mapper.Rule{
-			Title: fmt.Sprintf("R%d", i), EarsKind: "event",
+			Title: fmt.Sprintf("R%d", i), EarsKind: earsEvent,
 			Requirement: fmt.Sprintf("QUAND cas %d, le systeme doit agir.", i),
-			Citations:   []extract.Ref{{Path: "app/X.php", Lines: fmt.Sprintf("%d-%d", i+1, i+2)}},
+			Citations:   []extract.Ref{{Path: xPath, Lines: fmt.Sprintf("%d-%d", i+1, i+2)}},
 		}
 	}
 	r := newReducer(
@@ -290,17 +309,17 @@ func TestReduceBatchAdaptiveHalvingRecoversMostRules(t *testing.T) {
 	)
 	r.BatchSize = 40
 
-	outputs, err := r.Run(context.Background(), map[string][]mapper.Rule{"billing": big})
+	outputs, err := r.Run(context.Background(), map[string][]mapper.Rule{billing: big})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if outputs[0].Failed {
 		t.Fatalf("domain must survive: %+v", outputs[0])
 	}
-	// Only the ≤reduceFloor fragment containing candidate 0 is lost; the vast
+	// Only the ≤reducer.MinBatchSize fragment containing candidate 0 is lost; the vast
 	// majority of rules is recovered by halving.
-	if got := len(outputs[0].Rules); got < 80-reduceFloor || got >= 80 {
-		t.Errorf("recovered %d rules, want between %d and 79", got, 80-reduceFloor)
+	if got := len(outputs[0].Rules); got < 80-reducer.MinBatchSize || got >= 80 {
+		t.Errorf("recovered %d rules, want between %d and 79", got, 80-reducer.MinBatchSize)
 	}
 }
 
@@ -325,7 +344,7 @@ func TestReduceCacheInvalidatedByChangedCandidates(t *testing.T) {
 	}
 	// Changed candidate → cache stale → re-reduced.
 	changed := candidates()
-	changed["billing"][0].Requirement = "QUAND z, le systeme doit w."
+	changed[billing][0].Requirement = "QUAND z, le systeme doit w."
 	if _, err := r.Run(context.Background(), changed); err != nil {
 		t.Fatal(err)
 	}
@@ -341,12 +360,12 @@ func TestReduceParallelDeterministic(t *testing.T) {
 		multi[d] = []mapper.Rule{
 			{
 				Title:       "T",
-				EarsKind:    "event",
+				EarsKind:    earsEvent,
 				Requirement: "QUAND x, le systeme doit y.",
 				Citations: []extract.Ref{
-					{Path: "app/X.php", Lines: "12-15"},
+					{Path: xPath, Lines: "12-15"},
 				},
-				Entities: []string{"entity.invoices"},
+				Entities: []string{invoices},
 			},
 		}
 	}
@@ -399,12 +418,12 @@ func TestReduceResumeSkipsCachedDomains(t *testing.T) {
 
 func TestReduceCacheKeyedByModelAndPrompt(t *testing.T) {
 	cases := map[string]struct {
-		change    func(r *Reducer)
+		change    func(r *reducer.Reducer)
 		wantCalls int
 	}{
-		"unchanged":   {change: func(*Reducer) {}, wantCalls: 0},
-		"other model": {change: func(r *Reducer) { r.Model = "model-b" }, wantCalls: 1},
-		"other lang":  {change: func(r *Reducer) { r.Lang = "en" }, wantCalls: 1},
+		"unchanged":   {change: func(*reducer.Reducer) {}, wantCalls: 0},
+		"other model": {change: func(r *reducer.Reducer) { r.Model = "model-b" }, wantCalls: 1},
+		"other lang":  {change: func(r *reducer.Reducer) { r.Lang = "en" }, wantCalls: 1},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -449,12 +468,12 @@ const (
 func mergeCandidates() map[string][]mapper.Rule {
 	rule := func(title, requirement, lines string) mapper.Rule {
 		return mapper.Rule{
-			Title: title, EarsKind: "event", Requirement: requirement,
-			Citations: []extract.Ref{{Path: "app/X.php", Lines: lines}},
+			Title: title, EarsKind: earsEvent, Requirement: requirement,
+			Citations: []extract.Ref{{Path: xPath, Lines: lines}},
 			Nature:    natureBusiness, Origin: originExplicit, Confidence: 0.8,
 		}
 	}
-	return map[string][]mapper.Rule{"billing": {
+	return map[string][]mapper.Rule{billing: {
 		rule("Prorata", "QUAND x, le systeme doit y.", repliedLines),
 		rule("Prorata bis", "QUAND x, le systeme doit y.", "13-14"),
 		rule(
@@ -465,13 +484,14 @@ func mergeCandidates() map[string][]mapper.Rule {
 	}}
 }
 
+// TestSplitClusters: in merge mode only candidates in a cluster (similar
+// requirement or overlapping citation) reach the LLM.
 func TestSplitClusters(t *testing.T) {
 	cases := map[string]struct {
 		rules         []mapper.Rule
 		wantClustered int
-		wantSingles   int
 	}{
-		"duplicates cluster, distinct stays single": {mergeCandidates()["billing"], 2, 1},
+		"duplicates cluster, distinct stays single": {mergeCandidates()[billing], 2},
 		"citation overlap alone clusters": {
 			[]mapper.Rule{
 				{
@@ -484,7 +504,6 @@ func TestSplitClusters(t *testing.T) {
 				},
 			},
 			2,
-			0,
 		},
 		"same lines in another file do not cluster": {
 			[]mapper.Rule{
@@ -498,16 +517,39 @@ func TestSplitClusters(t *testing.T) {
 				},
 			},
 			0,
-			2,
 		},
-		"empty": {nil, 0, 0},
+		"empty": {nil, 0},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			clustered, singles := splitClusters(tc.rules)
-			if len(clustered) != tc.wantClustered || len(singles) != tc.wantSingles {
-				t.Fatalf("clustered=%d singles=%d, want %d and %d",
-					len(clustered), len(singles), tc.wantClustered, tc.wantSingles)
+			sent, calls := 0, 0
+			r := newReducer(
+				t,
+				chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+					// Only the first call shows the selection: the canned reply
+					// cites none of these candidates, so corrections follow.
+					calls++
+					if calls > 1 {
+						return validReduceReply, llm.Usage{}, nil
+					}
+					_, list, _ := strings.Cut(msgs[1].Content, "CANDIDATE_RULES:\n")
+					var rules []mapper.Rule
+					if err := json.Unmarshal([]byte(list), &rules); err != nil {
+						t.Errorf("candidates sent: %v", err)
+					}
+					sent += len(rules)
+					return validReduceReply, llm.Usage{}, nil
+				}),
+			)
+			r.Mode = reducer.ModeMerge
+			if _, err := r.Run(
+				context.Background(),
+				map[string][]mapper.Rule{"d": tc.rules},
+			); err != nil {
+				t.Fatal(err)
+			}
+			if sent != tc.wantClustered {
+				t.Fatalf("%d candidates sent to the LLM, want %d", sent, tc.wantClustered)
 			}
 		})
 	}
@@ -522,7 +564,7 @@ func TestReduceMergeModeSendsOnlyClusters(t *testing.T) {
 			return validReduceReply, llm.Usage{}, nil
 		}),
 	)
-	r.Mode = ModeMerge
+	r.Mode = reducer.ModeMerge
 	outputs, err := r.Run(context.Background(), mergeCandidates())
 	if err != nil || len(outputs) != 1 || outputs[0].Failed {
 		t.Fatalf("Run: outputs=%+v err=%v", outputs, err)
@@ -534,7 +576,7 @@ func TestReduceMergeModeSendsOnlyClusters(t *testing.T) {
 			strings.Join(prompts, "\n---\n"),
 		)
 	}
-	var kept *Rule
+	var kept *reducer.Rule
 	for i := range outputs[0].Rules {
 		if outputs[0].Rules[i].Title == "Refund window" {
 			kept = &outputs[0].Rules[i]
@@ -564,7 +606,7 @@ func TestReduceCacheKeyedByMode(t *testing.T) {
 		calls++
 		return validReduceReply, llm.Usage{}, nil
 	})
-	r.Mode = ModeMerge
+	r.Mode = reducer.ModeMerge
 	if _, err := r.Run(context.Background(), mergeCandidates()); err != nil {
 		t.Fatal(err)
 	}

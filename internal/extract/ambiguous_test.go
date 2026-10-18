@@ -13,7 +13,7 @@ func parsed(t *testing.T, files map[string]string) map[string]*sitter.FileInfo {
 	t.Helper()
 	infos := make(map[string]*sitter.FileInfo, len(files))
 	for path, src := range files {
-		info, err := sitter.Parse("go", []byte(src))
+		info, err := sitter.NewParser().Parse("go", []byte(src))
 		if err != nil {
 			t.Fatalf("parse %s: %v", path, err)
 		}
@@ -55,7 +55,7 @@ func TestAmbiguousNamespacesResolveByDirectory(t *testing.T) {
 	}{
 		"command packages split by directory": {goMain, "cmd/seedroster/main.go", "cmd-seedroster"},
 		"same command, other file":            {goMain, "cmd/deduper/flags.go", "cmd-deduper"},
-		"one-directory namespace unchanged":   {"models", "models/user.go", "models"},
+		"one-directory namespace unchanged":   {modelsDomain, "models/user.go", modelsDomain},
 		"no namespace falls back to path":     {"", "tasks/nickname.go", "tasks"},
 	}
 	for name, tc := range cases {

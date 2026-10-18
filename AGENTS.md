@@ -103,6 +103,13 @@ Pipeline : `extract → chunk → map → reduce → crosscheck(+repair) → bui
   accepté, ou `domain_model_entities`), invariants ↔ règles qui touchent
   l'entité par Jaccard (seuil 0,3, mots des patrons EARS retirés) ; section
   du README de sortie. Hors `promptKey` : aucun cache invalidé.
+  `--write-domain-model` : `domainmodel.Enhance` (pur, renvoie les
+  fichiers) écrit sous `<out>/models/` les modèles humains enrichis
+  (nœuds yaml.v3 : commentaires et ordre gardés ; définitions E → C → A,
+  le préfixe du placeholder le fait reconnaître au tour suivant) et un
+  `generated/<domaine>.modelith.yaml` par domaine pour les entités sans
+  modèle, plus `provenance.json`. Un modèle écrit relu comme humain ne
+  change pas (test d'aller-retour).
 - `cmd/codetospec/main.go` — séquence complète.
 
 ## Extracteurs = modules Go SÉPARÉS
@@ -165,7 +172,7 @@ indépendants (le `depends_on` est calculé au build).
   `Reducer`, `Checker`, argument de `extract.RunExtractor`, `ui.Plain`).
   Jamais `slog.SetDefault` ni `slog.Info` ; les tests passent un logger sur
   `t.Output()`.
-- Golden tests render : `go test ./internal/render -update` pour régénérer.
+- Golden tests render : `UPDATE_GOLDEN=1 go test ./internal/render` pour régénérer (pas de flag global ; idem `internal/domainmodel` et `extractors/webapp`).
 - README tenu à jour à chaque feature livrée (concis).
 
 ## Notes

@@ -5,6 +5,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"sort"
 	"strings"
@@ -114,20 +115,20 @@ type PhaseUsage struct {
 	Usage llm.Usage
 }
 
-// PrintSummary prints the end-of-run summary on stdout (plain mode, and
-// after the TUI exits the alternate screen).
-func PrintSummary(e RunFinished) {
-	fmt.Printf(
+// PrintSummary writes the end-of-run summary to w (stdout in plain mode,
+// and after the TUI exits the alternate screen).
+func PrintSummary(w io.Writer, e *RunFinished) {
+	_, _ = fmt.Fprintf(w,
 		"nodes: %d domains, %d entities, %d endpoints, %d rules\n",
 		e.NodesByType[graph.TypeDomain],
 		e.NodesByType[graph.TypeEntity],
 		e.NodesByType["endpoint"],
 		e.NodesByType[graph.TypeRule],
 	)
-	fmt.Printf("coverage: endpoints %d/%d, entities %d/%d\n",
+	_, _ = fmt.Fprintf(w, "coverage: endpoints %d/%d, entities %d/%d\n",
 		e.Coverage.EndpointsReferenced, e.Coverage.EndpointsTotal,
 		e.Coverage.EntitiesTouched, e.Coverage.EntitiesTotal)
-	fmt.Printf("failures: %d/%d chunks, %d/%d domains\n",
+	_, _ = fmt.Fprintf(w, "failures: %d/%d chunks, %d/%d domains\n",
 		e.ChunksFailed, e.ChunksTotal, e.DomainsFailed, e.DomainsTotal)
 	if len(e.Tokens) > 0 {
 		parts := make([]string, len(e.Tokens))
@@ -139,7 +140,11 @@ func PrintSummary(e RunFinished) {
 				t.Usage.CompletionTokens,
 			)
 		}
-		fmt.Printf("tokens this run: %s (prompt+completion)\n", strings.Join(parts, ", "))
+		_, _ = fmt.Fprintf(
+			w,
+			"tokens this run: %s (prompt+completion)\n",
+			strings.Join(parts, ", "),
+		)
 	}
 	if len(e.Extractors) > 0 {
 		names := make([]string, 0, len(e.Extractors))
@@ -151,7 +156,7 @@ func PrintSummary(e RunFinished) {
 		for i, name := range names {
 			parts[i] = name + "=" + e.Extractors[name]
 		}
-		fmt.Printf("extractors: %s\n", strings.Join(parts, " "))
+		_, _ = fmt.Fprintf(w, "extractors: %s\n", strings.Join(parts, " "))
 	}
 }
 
@@ -161,9 +166,11 @@ type Discard struct{}
 // Emit implements Sink.
 func (Discard) Emit(any) {}
 
-// Plain logs events to Log, the non-TUI output.
+// Plain logs events to Log and writes the run summary to Out: the non-TUI
+// output.
 type Plain struct {
 	Log *slog.Logger
+	Out io.Writer
 }
 
 // Emit implements Sink.
@@ -197,7 +204,7 @@ func (p Plain) Emit(event any) {
 		p.Log.Log(context.Background(), e.Level, e.Message)
 	case RunFinished:
 		if e.Err == nil {
-			PrintSummary(e)
+			PrintSummary(p.Out, &e)
 		}
 	}
 }

@@ -9,6 +9,7 @@
 package crosscheck
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -21,7 +22,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
@@ -29,6 +29,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/locale"
 	"github.com/StevenACoffman/codetospec/internal/mapper"
 	"github.com/StevenACoffman/codetospec/internal/state"
+	"github.com/StevenACoffman/codetospec/internal/workpool"
 )
 
 // Verdict values, from strongest to weakest support.
@@ -48,10 +49,13 @@ const (
 	VerdictMechanical = "mechanical"
 )
 
-var verdicts = map[string]bool{
-	VerdictSupported:   true,
-	VerdictPartial:     true,
-	VerdictUnsupported: true,
+// knownVerdict reports whether v is a verdict the reviewer may give.
+func knownVerdict(v string) bool {
+	switch v {
+	case VerdictSupported, VerdictPartial, VerdictUnsupported:
+		return true
+	}
+	return false
 }
 
 const systemPrompt = `You are an adversarial code reviewer. You receive one candidate business rule and the exact source lines it cites. The rule was written by another model; your job is to try to REFUTE it.
@@ -157,70 +161,53 @@ type Checker struct {
 
 // Run cross-checks every rule node and returns verdicts keyed by rule id.
 // Cached verdicts are reused as long as the rule and its cited code are
-// unchanged (input hash).
+// unchanged (input hash). Rules are reviewed in parallel; verdicts are
+// recorded, and OnUnit called, in the calling goroutine.
 func (c *Checker) Run(ctx context.Context, nodes []graph.Node) (map[string]Verdict, error) {
-	if err := os.MkdirAll(c.OutDir, 0o755); err != nil {
+	if err := os.MkdirAll(c.OutDir, 0o750); err != nil {
 		return nil, fmt.Errorf("create crosscheck dir: %w", err)
 	}
 	var rules []graph.Node
-	for _, n := range nodes {
-		if graph.Reviewable(&n) {
-			rules = append(rules, n)
+	for i := range nodes {
+		if graph.Reviewable(&nodes[i]) {
+			rules = append(rules, nodes[i])
 		}
 	}
 	sort.SliceStable(rules, func(i, j int) bool { return rules[i].ID < rules[j].ID })
 
-	workers := max(c.Workers, 1)
-	jobs := make(chan graph.Node)
-	var (
-		wg     sync.WaitGroup
-		mu     sync.Mutex
-		out    = make(map[string]Verdict, len(rules))
-		runErr error
-	)
-	record := func(v Verdict, usage llm.Usage, err error) {
-		mu.Lock()
-		defer mu.Unlock()
-		if err != nil {
-			if runErr == nil {
-				runErr = err
+	out := make(map[string]Verdict, len(rules))
+	var runErr error
+	workpool.Run(ctx, c.Workers, rules,
+		func(ctx context.Context, rule *graph.Node) outcome {
+			v, usage, err := c.checkRule(ctx, rule)
+			return outcome{verdict: v, usage: usage, err: err}
+		},
+		func(r outcome) {
+			if r.err != nil {
+				runErr = cmp.Or(runErr, r.err)
+				return
 			}
-			return
-		}
-		out[v.RuleID] = v
-		if c.OnUnit != nil {
-			c.OnUnit(v, usage)
-		}
-	}
-
-	for range workers {
-		wg.Go(func() {
-			for rule := range jobs {
-				v, usage, err := c.checkRule(ctx, rule)
-				record(v, usage, err)
+			out[r.verdict.RuleID] = r.verdict
+			if c.OnUnit != nil {
+				c.OnUnit(r.verdict, r.usage)
 			}
 		})
-	}
-feed:
-	for _, rule := range rules {
-		select {
-		case <-ctx.Done():
-			break feed
-		case jobs <- rule:
-		}
-	}
-	close(jobs)
-	wg.Wait()
-
 	if runErr == nil && ctx.Err() != nil {
 		runErr = ctx.Err()
 	}
 	return out, runErr
 }
 
+// outcome is one worker's result for one rule.
+type outcome struct {
+	verdict Verdict
+	usage   llm.Usage
+	err     error
+}
+
 // checkRule reviews one rule, reusing the cached verdict when the rule and
 // its cited code are unchanged.
-func (c *Checker) checkRule(ctx context.Context, rule graph.Node) (Verdict, llm.Usage, error) {
+func (c *Checker) checkRule(ctx context.Context, rule *graph.Node) (Verdict, llm.Usage, error) {
 	excerpt, err := c.citedExcerpt(rule.Sources)
 	if err != nil {
 		return Verdict{}, llm.Usage{}, fmt.Errorf("rule %s: %w", rule.ID, err)
@@ -228,14 +215,14 @@ func (c *Checker) checkRule(ctx context.Context, rule graph.Node) (Verdict, llm.
 	hash := inputHash(c.promptKey(), rule, excerpt)
 
 	outPath := filepath.Join(c.OutDir, rule.ID+".json")
-	if data, readErr := os.ReadFile(outPath); readErr == nil {
+	if data, readErr := os.ReadFile(filepath.Clean(outPath)); readErr == nil {
 		var cached Verdict
 		if json.Unmarshal(data, &cached) == nil && cached.InputHash == hash {
 			return cached, llm.Usage{}, nil
 		}
 	}
 
-	payload, usage, err := c.review(ctx, &rule, excerpt)
+	payload, usage, err := c.review(ctx, rule, excerpt)
 	v := Verdict{RuleID: rule.ID, InputHash: hash}
 	switch {
 	case err == nil:
@@ -250,7 +237,7 @@ func (c *Checker) checkRule(ctx context.Context, rule graph.Node) (Verdict, llm.
 	}
 
 	if c.Repair && (v.Verdict == VerdictUnsupported || v.Verdict == VerdictPartial) {
-		r, repairUsage, repairErr := c.tryRepair(ctx, &rule, v.Reason)
+		r, repairUsage, repairErr := c.tryRepair(ctx, rule, v.Reason)
 		usage.Add(repairUsage)
 		if repairErr != nil {
 			return Verdict{}, usage, repairErr
@@ -271,6 +258,10 @@ func (c *Checker) checkRule(ctx context.Context, rule graph.Node) (Verdict, llm.
 	return v, usage, nil
 }
 
+// reviewCorrections is how many times a malformed review reply is sent back
+// for correction before the rule is left unchecked.
+const reviewCorrections = 2
+
 // review asks the reviewer to refute rule against the cited excerpt. It
 // takes the rule and its cited code only: no earlier verdict, reason or
 // repair can reach the reviewer, so a re-review is as blind as the first.
@@ -290,7 +281,12 @@ func (c *Checker) review(
 		{Role: "user", Content: userPrompt},
 	}
 	var usage llm.Usage
-	payload, err := llm.ChatJSON(ctx, c.LLM, msgs, 2, func(u llm.Usage) { usage.Add(u) },
+	payload, err := llm.ChatJSON(
+		ctx,
+		c.LLM,
+		msgs,
+		reviewCorrections,
+		func(u llm.Usage) { usage.Add(u) },
 		func(reply string) (verdictPayload, error) {
 			var p verdictPayload
 			if unmarshalErr := json.Unmarshal(
@@ -299,7 +295,7 @@ func (c *Checker) review(
 			); unmarshalErr != nil {
 				return p, fmt.Errorf("invalid JSON: %w", unmarshalErr)
 			}
-			if !verdicts[p.Verdict] {
+			if !knownVerdict(p.Verdict) {
 				return p, fmt.Errorf(
 					"verdict %q is not one of supported|partial|unsupported",
 					p.Verdict,
@@ -309,7 +305,8 @@ func (c *Checker) review(
 				return p, errors.New("reason must not be empty")
 			}
 			return p, nil
-		})
+		},
+	)
 	if err != nil {
 		return verdictPayload{}, usage, fmt.Errorf("review %s: %w", rule.ID, err)
 	}
@@ -620,7 +617,7 @@ const repairPolicy = "a repaired citation is adopted only when a fresh blind rev
 
 // inputHash keys a cached verdict: the prompt key plus the rule and the
 // exact cited code it was judged against.
-func inputHash(promptKey string, rule graph.Node, excerpt string) string {
+func inputHash(promptKey string, rule *graph.Node, excerpt string) string {
 	sum := sha256.Sum256(
 		fmt.Appendf(nil, "%s\n%s\n%s\n%s\n%s", promptKey, rule.ID, rule.Title, rule.Body, excerpt),
 	)

@@ -1,10 +1,10 @@
-package render
+package render_test
 
 import (
 	"bytes"
-	"flag"
 	"io/fs"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -15,9 +15,8 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/locale"
+	"github.com/StevenACoffman/codetospec/internal/render"
 )
-
-var update = flag.Bool("update", false, "rewrite golden files")
 
 func testNodes() []graph.Node {
 	return []graph.Node{
@@ -83,8 +82,8 @@ func testNodes() []graph.Node {
 	}
 }
 
-func testMeta() Meta {
-	return Meta{
+func testMeta() render.Meta {
+	return render.Meta{
 		Coverage: graph.Coverage{
 			EndpointsTotal: 1, EndpointsReferenced: 1,
 			EntitiesTotal: 1, EntitiesTouched: 1,
@@ -102,7 +101,7 @@ func testMeta() Meta {
 
 func TestWriteGolden(t *testing.T) {
 	outDir := t.TempDir()
-	if err := Write(outDir, testNodes(), testMeta()); err != nil {
+	if err := render.Write(outDir, testNodes(), new(testMeta())); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -115,32 +114,39 @@ func TestWriteGolden(t *testing.T) {
 		"README.md",
 		llmsFile,
 	}
+	out := os.DirFS(outDir)
 	for _, rel := range goldenFiles {
-		got, err := os.ReadFile(filepath.Join(outDir, filepath.FromSlash(rel)))
+		got, err := fs.ReadFile(out, rel)
 		if err != nil {
 			t.Fatalf("missing output %s: %v", rel, err)
 		}
-		goldenPath := filepath.Join("testdata", "golden", filepath.FromSlash(rel))
-		if *update {
-			if err := os.MkdirAll(filepath.Dir(goldenPath), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(goldenPath, got, 0o644); err != nil {
-				t.Fatal(err)
-			}
-			continue
+		checkGolden(t, filepath.Join("testdata", "golden", filepath.FromSlash(rel)), got)
+	}
+}
+
+// checkGolden compares data with the golden file, or rewrites it when
+// UPDATE_GOLDEN=1.
+func checkGolden(t *testing.T, golden string, data []byte) {
+	t.Helper()
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		if err := os.MkdirAll(filepath.Dir(golden), 0o750); err != nil {
+			t.Fatal(err)
 		}
-		want, err := os.ReadFile(goldenPath)
-		if err != nil {
-			t.Fatalf(
-				"missing golden %s (run go test ./internal/render -update): %v",
-				goldenPath,
-				err,
-			)
+		if err := os.WriteFile(golden, data, 0o600); err != nil {
+			t.Fatal(err)
 		}
-		if !bytes.Equal(got, want) {
-			t.Errorf("%s differs from golden:\n--- got ---\n%s\n--- want ---\n%s", rel, got, want)
-		}
+		return
+	}
+	want, err := os.ReadFile(filepath.Clean(golden))
+	if err != nil {
+		t.Fatalf(
+			"missing golden %s (run UPDATE_GOLDEN=1 go test ./internal/render): %v",
+			golden,
+			err,
+		)
+	}
+	if !bytes.Equal(data, want) {
+		t.Errorf("%s differs from golden:\n--- got ---\n%s\n--- want ---\n%s", golden, data, want)
 	}
 }
 
@@ -148,21 +154,22 @@ var mdLink = regexp.MustCompile(`\]\(([^)]+\.md)\)`)
 
 func TestWriteRelativeLinksResolve(t *testing.T) {
 	outDir := t.TempDir()
-	if err := Write(outDir, testNodes(), testMeta()); err != nil {
+	if err := render.Write(outDir, testNodes(), new(testMeta())); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	paths, err := filepath.Glob(filepath.Join(outDir, "nodes", "*", "*.md"))
+	out := os.DirFS(outDir)
+	paths, err := fs.Glob(out, "nodes/*/*.md")
 	if err != nil || len(paths) == 0 {
 		t.Fatalf("no node files written: %v", err)
 	}
 	for _, path := range paths {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
+		data, readErr := fs.ReadFile(out, path)
+		if readErr != nil {
+			t.Fatal(readErr)
 		}
 		for _, m := range mdLink.FindAllStringSubmatch(string(data), -1) {
-			target := filepath.Join(filepath.Dir(path), filepath.FromSlash(m[1]))
-			if _, err := os.Stat(target); err != nil {
+			target := pathpkg.Join(pathpkg.Dir(path), m[1])
+			if _, statErr := fs.Stat(out, target); statErr != nil {
 				t.Errorf("%s: broken relative link %q", path, m[1])
 			}
 		}
@@ -171,7 +178,7 @@ func TestWriteRelativeLinksResolve(t *testing.T) {
 
 func TestParseNodeRoundTrip(t *testing.T) {
 	for _, n := range testNodes() {
-		parsed, err := ParseNode(NodeMarkdown(n, locale.For("fr")))
+		parsed, err := render.ParseNode(render.NodeMarkdown(&n, locale.For("fr")))
 		if err != nil {
 			t.Fatalf("ParseNode(%s): %v", n.ID, err)
 		}
@@ -192,10 +199,10 @@ func TestParseNodeRoundTrip(t *testing.T) {
 
 func TestLoadDir(t *testing.T) {
 	outDir := t.TempDir()
-	if err := Write(outDir, testNodes(), testMeta()); err != nil {
+	if err := render.Write(outDir, testNodes(), new(testMeta())); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	nodes, err := LoadDir(outDir)
+	nodes, err := render.LoadDir(outDir)
 	if err != nil {
 		t.Fatalf("LoadDir: %v", err)
 	}
@@ -211,7 +218,7 @@ func TestFrontmatterExactShape(t *testing.T) {
 			rule = n
 		}
 	}
-	front := Frontmatter(rule)
+	front := render.Frontmatter(&rule)
 	for _, want := range []string{
 		"id: rule.billing.prorata-activation\n",
 		"type: rule\n",
@@ -229,7 +236,7 @@ func TestFrontmatterExactShape(t *testing.T) {
 	}
 }
 
-// llmsFile is the agent-facing index Write produces.
+// llmsFile is the agent-facing index render.Write produces.
 const llmsFile = "llms.txt"
 
 // TestWriteEnglish checks that --lang en output carries no French
@@ -250,7 +257,7 @@ func TestWriteEnglish(t *testing.T) {
 			{Name: "billing.Customer"},
 		},
 	}
-	if err := Write(outDir, testNodes(), meta); err != nil {
+	if err := render.Write(outDir, testNodes(), &meta); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	cases := map[string]struct {
@@ -308,11 +315,11 @@ func TestParseNodeKeepsWidenedCitations(t *testing.T) {
 		"grounding":                 "grounded",
 		graph.ExtraGroundingWidened: "a.go:10-10, a.go:12-12",
 	}
-	md := NodeMarkdown(n, locale.For("en"))
+	md := render.NodeMarkdown(&n, locale.For("en"))
 	if !strings.Contains(md, `grounding_widened: "a.go:10-10, a.go:12-12"`) {
 		t.Fatalf("frontmatter lacks grounding_widened:\n%s", md)
 	}
-	parsed, err := ParseNode(md)
+	parsed, err := render.ParseNode(md)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,11 +334,11 @@ func TestParseNodeKeepsCitationRoot(t *testing.T) {
 	n := testNodes()[0]
 	shared := extract.Ref{Path: "pkg/web/serve/x.go", Lines: "3-9", Root: "webapp"}
 	n.Sources = append(n.Sources, shared)
-	md := NodeMarkdown(n, locale.For("en"))
+	md := render.NodeMarkdown(&n, locale.For("en"))
 	if !strings.Contains(md, "`@webapp/pkg/web/serve/x.go:3-9`") {
 		t.Fatalf("body does not name the rooted citation:\n%s", md)
 	}
-	parsed, err := ParseNode(md)
+	parsed, err := render.ParseNode(md)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +361,7 @@ func TestParseNodeKeepsCitationRoot(t *testing.T) {
 func TestParseNodeKeepsInheritedFrom(t *testing.T) {
 	n := testNodes()[0]
 	n.Extra = map[string]string{graph.ExtraInheritedFrom: "pkg", "crosscheck": "supported"}
-	parsed, err := ParseNode(NodeMarkdown(n, locale.For("en")))
+	parsed, err := render.ParseNode(render.NodeMarkdown(&n, locale.For("en")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +386,19 @@ func TestDomainDiagramGroupsSplitNamespaces(t *testing.T) {
 		domain("tasks-main", "models"), // a group of one: drawn plain
 	}
 	groups := map[string]string{"cmd-backfill": goMain, "cmd-seed": goMain, "tasks-main": "tasks"}
-	got := domainDiagram(nodes, groups)
+	outDir := t.TempDir()
+	if err := render.Write(
+		outDir,
+		nodes,
+		&render.Meta{DomainGroups: groups, Lang: "en"},
+	); err != nil {
+		t.Fatal(err)
+	}
+	readme, err := fs.ReadFile(os.DirFS(outDir), "README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(readme)
 	for _, want := range []string{
 		"  subgraph group_main[\"main\"]\n    cmd_backfill[\"cmd-backfill\"]\n    cmd_seed[\"cmd-seed\"]\n  end\n",
 		"  group_main --> models\n",

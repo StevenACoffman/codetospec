@@ -1,4 +1,4 @@
-package graph
+package graph_test
 
 import (
 	"slices"
@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/locale"
 	"github.com/StevenACoffman/codetospec/internal/reducer"
 )
@@ -13,41 +14,45 @@ import (
 func fixtureFacts() []extract.Fact {
 	return []extract.Fact{
 		{
-			Kind: "table", ID: "table.invoices",
-			Attrs:  map[string]string{"name": "invoices", "columns": "id:id, amount:decimal"},
+			Kind: extract.KindTable,
+			ID:   "table.invoices",
+			Attrs: map[string]string{
+				extract.AttrName:    "invoices",
+				extract.AttrColumns: "id:id, amount:decimal",
+			},
 			Source: extract.Ref{Path: "database/migrations/m.php", Lines: "11-16"},
 		},
 		{
-			Kind: "route",
+			Kind: extract.KindRoute,
 			ID:   "route.post./api/activate",
 			Attrs: map[string]string{
-				"method":     "POST",
-				"path":       "/api/activate",
-				"controller": `App\Http\Controllers\ActivationController`,
-				"action":     "store",
+				extract.AttrMethod: "POST",
+				extract.AttrPath:   "/api/activate",
+				"controller":       `App\Http\Controllers\ActivationController`,
+				"action":           "store",
 			},
 			Source: extract.Ref{Path: "routes/web.php", Lines: "5-5"},
 		},
 		{
-			Kind:  "module",
+			Kind:  extract.KindModule,
 			ID:    "module.App\\Http\\Controllers",
-			Attrs: map[string]string{"name": `App\Http\Controllers`},
+			Attrs: map[string]string{extract.AttrName: `App\Http\Controllers`},
 			Source: extract.Ref{
 				Path:  "app/Http/Controllers/ActivationController.php",
 				Lines: "3-3",
 			},
 		},
 		{
-			Kind: "module", ID: "module.App\\Services\\Billing",
-			Attrs:  map[string]string{"name": `App\Services\Billing`},
+			Kind: extract.KindModule, ID: "module.App\\Services\\Billing",
+			Attrs:  map[string]string{extract.AttrName: `App\Services\Billing`},
 			Source: extract.Ref{Path: "app/Services/Billing/ProrataCalculator.php", Lines: "3-3"},
 		},
 		{
-			Kind: "import",
+			Kind: extract.KindImport,
 			ID:   "import.app/Http/Controllers/ActivationController.php#App\\Services\\Billing\\ProrataCalculator",
 			Attrs: map[string]string{
-				"target":    `App\Services\Billing\ProrataCalculator`,
-				"namespace": `App\Http\Controllers`,
+				extract.AttrTarget:    `App\Services\Billing\ProrataCalculator`,
+				extract.AttrNamespace: `App\Http\Controllers`,
 			},
 			Source: extract.Ref{
 				Path:  "app/Http/Controllers/ActivationController.php",
@@ -62,17 +67,17 @@ func fixtureReduced() []reducer.Output {
 		return reducer.Rule{
 			Slug:        slug,
 			Title:       "Titre " + slug,
-			EarsKind:    "event",
+			EarsKind:    earsEvent,
 			Requirement: "QUAND x, le systeme doit y.",
 			Rationale:   "Parce que.",
 			Citations: []extract.Ref{
 				{Path: "app/Services/Billing/ProrataCalculator.php", Lines: "11-24"},
 			},
-			Entities:           []string{"entity.invoices"},
-			Endpoints:          []string{"endpoint.post-api-activate"},
+			Entities:           []string{invoicesEntity},
+			Endpoints:          []string{activateRoute},
 			AcceptanceCriteria: []string{"a", "b", "c"},
-			Nature:             "business",
-			Origin:             "explicit",
+			Nature:             natureBusiness,
+			Origin:             originExplicit,
 			Confidence:         0.9,
 		}
 	}
@@ -92,16 +97,16 @@ func fixtureReduced() []reducer.Output {
 }
 
 func TestBuildProducesAllNodeTypes(t *testing.T) {
-	nodes := Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr")
-	byID := make(map[string]Node, len(nodes))
+	nodes := graph.Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr")
+	byID := make(map[string]graph.Node, len(nodes))
 	for _, n := range nodes {
 		byID[n.ID] = n
 	}
 
 	for _, id := range []string{
-		"entity.invoices",
-		"endpoint.post-api-activate",
-		"domain.services",
+		invoicesEntity,
+		activateRoute,
+		servicesDomain,
 		"domain.http",
 		"rule.services.prorata-activation",
 		"rule.http.activation-endpoint",
@@ -115,13 +120,13 @@ func TestBuildProducesAllNodeTypes(t *testing.T) {
 	}
 
 	rule := byID["rule.services.prorata-activation"]
-	if rule.Extra["ears"] != "event" || rule.Extra["acceptance"] != "3" {
+	if rule.Extra["ears"] != earsEvent || rule.Extra["acceptance"] != "3" {
 		t.Errorf("rule extra = %v", rule.Extra)
 	}
-	wantEdges := []Edge{
-		{Type: "belongs_to", To: "domain.services"},
-		{Type: "touches", To: "entity.invoices"},
-		{Type: "exposed_by", To: "endpoint.post-api-activate"},
+	wantEdges := []graph.Edge{
+		{Type: "belongs_to", To: servicesDomain},
+		{Type: "touches", To: invoicesEntity},
+		{Type: "exposed_by", To: activateRoute},
 	}
 	if len(rule.Edges) != len(wantEdges) {
 		t.Fatalf("rule edges = %+v", rule.Edges)
@@ -132,7 +137,7 @@ func TestBuildProducesAllNodeTypes(t *testing.T) {
 		}
 	}
 
-	endpoint := byID["endpoint.post-api-activate"]
+	endpoint := byID[activateRoute]
 	if !strings.Contains(endpoint.Body, "POST") ||
 		!strings.Contains(endpoint.Body, "/api/activate") ||
 		!strings.Contains(endpoint.Body, "ActivationController@store") {
@@ -140,36 +145,40 @@ func TestBuildProducesAllNodeTypes(t *testing.T) {
 	}
 }
 
-// TestBuildDomainDependsOnGoStyleImports covers the suffix fallback: Go
+// graph.TestBuildDomainDependsOnGoStyleImports covers the suffix fallback: Go
 // imports carry a path ("app/internal/billing") while module facts carry the
 // bare package name ("billing").
 func TestBuildDomainDependsOnGoStyleImports(t *testing.T) {
 	facts := []extract.Fact{
 		{
-			Kind: "module", ID: "module.billing",
-			Attrs:  map[string]string{"name": "billing"},
-			Source: extract.Ref{Path: "internal/billing/calc.go", Lines: "1-1"},
+			Kind: extract.KindModule, ID: "module.billing",
+			Attrs:  map[string]string{extract.AttrName: "billing"},
+			Source: extract.Ref{Path: "internal/billing/calc.go", Lines: firstLine},
 		},
 		{
-			Kind: "module", ID: "module.invoice",
-			Attrs:  map[string]string{"name": "invoice"},
-			Source: extract.Ref{Path: "internal/invoice/invoice.go", Lines: "1-1"},
+			Kind: extract.KindModule, ID: "module.invoice",
+			Attrs:  map[string]string{extract.AttrName: "invoice"},
+			Source: extract.Ref{Path: "internal/invoice/invoice.go", Lines: firstLine},
 		},
 		{
-			Kind: "import", ID: "import.internal/invoice/invoice.go#app/internal/billing",
-			Attrs:  map[string]string{"target": "app/internal/billing", "namespace": "invoice"},
+			Kind: extract.KindImport,
+			ID:   "import.internal/invoice/invoice.go#app/internal/billing",
+			Attrs: map[string]string{
+				extract.AttrTarget:    "app/internal/billing",
+				extract.AttrNamespace: "invoice",
+			},
 			Source: extract.Ref{Path: "internal/invoice/invoice.go", Lines: "5-5"},
 		},
 	}
 	rule := func(domain string) reducer.Output {
 		return reducer.Output{Domain: domain, DomainSummary: "s", Rules: []reducer.Rule{{
-			Slug: "r", Title: "T", EarsKind: "event", Requirement: "QUAND x, le systeme doit y.",
+			Slug: "r", Title: "T", EarsKind: earsEvent, Requirement: "QUAND x, le systeme doit y.",
 			Citations:          []extract.Ref{{Path: "internal/" + domain + "/x.go", Lines: "1-2"}},
 			AcceptanceCriteria: []string{"a", "b"},
-			Nature:             "business", Origin: "explicit", Confidence: 0.9,
+			Nature:             natureBusiness, Origin: originExplicit, Confidence: 0.9,
 		}}}
 	}
-	nodes := Build(
+	nodes := graph.Build(
 		facts,
 		[]reducer.Output{rule("billing"), rule("invoice")},
 		extract.DomainResolver{},
@@ -193,13 +202,13 @@ func TestBuildDomainDependsOnGoStyleImports(t *testing.T) {
 }
 
 func TestBuildDomainDependsOnFromImports(t *testing.T) {
-	nodes := Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr")
+	nodes := graph.Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr")
 	for _, n := range nodes {
 		if n.ID != "domain.http" {
 			continue
 		}
 		for _, e := range n.Edges {
-			if e.Type == "depends_on" && e.To == "domain.services" {
+			if e.Type == "depends_on" && e.To == servicesDomain {
 				return
 			}
 		}
@@ -209,8 +218,8 @@ func TestBuildDomainDependsOnFromImports(t *testing.T) {
 }
 
 func TestBuildIsDeterministic(t *testing.T) {
-	a := Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr")
-	b := Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr")
+	a := graph.Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr")
+	b := graph.Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr")
 	if len(a) != len(b) {
 		t.Fatalf("node counts differ: %d vs %d", len(a), len(b))
 	}
@@ -222,8 +231,8 @@ func TestBuildIsDeterministic(t *testing.T) {
 }
 
 func TestComputeCoverage(t *testing.T) {
-	nodes := Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr")
-	cov := ComputeCoverage(nodes)
+	nodes := graph.Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr")
+	cov := graph.ComputeCoverage(nodes)
 	if cov.EndpointsTotal != 1 || cov.EndpointsReferenced != 1 {
 		t.Errorf(
 			"endpoints coverage = %d/%d, want 1/1",
@@ -256,27 +265,27 @@ func TestRuleRequirement(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := RuleRequirement(tc.body); got != tc.want {
+			if got := graph.RuleRequirement(tc.body); got != tc.want {
 				t.Fatalf("RuleRequirement = %q, want %q", got, tc.want)
 			}
 		})
 	}
 }
 
-// TestRuleBodyRoundTripsInEveryLanguage builds a rule with each language's
+// graph.TestRuleBodyRoundTripsInEveryLanguage builds a rule with each language's
 // labels and parses its requirement and criteria back.
 func TestRuleBodyRoundTripsInEveryLanguage(t *testing.T) {
 	for _, text := range locale.All() {
 		t.Run(text.Lang, func(t *testing.T) {
-			nodes := Build(nil, fixtureReduced(), extract.DomainResolver{}, text.Lang)
-			var rule Node
+			nodes := graph.Build(nil, fixtureReduced(), extract.DomainResolver{}, text.Lang)
+			var rule graph.Node
 			for _, n := range nodes {
-				if n.Type == TypeRule {
+				if n.Type == graph.TypeRule {
 					rule = n
 				}
 			}
 			want := fixtureReduced()[0].Rules[0]
-			if got := RuleRequirement(rule.Body); got != want.Requirement {
+			if got := graph.RuleRequirement(rule.Body); got != want.Requirement {
 				t.Errorf(
 					"RuleRequirement = %q, want %q\nbody:\n%s",
 					got,
@@ -284,7 +293,7 @@ func TestRuleBodyRoundTripsInEveryLanguage(t *testing.T) {
 					rule.Body,
 				)
 			}
-			if got := RuleCriteria(rule.Body); len(got) != len(want.AcceptanceCriteria) {
+			if got := graph.RuleCriteria(rule.Body); len(got) != len(want.AcceptanceCriteria) {
 				t.Errorf("RuleCriteria = %q, want %d criteria", got, len(want.AcceptanceCriteria))
 			}
 			if !strings.HasPrefix(rule.Body, text.Requirement) {
@@ -298,9 +307,9 @@ func TestBuildLinksRulesToTheirHandlersEndpoint(t *testing.T) {
 	const handlerFile = "app/Services/Billing/ProrataCalculator.php" // fixtureReduced cites it
 	route := func(path, handlerLines string) extract.Fact {
 		return extract.Fact{
-			Kind: "route", ID: "route.any." + path,
+			Kind: extract.KindRoute, ID: "route.any." + path,
 			Attrs: map[string]string{
-				"path":                   path,
+				extract.AttrPath:         path,
 				extract.AttrHandlerPath:  handlerFile,
 				extract.AttrHandlerLines: handlerLines,
 			},
@@ -318,12 +327,12 @@ func TestBuildLinksRulesToTheirHandlersEndpoint(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			facts := append(fixtureFacts(), route("/pubsub/x", tc.handlerLines))
-			nodes := Build(facts, fixtureReduced(), extract.DomainResolver{}, "fr")
+			nodes := graph.Build(facts, fixtureReduced(), extract.DomainResolver{}, "fr")
 			for _, n := range nodes {
 				if n.ID != "rule.services.prorata-activation" { // cites lines 11-24
 					continue
 				}
-				edge := Edge{Type: EdgeExposedBy, To: "endpoint.pubsub-x"}
+				edge := graph.Edge{Type: graph.EdgeExposedBy, To: "endpoint.pubsub-x"}
 				if got := slices.Contains(n.Edges, edge); got != tc.linked {
 					t.Fatalf("linked = %v, want %v (edges %v)", got, tc.linked, n.Edges)
 				}
@@ -340,7 +349,7 @@ func TestEndpointIDNamesRoot(t *testing.T) {
 	route := func(method, path string) extract.Fact {
 		return extract.Fact{
 			Kind:  extract.KindRoute,
-			Attrs: map[string]string{"method": method, "path": path},
+			Attrs: map[string]string{extract.AttrMethod: method, extract.AttrPath: path},
 		}
 	}
 	cases := map[string]extract.Fact{
@@ -349,7 +358,7 @@ func TestEndpointIDNamesRoot(t *testing.T) {
 		"endpoint.safelist-add": route("", "/safelist/add"),
 	}
 	for want, f := range cases {
-		if got := EndpointID(f); got != want {
+		if got := graph.EndpointID(&f); got != want {
 			t.Errorf("EndpointID(%v) = %q, want %q", f.Attrs, got, want)
 		}
 	}

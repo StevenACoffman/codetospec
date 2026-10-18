@@ -62,7 +62,7 @@ func Run(nodes []graph.Node, roots extract.Roots) []Violation {
 				violations = append(violations, Violation{n.ID, "unresolvable-citation", detail})
 			}
 		}
-		if detail := checkRoundTrip(n); detail != "" {
+		if detail := checkRoundTrip(&n); detail != "" {
 			violations = append(violations, Violation{n.ID, "frontmatter-round-trip", detail})
 		}
 	}
@@ -103,7 +103,7 @@ func checkCitation(roots extract.Roots, ref extract.Ref, lineCounts map[string]i
 
 // checkRoundTrip re-renders the node and re-parses its frontmatter,
 // verifying that nothing is lost or altered.
-func checkRoundTrip(n graph.Node) string {
+func checkRoundTrip(n *graph.Node) string {
 	parsed, err := render.ParseNode(render.Frontmatter(n))
 	if err != nil {
 		return fmt.Sprintf("regenerated frontmatter is not parsable: %v", err)

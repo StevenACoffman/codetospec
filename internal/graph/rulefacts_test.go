@@ -18,7 +18,7 @@ func ruleFact(id string) extract.Fact {
 			extract.AttrTitle:       "Authorization: Mutation.addCoachRole",
 			extract.AttrRequirement: "IF the caller is not the user `kaid`, THEN the system shall reject Mutation.addCoachRole.",
 			extract.AttrEARS:        "unwanted",
-			extract.AttrNature:      "business",
+			extract.AttrNature:      natureBusiness,
 			extract.AttrDomain:      "role",
 		},
 		Source: extract.Ref{Path: "resolvers/add_coach_role.go", Lines: "37-39"},
@@ -69,7 +69,7 @@ func TestValidateRuleFacts(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := ruleFact("rule.x")
 			tc.mutate(&f)
-			other := extract.Fact{Kind: "route", ID: "route.x"}
+			other := extract.Fact{Kind: extract.KindRoute, ID: "route.x"}
 			kept, rejected := graph.ValidateRuleFacts([]extract.Fact{other, f})
 			if tc.wantReason == "" {
 				if len(kept) != 2 || len(rejected) != 0 {
@@ -107,7 +107,7 @@ func TestBuildMechanicalRules(t *testing.T) {
 	if _, renumbered := byID["rule.role.authz-mutation-addcoachrole-2"]; !renumbered {
 		t.Fatalf("colliding slug not renumbered; got %v", nodeIDs(nodes))
 	}
-	if first.Extra[graph.ExtraExtractedBy] != "webapp" || first.Extra["origin"] != "explicit" {
+	if first.Extra[graph.ExtraExtractedBy] != "webapp" || first.Extra["origin"] != originExplicit {
 		t.Errorf("extra = %v, want extracted_by webapp and origin explicit", first.Extra)
 	}
 	if got := graph.RuleRequirement(first.Body); !strings.Contains(got, "Mutation.addCoachRole") {
@@ -132,11 +132,11 @@ func nodeIDs(nodes []graph.Node) []string {
 
 func TestMechanicalRuleRoute(t *testing.T) {
 	route := extract.Fact{
-		Kind: "route",
+		Kind: extract.KindRoute,
 		ID:   "route.graphql.mutation.addCoachRole",
 		Attrs: map[string]string{
-			"method":                "MUTATION",
-			"path":                  "addCoachRole",
+			extract.AttrMethod:      "MUTATION",
+			extract.AttrPath:        "addCoachRole",
 			extract.AttrHandlerPath: "resolvers/add_coach_role.go",
 		},
 		Source: extract.Ref{Path: "role.graphql", Lines: "4-4"},

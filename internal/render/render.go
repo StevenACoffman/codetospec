@@ -54,6 +54,11 @@ type Meta struct {
 	// SharedEntities are the entities touched by rules of several domains
 	// (see graph.SharedEntities).
 	SharedEntities []graph.SharedEntity
+	// ModelFiles are the modelith model files written under models/
+	// (--write-domain-model), and ModelUndefined, per file, the entities
+	// whose definition is still a placeholder.
+	ModelFiles     []string
+	ModelUndefined map[string][]string
 	// DomainModel compares the graph with human modelith models; nil when
 	// none was given (--domain-model).
 	DomainModel *domainmodel.Report
@@ -64,20 +69,21 @@ type Meta struct {
 // Write renders the whole graph into outDir: nodes/, graph.json, README.md
 // and llms.txt. nodes/ is emptied then rewritten; .codetospec/ is never
 // touched.
-func Write(outDir string, nodes []graph.Node, meta Meta) error {
+func Write(outDir string, nodes []graph.Node, meta *Meta) error {
 	text := locale.For(meta.Lang)
 	nodesDir := filepath.Join(outDir, "nodes")
 	if err := os.RemoveAll(nodesDir); err != nil {
 		return fmt.Errorf("clear nodes dir: %w", err)
 	}
 	for _, sub := range []string{"domains", "entities", "endpoints", "rules", "services"} {
-		if err := os.MkdirAll(filepath.Join(nodesDir, sub), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(nodesDir, sub), 0o750); err != nil {
 			return fmt.Errorf("create nodes dir: %w", err)
 		}
 	}
-	for _, n := range nodes {
+	for i := range nodes {
+		n := &nodes[i]
 		path := filepath.Join(outDir, filepath.FromSlash(NodeFile(n)))
-		if err := os.WriteFile(path, []byte(NodeMarkdown(n, text)), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(NodeMarkdown(n, text)), 0o600); err != nil {
 			return fmt.Errorf("write node %s: %w", n.ID, err)
 		}
 	}
@@ -87,14 +93,14 @@ func Write(outDir string, nodes []graph.Node, meta Meta) error {
 	if err := os.WriteFile(
 		filepath.Join(outDir, "README.md"),
 		[]byte(readme(nodes, meta, text)),
-		0o644,
+		0o600,
 	); err != nil {
 		return fmt.Errorf("write README.md: %w", err)
 	}
 	if err := os.WriteFile(
 		filepath.Join(outDir, "llms.txt"),
 		[]byte(llmsTxt(nodes, text)),
-		0o644,
+		0o600,
 	); err != nil {
 		return fmt.Errorf("write llms.txt: %w", err)
 	}
@@ -102,7 +108,7 @@ func Write(outDir string, nodes []graph.Node, meta Meta) error {
 }
 
 // NodeFile returns the path of a node file relative to the output dir.
-func NodeFile(n graph.Node) string {
+func NodeFile(n *graph.Node) string {
 	switch n.Type {
 	case "domain":
 		return "nodes/domains/" + strings.TrimPrefix(n.ID, "domain.") + ".md"
@@ -118,7 +124,7 @@ func NodeFile(n graph.Node) string {
 }
 
 // Frontmatter renders the exact YAML frontmatter of a node.
-func Frontmatter(n graph.Node) string {
+func Frontmatter(n *graph.Node) string {
 	var b strings.Builder
 	b.WriteString("---\n")
 	fmt.Fprintf(&b, "id: %s\n", n.ID)
@@ -185,7 +191,7 @@ func Frontmatter(n graph.Node) string {
 
 // NodeMarkdown renders one full node file: frontmatter, title, body,
 // sources line and inline links for every edge, labelled in text's language.
-func NodeMarkdown(n graph.Node, text *locale.Text) string {
+func NodeMarkdown(n *graph.Node, text *locale.Text) string {
 	var b strings.Builder
 	b.WriteString(Frontmatter(n))
 	b.WriteString("\n# " + n.Title + "\n")
@@ -248,16 +254,16 @@ func writeGraphJSON(outDir string, nodes []graph.Node) error {
 		if edges == nil {
 			edges = []graph.Edge{}
 		}
-		entries[n.ID] = graphJSONNode{Type: n.Type, File: NodeFile(n), Edges: edges}
+		entries[n.ID] = graphJSONNode{Type: n.Type, File: NodeFile(&n), Edges: edges}
 	}
 	data, err := json.MarshalIndent(map[string]any{"nodes": entries}, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode graph.json: %w", err)
 	}
-	if err := os.WriteFile(
+	if err = os.WriteFile(
 		filepath.Join(outDir, "graph.json"),
 		append(data, '\n'),
-		0o644,
+		0o600,
 	); err != nil {
 		return fmt.Errorf("write graph.json: %w", err)
 	}
@@ -293,18 +299,18 @@ func percent(part, total int) string {
 	return strconv.Itoa(part*percentScale/total) + "%"
 }
 
-func readme(nodes []graph.Node, meta Meta, text *locale.Text) string {
+// readmeCounts opens the README: title, node counts, natures and origins.
+func readmeCounts(nodes []graph.Node, text *locale.Text) string {
 	counts := countByType(nodes)
 	var b strings.Builder
 	b.WriteString(text.Title + "\n\n" + text.Intro + "\n\n")
-	fmt.Fprintf(&b, text.DomainsFmt+"\n", counts["domain"])
+	fmt.Fprintf(&b, text.DomainsFmt+"\n", counts[graph.TypeDomain])
 	fmt.Fprintf(&b, text.EntitiesFmt+"\n", counts[graph.TypeEntity])
 	fmt.Fprintf(&b, text.EndpointsFmt+"\n", counts["endpoint"])
 	fmt.Fprintf(&b, text.RulesFmt+"\n", counts[graph.TypeRule])
 	if n := counts[graph.TypeService]; n > 0 {
 		fmt.Fprintf(&b, text.ServicesFmt+"\n", n)
 	}
-
 	byNature := countByExtra(nodes, "nature")
 	if total := byNature["business"] + byNature["presentation"] + byNature["technical"]; total > 0 {
 		fmt.Fprintf(&b, text.NatureFmt+"\n",
@@ -312,14 +318,15 @@ func readme(nodes []graph.Node, meta Meta, text *locale.Text) string {
 	}
 	byOrigin := countByExtra(nodes, "origin")
 	if byOrigin["explicit"]+byOrigin["implicit"] > 0 {
-		fmt.Fprintf(
-			&b,
-			text.OriginFmt+"\n",
-			byOrigin["explicit"],
-			byOrigin["implicit"],
-		)
+		fmt.Fprintf(&b, text.OriginFmt+"\n", byOrigin["explicit"], byOrigin["implicit"])
 	}
+	return b.String()
+}
 
+// readmeCoverage is the README coverage section: what the graph covers,
+// what failed or was left out, and the crosscheck tally.
+func readmeCoverage(meta *Meta, text *locale.Text) string {
+	var b strings.Builder
 	b.WriteString("\n" + text.CoverageHeading + "\n\n")
 	fmt.Fprintf(&b, text.EndpointsCoveredFmt+"\n",
 		meta.Coverage.EndpointsReferenced, meta.Coverage.EndpointsTotal,
@@ -368,6 +375,15 @@ func readme(nodes []graph.Node, meta Meta, text *locale.Text) string {
 	if meta.RuleFactsRejected > 0 {
 		fmt.Fprintf(&b, text.RejectedRulesFmt+"\n", meta.RuleFactsRejected)
 	}
+	return b.String()
+}
+
+// readme renders the output README: counts, coverage, the checks for
+// review, the domain-model sections and the domain map.
+func readme(nodes []graph.Node, meta *Meta, text *locale.Text) string {
+	var b strings.Builder
+	b.WriteString(readmeCounts(nodes, text))
+	b.WriteString(readmeCoverage(meta, text))
 	b.WriteString(groundingSummary(nodes, text))
 	b.WriteString(ungroundedSection(nodes, text))
 	b.WriteString(splitSection(meta.DomainSplits, text))
@@ -400,6 +416,7 @@ func readme(nodes []graph.Node, meta Meta, text *locale.Text) string {
 	}
 
 	b.WriteString(modelSection(meta.DomainModel, text))
+	b.WriteString(modelFilesSection(meta.ModelFiles, meta.ModelUndefined, text))
 
 	b.WriteString("\n" + text.DomainsHeading + "\n\n")
 	b.WriteString(domainDiagram(nodes, meta.DomainGroups))
@@ -550,11 +567,12 @@ func mermaidID(slug string) string {
 
 // ruleDomain extracts the domain segment of a rule id ("rule.<domain>.<slug>").
 func ruleDomain(ruleID string) string {
-	parts := strings.SplitN(ruleID, ".", 3)
-	if len(parts) >= 2 {
-		return parts[1]
+	_, rest, found := strings.Cut(ruleID, ".")
+	if !found {
+		return ""
 	}
-	return ""
+	domain, _, _ := strings.Cut(rest, ".")
+	return domain
 }
 
 func llmsTxt(nodes []graph.Node, text *locale.Text) string {
@@ -565,7 +583,7 @@ func llmsTxt(nodes []graph.Node, text *locale.Text) string {
 		var lines []string
 		for _, n := range nodes {
 			if n.Type == nodeType {
-				lines = append(lines, fmt.Sprintf("- %s : %s", NodeFile(n), n.Title))
+				lines = append(lines, fmt.Sprintf("- %s : %s", NodeFile(&n), n.Title))
 			}
 		}
 		if len(lines) == 0 {
@@ -631,54 +649,45 @@ func ParseNode(content string) (graph.Node, error) {
 	for _, e := range doc.Edges {
 		n.Edges = append(n.Edges, graph.Edge{Type: e.Type, To: e.To})
 	}
-	extra := map[string]string{}
-	if doc.Ears != "" {
-		extra["ears"] = doc.Ears
-	}
-	if doc.Acceptance != nil {
-		extra["acceptance"] = strconv.Itoa(*doc.Acceptance)
-	}
-	if doc.Nature != "" {
-		extra["nature"] = doc.Nature
-	}
-	if doc.Origin != "" {
-		extra["origin"] = doc.Origin
-	}
-	if doc.Confidence != nil {
-		extra["confidence"] = strconv.FormatFloat(*doc.Confidence, 'f', 2, 64)
-	}
-	if doc.Crosscheck != "" {
-		extra["crosscheck"] = doc.Crosscheck
-	}
-	if doc.Extracted != "" {
-		extra[graph.ExtraExtractedBy] = doc.Extracted
-	}
-	if doc.Inherited != "" {
-		extra[graph.ExtraInheritedFrom] = doc.Inherited
-	}
-	if doc.Grounding != "" {
-		extra["grounding"] = doc.Grounding
-	}
-	if doc.Missing != "" {
-		extra["grounding_missing"] = doc.Missing
-	}
-	if doc.Widened != "" {
-		extra[graph.ExtraGroundingWidened] = doc.Widened
-	}
-	if doc.Digest != "" {
-		extra["digest"] = doc.Digest
-	}
-	if len(extra) > 0 {
-		n.Extra = extra
-	}
+	n.Extra = doc.extra()
 	for line := range strings.SplitSeq(body, "\n") {
-		if title, ok := strings.CutPrefix(line, "# "); ok {
+		if title, isTitle := strings.CutPrefix(line, "# "); isTitle {
 			n.Title = title
 			break
 		}
 	}
 	n.Body = body
 	return n, nil
+}
+
+// extra is the node's Extra map from its frontmatter; nil when empty.
+func (doc *frontmatterDoc) extra() map[string]string {
+	extra := map[string]string{}
+	set := func(key, value string) {
+		if value != "" {
+			extra[key] = value
+		}
+	}
+	set("ears", doc.Ears)
+	if doc.Acceptance != nil {
+		extra["acceptance"] = strconv.Itoa(*doc.Acceptance)
+	}
+	set("nature", doc.Nature)
+	set("origin", doc.Origin)
+	if doc.Confidence != nil {
+		extra["confidence"] = strconv.FormatFloat(*doc.Confidence, 'f', 2, 64)
+	}
+	set("crosscheck", doc.Crosscheck)
+	set(graph.ExtraExtractedBy, doc.Extracted)
+	set(graph.ExtraInheritedFrom, doc.Inherited)
+	set("grounding", doc.Grounding)
+	set("grounding_missing", doc.Missing)
+	set(graph.ExtraGroundingWidened, doc.Widened)
+	set("digest", doc.Digest)
+	if len(extra) == 0 {
+		return nil
+	}
+	return extra
 }
 
 // LoadDir reads every node file under outDir/nodes for re-verification.
@@ -691,13 +700,13 @@ func LoadDir(outDir string) ([]graph.Node, error) {
 	sort.Strings(paths)
 	var nodes []graph.Node
 	for _, path := range paths {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("read node %s: %w", path, err)
+		data, readErr := os.ReadFile(filepath.Clean(path))
+		if readErr != nil {
+			return nil, fmt.Errorf("read node %s: %w", path, readErr)
 		}
-		n, err := ParseNode(string(data))
-		if err != nil {
-			return nil, fmt.Errorf("parse node %s: %w", path, err)
+		n, parseErr := ParseNode(string(data))
+		if parseErr != nil {
+			return nil, fmt.Errorf("parse node %s: %w", path, parseErr)
 		}
 		nodes = append(nodes, n)
 	}
@@ -794,6 +803,25 @@ func modelSection(r *domainmodel.Report, text *locale.Text) string {
 		b.WriteString(itemList(list.intro, list.items, text))
 	}
 	return b.String()
+}
+
+// modelFilesSection lists the model files written and the entities still
+// awaiting a definition.
+func modelFilesSection(files []string, undefined map[string][]string, text *locale.Text) string {
+	if len(files) == 0 {
+		return ""
+	}
+	listed := make([]string, len(files))
+	var pending []string
+	for i, file := range files {
+		listed[i] = "`" + file + "`"
+		for _, entity := range undefined[file] {
+			pending = append(pending, fmt.Sprintf("`%s` (`%s`)", entity, file))
+		}
+	}
+	return "\n" + text.ModelFilesHeading + "\n" +
+		itemList(text.ModelFilesIntroFmt, listed, text) +
+		itemList(text.ModelUndefinedFmt, pending, text)
 }
 
 // itemList writes a counted intro and its items, capped at maxListed; ""

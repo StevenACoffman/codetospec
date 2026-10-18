@@ -30,7 +30,7 @@ func chunkGo(
 	domainOf func(namespace, path string, line int) string,
 ) []sitter.Chunk {
 	t.Helper()
-	info, err := sitter.Parse("go", content)
+	info, err := sitter.NewParser().Parse("go", content)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestChunkFileNeverPacksContextChunks(t *testing.T) {
 	}
 	b.WriteString("}\n")
 	content := []byte(b.String())
-	info, err := sitter.Parse("php", content)
+	info, err := sitter.NewParser().Parse("php", content)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}

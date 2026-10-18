@@ -74,9 +74,9 @@ func invalidRuleFact(f *extract.Fact) string {
 		return fmt.Sprintf("slug %q is not a slug", a[extract.AttrSlug])
 	case a[extract.AttrDomain] == "" || extract.Slugify(a[extract.AttrDomain]) != a[extract.AttrDomain]:
 		return fmt.Sprintf("domain %q is not a slug", a[extract.AttrDomain])
-	case !mapper.EARSKinds[a[extract.AttrEARS]]:
+	case !mapper.IsEARSKind(a[extract.AttrEARS]):
 		return fmt.Sprintf("unknown EARS kind %q", a[extract.AttrEARS])
-	case !mapper.Natures[a[extract.AttrNature]]:
+	case !mapper.IsNature(a[extract.AttrNature]):
 		return fmt.Sprintf("unknown nature %q", a[extract.AttrNature])
 	case f.Source.Path == "":
 		return "no citation path"
@@ -108,7 +108,7 @@ func mechanicalRuleNode(
 ) Node {
 	edges := []Edge{{Type: EdgeBelongsTo, To: "domain." + f.Attrs[extract.AttrDomain]}}
 	if route := routes[f.Attrs[extract.AttrRoute]]; route != nil {
-		edges = append(edges, Edge{Type: EdgeExposedBy, To: EndpointID(*route)})
+		edges = append(edges, Edge{Type: EdgeExposedBy, To: EndpointID(route)})
 		sortEdges(edges)
 	}
 	return Node{

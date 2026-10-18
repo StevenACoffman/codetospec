@@ -45,7 +45,7 @@ func RunExtractor(
 ) ([]Fact, error) {
 	timeout := cfg.Timeout
 	if timeout <= 0 {
-		timeout = 300 * time.Second
+		timeout = defaultTimeout
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -89,10 +89,13 @@ func RunExtractor(
 	return facts, nil
 }
 
+// defaultTimeout bounds an extractor run when its config sets none.
+const defaultTimeout = 300 * time.Second
+
 // LoadFactsFile reads one facts JSON file (same schema as the extractor
 // protocol). Facts keep their origin when set, defaulting to the file name.
 func LoadFactsFile(path string) ([]Fact, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, fmt.Errorf("read facts file: %w", err)
 	}

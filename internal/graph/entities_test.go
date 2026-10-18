@@ -25,12 +25,12 @@ func TestEntityDescription(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			attrs := map[string]string{"name": "invoices", "columns": "id:id"}
+			attrs := map[string]string{extract.AttrName: "invoices", extract.AttrColumns: "id:id"}
 			if tc.description != "" {
 				attrs[extract.AttrDescription] = tc.description
 			}
 			fact := extract.Fact{
-				Kind: "table", ID: "table.invoices", Attrs: attrs,
+				Kind: extract.KindTable, ID: "table.invoices", Attrs: attrs,
 				Source: extract.Ref{Path: "db/schema.sql", Lines: "1-3"},
 			}
 			for _, n := range graph.Build([]extract.Fact{fact}, nil, extract.DomainResolver{}, "en") {

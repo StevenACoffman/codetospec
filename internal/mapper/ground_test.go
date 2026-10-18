@@ -28,10 +28,10 @@ func (s *scripted) Chat(context.Context, []llm.Message) (string, llm.Usage, erro
 func groundChunk() sitter.Chunk {
 	return sitter.Chunk{
 		ID:        "abcdef0123456789",
-		Path:      "app/X.php",
+		Path:      chunkPath,
 		StartLine: 10,
 		EndLine:   12,
-		Language:  "php",
+		Language:  langPHP,
 		Domain:    "x",
 		Content:   "function charge() {\n  $limit = 30;\n}",
 	}

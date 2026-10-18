@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"maps"
@@ -10,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -28,24 +32,11 @@ import (
 )
 
 // mockLLM is a deterministic OpenAI-compatible endpoint: it answers map
-// prompts with one rule per chunk containing business code, and reduce
-// prompts by consolidating the candidates verbatim.
+// prompts with one rule per chunk containing business code, reduce prompts
+// by consolidating the candidates verbatim, and crosscheck prompts with
+// "supported".
 func mockLLM(t *testing.T) *httptest.Server {
 	t.Helper()
-	fileHeader := regexp.MustCompile(`FILE: (\S+) \(lines (\d+)-(\d+)\)`)
-	listLine := func(prompt, prefix string) []string {
-		for line := range strings.SplitSeq(prompt, "\n") {
-			if rest, ok := strings.CutPrefix(line, prefix); ok {
-				var list []string
-				if err := json.Unmarshal([]byte(rest), &list); err != nil {
-					t.Errorf("mock: cannot parse %s list %q: %v", prefix, rest, err)
-				}
-				return list
-			}
-		}
-		return nil
-	}
-
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Messages []llm.Message `json:"messages"`
@@ -54,90 +45,11 @@ func mockLLM(t *testing.T) *httptest.Server {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		system, user := req.Messages[0].Content, req.Messages[1].Content
-
-		var content string
-		switch {
-		case strings.Contains(system, "software archaeologist"):
-			m := fileHeader.FindStringSubmatch(user)
-			if m == nil {
-				http.Error(w, "no FILE header", http.StatusBadRequest)
-				return
-			}
-			payload := map[string]any{"chunk_summary": "Chunk analysé.", "rules": []any{}}
-			if strings.Contains(user, "public function") {
-				payload["rules"] = []any{
-					map[string]any{
-						"title":       "Règle de " + m[1],
-						"ears_kind":   "event",
-						"requirement": mockRequirement(m[1]),
-						"citations": []any{
-							map[string]any{"path": m[1], "lines": m[2] + "-" + m[3]},
-						},
-						"entities":   listLine(user, "ALLOWED_ENTITIES: "),
-						"endpoints":  listLine(user, "ALLOWED_ENDPOINTS: "),
-						"nature":     "business",
-						"origin":     "explicit",
-						"confidence": 0.9,
-					},
-				}
-			}
-			data, err := json.Marshal(payload)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			content = string(data)
-		case strings.Contains(system, "requirements engineer"):
-			_, candidateJSON, ok := strings.Cut(user, "CANDIDATE_RULES:\n")
-			if !ok {
-				http.Error(w, "no candidates", http.StatusBadRequest)
-				return
-			}
-			var candidates []mapper.Rule
-			if err := json.Unmarshal([]byte(candidateJSON), &candidates); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-			rules := make([]any, 0, len(candidates))
-			for i, c := range candidates {
-				rules = append(rules, map[string]any{
-					"slug":        "regle-" + string(rune('a'+i)),
-					"title":       c.Title,
-					"ears_kind":   c.EarsKind,
-					"requirement": c.Requirement,
-					"rationale":   "Consolidée depuis le code.",
-					"citations":   c.Citations,
-					"entities":    c.Entities,
-					"endpoints":   c.Endpoints,
-					"acceptance_criteria": []string{
-						"Le calcul nominal est correct.",
-						"Le cas limite est couvert.",
-					},
-					"nature":     "business",
-					"origin":     "explicit",
-					"confidence": 0.9,
-				})
-			}
-			data, err := json.Marshal(
-				map[string]any{"domain_summary": "Domaine consolidé.", "rules": rules},
-			)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			content = string(data)
-		case strings.Contains(system, "adversarial code reviewer"):
-			if !strings.Contains(user, "CITED SOURCE") {
-				http.Error(w, "no cited source in crosscheck prompt", http.StatusBadRequest)
-				return
-			}
-			content = `{"verdict": "supported", "reason": "Les lignes citées implémentent la règle."}`
-		default:
-			http.Error(w, "unknown prompt", http.StatusBadRequest)
+		content, err := mockReply(req.Messages[0].Content, req.Messages[1].Content)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-
 		resp := map[string]any{
 			"choices": []any{
 				map[string]any{"message": map[string]any{"role": "assistant", "content": content}},
@@ -145,10 +57,113 @@ func mockLLM(t *testing.T) *httptest.Server {
 			"usage": map[string]any{"prompt_tokens": 100, "completion_tokens": 50},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			t.Errorf("mock: encode response: %v", err)
+		if encodeErr := json.NewEncoder(w).Encode(resp); encodeErr != nil {
+			t.Errorf("mock: encode response: %v", encodeErr)
 		}
 	}))
+}
+
+// mockReply answers one prompt, recognized by its system prompt.
+func mockReply(system, user string) (string, error) {
+	switch {
+	case strings.Contains(system, "software archaeologist"):
+		return mockMap(user)
+	case strings.Contains(system, "requirements engineer"):
+		return mockReduce(user)
+	case strings.Contains(system, "adversarial code reviewer"):
+		if !strings.Contains(user, "CITED SOURCE") {
+			return "", errors.New("no cited source in crosscheck prompt")
+		}
+		return `{"verdict": "supported", "reason": "Les lignes citées implémentent la règle."}`, nil
+	default:
+		return "", errors.New("unknown prompt")
+	}
+}
+
+// mockFileHeader is the map prompt's chunk header.
+var mockFileHeader = regexp.MustCompile(`FILE: (\S+) \(lines (\d+)-(\d+)\)`)
+
+// mockMap states one rule for a chunk holding a public function, citing
+// the whole chunk and every allowed entity and endpoint.
+func mockMap(user string) (string, error) {
+	m := mockFileHeader.FindStringSubmatch(user)
+	if m == nil {
+		return "", errors.New("no FILE header")
+	}
+	payload := map[string]any{"chunk_summary": "Chunk analysé.", "rules": []any{}}
+	if strings.Contains(user, "public function") {
+		entities, err := promptList(user, "ALLOWED_ENTITIES: ")
+		if err != nil {
+			return "", err
+		}
+		endpoints, err := promptList(user, "ALLOWED_ENDPOINTS: ")
+		if err != nil {
+			return "", err
+		}
+		payload["rules"] = []any{map[string]any{
+			"title":       "Règle de " + m[1],
+			"ears_kind":   "event",
+			"requirement": mockRequirement(m[1]),
+			"citations":   []any{map[string]any{"path": m[1], "lines": m[2] + "-" + m[3]}},
+			"entities":    entities,
+			"endpoints":   endpoints,
+			"nature":      "business",
+			"origin":      "explicit",
+			"confidence":  0.9,
+		}}
+	}
+	data, err := json.Marshal(payload)
+	return string(data), err
+}
+
+// mockReduce keeps every candidate as a rule, with two acceptance criteria.
+func mockReduce(user string) (string, error) {
+	_, candidateJSON, ok := strings.Cut(user, "CANDIDATE_RULES:\n")
+	if !ok {
+		return "", errors.New("no candidates")
+	}
+	var candidates []mapper.Rule
+	if err := json.Unmarshal([]byte(candidateJSON), &candidates); err != nil {
+		return "", err
+	}
+	rules := make([]any, 0, len(candidates))
+	for i, c := range candidates {
+		rules = append(rules, map[string]any{
+			"slug":        "regle-" + string(rune('a'+i)),
+			"title":       c.Title,
+			"ears_kind":   c.EarsKind,
+			"requirement": c.Requirement,
+			"rationale":   "Consolidée depuis le code.",
+			"citations":   c.Citations,
+			"entities":    c.Entities,
+			"endpoints":   c.Endpoints,
+			"acceptance_criteria": []string{
+				"Le calcul nominal est correct.",
+				"Le cas limite est couvert.",
+			},
+			"nature":     "business",
+			"origin":     "explicit",
+			"confidence": 0.9,
+		})
+	}
+	data, err := json.Marshal(
+		map[string]any{"domain_summary": "Domaine consolidé.", "rules": rules},
+	)
+	return string(data), err
+}
+
+// promptList reads the JSON list a prompt line starting with prefix holds.
+func promptList(prompt, prefix string) ([]string, error) {
+	for line := range strings.SplitSeq(prompt, "\n") {
+		if rest, ok := strings.CutPrefix(line, prefix); ok {
+			var list []string
+			if err := json.Unmarshal([]byte(rest), &list); err != nil {
+				return nil, fmt.Errorf("mock: %s list %q: %w", prefix, rest, err)
+			}
+			return list, nil
+		}
+	}
+	return nil, nil
 }
 
 // mockRequirement is the requirement the mock map step states for a file.
@@ -175,7 +190,7 @@ func e2eConfig(t *testing.T, serverURL, outDir string) *config.Config {
 		Lang:           "fr",
 		Workers:        2,
 		MaxTokens:      4096,
-		Exclude:        config.DefaultExclude,
+		Exclude:        config.DefaultExclude(),
 		FactsFiles:     []string{filepath.Join(src, "fixture.facts.json")},
 		LogLevel:       "warn",
 		DomainStrategy: "auto",
@@ -197,74 +212,90 @@ func TestEndToEndRunOnFixture(t *testing.T) {
 	); err != nil {
 		t.Fatalf("runPipeline: %v", err)
 	}
-
-	// The graph must be non-empty: >= 1 domain, entity, endpoint, EARS rule.
 	nodes, err := render.LoadDir(outDir)
 	if err != nil {
 		t.Fatalf("LoadDir: %v", err)
 	}
-	counts := map[string]int{}
-	for _, n := range nodes {
-		counts[n.Type]++
+	out := os.DirFS(outDir)
+
+	checkNodes(t, out, cfg, nodes)
+	checkReadme(t, out)
+	checkGraphJSON(t, out, len(nodes))
+	checkFactsFile(t, out)
+
+	// The verify and stats commands must succeed on the produced graph.
+	c := cli{
+		stdout: t.Output(), stderr: t.Output(),
+		logger: slog.New(slog.NewTextHandler(t.Output(), nil)),
 	}
-	for _, nodeType := range []string{"domain", "entity", "endpoint", "rule"} {
-		if counts[nodeType] < 1 {
-			t.Errorf("no %s node produced (counts=%v)", nodeType, counts)
+	if code := c.verify(&config.Config{Src: cfg.Src, Out: outDir}); code != exitOK {
+		t.Errorf("verify command exit = %d, want %d", code, exitOK)
+	}
+	if code := c.stats(&config.Config{Out: outDir}); code != exitOK {
+		t.Errorf("stats command exit = %d, want %d", code, exitOK)
+	}
+}
+
+// checkNodes: at least one node of each type, a graph that re-verifies
+// against the sources, the endpoint wired through the facts file, exactly
+// the planted ungrounded rule, and crosscheck verdicts in rule files.
+func checkNodes(t *testing.T, out fs.FS, cfg *config.Config, nodes []graph.Node) {
+	t.Helper()
+	counts := map[string]int{}
+	ungrounded := 0
+	for i := range nodes {
+		counts[nodes[i].Type]++
+		if nodes[i].Type == graph.TypeRule &&
+			nodes[i].Extra["grounding"] == string(grounding.StatusUngrounded) {
+			ungrounded++
 		}
 	}
-
-	// Rendered graph must re-verify cleanly against the sources.
-	if violations := verify.Run(nodes, cfg.Roots()); len(violations) != 0 {
-		t.Fatalf("verify violations: %v", violations)
-	}
-
-	// The endpoint wired through the facts file must exist and be linked.
-	endpointPath := filepath.Join(outDir, "nodes", "endpoints", "post-api-activate.md")
-	if _, err := os.Stat(endpointPath); err != nil {
-		t.Errorf("endpoint node missing: %v", err)
-	}
-
-	// README must contain the Mermaid domain graph and coverage.
-	readme, err := os.ReadFile(filepath.Join(outDir, "README.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(readme), "```mermaid") ||
-		!strings.Contains(string(readme), "## Couverture") {
-		t.Error("README.md missing mermaid graph or coverage section")
-	}
-	if !strings.Contains(string(readme), "Contre-vérification adversariale") {
-		t.Error("README.md missing adversarial crosscheck tally")
-	}
-	// The planted wrong threshold must be listed for review.
-	if !strings.Contains(string(readme), "## Règles non ancrées") ||
-		!strings.Contains(string(readme), ": 15\n") {
-		t.Errorf("README.md does not list the planted ungrounded rule:\n%s", readme)
-	}
-	var ungrounded int
-	for _, n := range nodes {
-		if n.Type == graph.TypeRule && n.Extra["grounding"] == string(grounding.StatusUngrounded) {
-			ungrounded++
+	for _, nodeType := range []string{graph.TypeDomain, graph.TypeEntity, "endpoint", graph.TypeRule} {
+		if counts[nodeType] < 1 {
+			t.Errorf("no %s node produced (counts=%v)", nodeType, counts)
 		}
 	}
 	if ungrounded != 1 {
 		t.Errorf("%d ungrounded rules, want exactly the planted one", ungrounded)
 	}
-
-	// Every rule node must carry its crosscheck verdict in the frontmatter.
-	rulePaths, err := filepath.Glob(filepath.Join(outDir, "nodes", "rules", "*.md"))
+	if violations := verify.Run(nodes, cfg.Roots()); len(violations) != 0 {
+		t.Fatalf("verify violations: %v", violations)
+	}
+	if _, err := fs.Stat(out, "nodes/endpoints/post-api-activate.md"); err != nil {
+		t.Errorf("endpoint node missing: %v", err)
+	}
+	rulePaths, err := fs.Glob(out, "nodes/rules/*.md")
 	if err != nil || len(rulePaths) == 0 {
 		t.Fatalf("no rule files: %v", err)
 	}
-	ruleData, err := os.ReadFile(rulePaths[0])
+	ruleData, err := fs.ReadFile(out, rulePaths[0])
+	if err != nil || !strings.Contains(string(ruleData), "crosscheck: supported") {
+		t.Errorf("rule frontmatter missing crosscheck verdict (%v):\n%s", err, ruleData)
+	}
+}
+
+// checkReadme: the README has the Mermaid domain graph, the coverage and
+// crosscheck sections, and lists the planted wrong threshold for review.
+func checkReadme(t *testing.T, out fs.FS) {
+	t.Helper()
+	readme, err := fs.ReadFile(out, "README.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(ruleData), "crosscheck: supported") {
-		t.Errorf("rule frontmatter missing crosscheck verdict:\n%s", ruleData)
+	for _, want := range []string{
+		"```mermaid", "## Couverture", "Contre-vérification adversariale",
+		"## Règles non ancrées", ": 15\n",
+	} {
+		if !strings.Contains(string(readme), want) {
+			t.Errorf("README.md lacks %q:\n%s", want, readme)
+		}
 	}
+}
 
-	// graph.json must parse and reference existing files.
+// checkGraphJSON: graph.json parses, has every node, and references
+// existing files.
+func checkGraphJSON(t *testing.T, out fs.FS, nodeCount int) {
+	t.Helper()
 	var graphDoc struct {
 		Nodes map[string]struct {
 			Type  string `json:"type"`
@@ -272,48 +303,34 @@ func TestEndToEndRunOnFixture(t *testing.T) {
 			Edges []any  `json:"edges"`
 		} `json:"nodes"`
 	}
-	graphData, err := os.ReadFile(filepath.Join(outDir, "graph.json"))
+	graphData, err := fs.ReadFile(out, "graph.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := json.Unmarshal(graphData, &graphDoc); err != nil {
+	if err = json.Unmarshal(graphData, &graphDoc); err != nil {
 		t.Fatalf("graph.json invalid: %v", err)
 	}
-	if len(graphDoc.Nodes) != len(nodes) {
-		t.Errorf("graph.json has %d nodes, want %d", len(graphDoc.Nodes), len(nodes))
+	if len(graphDoc.Nodes) != nodeCount {
+		t.Errorf("graph.json has %d nodes, want %d", len(graphDoc.Nodes), nodeCount)
 	}
 	for id, n := range graphDoc.Nodes {
-		if _, err := os.Stat(filepath.Join(outDir, filepath.FromSlash(n.File))); err != nil {
+		if _, statErr := fs.Stat(out, n.File); statErr != nil {
 			t.Errorf("graph.json node %s references missing file %s", id, n.File)
 		}
 	}
+}
 
-	// Facts merge must be persisted.
-	factsData, err := os.ReadFile(filepath.Join(outDir, ".codetospec", "facts.json"))
+// checkFactsFile: the merged facts are persisted as a facts envelope.
+func checkFactsFile(t *testing.T, out fs.FS) {
+	t.Helper()
+	factsData, err := fs.ReadFile(out, ".codetospec/facts.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	var envelope extract.FactsEnvelope
-	if err := json.Unmarshal(
-		factsData,
-		&envelope,
-	); err != nil ||
+	if err = json.Unmarshal(factsData, &envelope); err != nil ||
 		envelope.Schema != extract.FactsSchema {
 		t.Fatalf("facts.json invalid: %v", err)
-	}
-
-	// The verify and stats commands must succeed on the produced graph.
-	if code := verifyCommand(
-		&config.Config{Src: cfg.Src, Out: outDir},
-		slog.New(slog.NewTextHandler(t.Output(), nil)),
-	); code != 0 {
-		t.Errorf("verify command exit = %d, want 0", code)
-	}
-	if code := statsCommand(
-		&config.Config{Out: outDir},
-		slog.New(slog.NewTextHandler(t.Output(), nil)),
-	); code != 0 {
-		t.Errorf("stats command exit = %d, want 0", code)
 	}
 }
 
@@ -358,26 +375,23 @@ func TestEndToEndDeterministicRerun(t *testing.T) {
 // .codetospec cache).
 func snapshotOutput(t *testing.T, outDir string) map[string]string {
 	t.Helper()
+	out := os.DirFS(outDir)
 	files := make(map[string]string)
-	err := filepath.WalkDir(outDir, func(path string, d os.DirEntry, err error) error {
+	err := fs.WalkDir(out, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
 			if d.Name() == ".codetospec" {
-				return filepath.SkipDir
+				return fs.SkipDir
 			}
 			return nil
 		}
-		data, readErr := os.ReadFile(path)
+		data, readErr := fs.ReadFile(out, path)
 		if readErr != nil {
 			return readErr
 		}
-		rel, relErr := filepath.Rel(outDir, path)
-		if relErr != nil {
-			return relErr
-		}
-		files[rel] = string(data)
+		files[path] = string(data)
 		return nil
 	})
 	if err != nil {
@@ -671,7 +685,7 @@ func TestEndToEndRootedRule(t *testing.T) {
 // TestAllowedListsHandlerPath: a route naming its handler's file is allowed
 // in that file's chunks without any symbol matching.
 func TestAllowedListsHandlerPath(t *testing.T) {
-	_, byPath := allowedLists([]extract.Fact{
+	byPath := endpointsByPath([]extract.Fact{
 		{
 			Kind: "route",
 			ID:   "route.graphql.mutation.addAuthEmail",
@@ -707,5 +721,96 @@ func TestDomainGroups(t *testing.T) {
 	want := map[string]string{"cmd-seed": "main"}
 	if !maps.Equal(got, want) {
 		t.Fatalf("domainGroups = %v, want %v", got, want)
+	}
+}
+
+// TestRunDispatch covers the command line itself: what is a usage error
+// and what a command failure, with nothing written to the process streams.
+func TestRunDispatch(t *testing.T) {
+	cases := map[string]struct {
+		args     []string
+		wantCode int
+		wantErr  string // substring of stderr
+	}{
+		"no command":      {args: nil, wantCode: exitUsage, wantErr: "usage:"},
+		"unknown command": {args: []string{"frobnicate"}, wantCode: exitUsage, wantErr: "usage:"},
+		"bad flags":       {args: []string{"verify"}, wantCode: exitUsage, wantErr: "--src"},
+		"stats without a state file": {
+			args: []string{"stats", "--out", t.TempDir()}, wantCode: exitFailure,
+			wantErr: "cannot load state",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := run(context.Background(), tc.args, &stdout, &stderr)
+			if code != tc.wantCode || !strings.Contains(stderr.String(), tc.wantErr) {
+				t.Fatalf("exit %d, stderr %q; want %d and %q",
+					code, stderr.String(), tc.wantCode, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestEndToEndWritesDomainModel: --write-domain-model writes the models,
+// their provenance and a README section, identically on a warm rerun.
+func TestEndToEndWritesDomainModel(t *testing.T) {
+	server := mockLLM(t)
+	defer server.Close()
+	human := filepath.Join(t.TempDir(), "billing.modelith.yaml")
+	if err := os.WriteFile(human, []byte(`kind: DomainModel
+version: v1
+entities:
+  Invoice:
+    definition: A bill sent to a subscriber.
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]struct {
+		models    []string
+		wantFiles []string
+	}{
+		"human model mirrored": {
+			models:    []string{human},
+			wantFiles: []string{"models/billing.modelith.yaml"},
+		},
+		"no human model: generated per domain": {
+			wantFiles: []string{"models/generated/database.modelith.yaml"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			outDir := t.TempDir()
+			cfg := e2eConfig(t, server.URL, outDir)
+			cfg.Lang = "en"
+			cfg.DomainModels = tc.models
+			cfg.WriteDomainModel = true
+			logger := slog.New(slog.NewTextHandler(t.Output(), nil))
+			if err := runPipeline(context.Background(), cfg, ui.Discard{}, logger); err != nil {
+				t.Fatalf("runPipeline: %v", err)
+			}
+			first := snapshotOutput(t, outDir)
+			checkModelFiles(t, first, tc.wantFiles)
+			if err := runPipeline(context.Background(), cfg, ui.Discard{}, logger); err != nil {
+				t.Fatalf("second run: %v", err)
+			}
+			if second := snapshotOutput(t, outDir); !reflect.DeepEqual(second, first) {
+				t.Error("a warm rerun changed the output")
+			}
+		})
+	}
+}
+
+// checkModelFiles: the expected models, their provenance and the README
+// section listing them are in the output.
+func checkModelFiles(t *testing.T, output map[string]string, wantFiles []string) {
+	t.Helper()
+	for _, want := range append(wantFiles, "models/provenance.json") {
+		if _, ok := output[want]; !ok {
+			t.Errorf("%s not written", want)
+		}
+	}
+	if !strings.Contains(output["README.md"], "## Domain model files") {
+		t.Errorf("README lacks the model files section:\n%s", output["README.md"])
 	}
 }

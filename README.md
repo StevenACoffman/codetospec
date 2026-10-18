@@ -269,6 +269,23 @@ domain_model_entities:
   billing.Ticket: PaperTicket   # model entity → code entity title or node id
 ```
 
+**Writing models.** `--write-domain-model` (or `write_domain_model: true`)
+writes modelith models under `<out>/models/`, never into the source tree:
+
+- each human model, copied at its path relative to `--src`, with what the
+  code adds. Human definitions, comments and order are kept. A placeholder
+  definition is replaced by the entity's authored description when there is
+  one. Columns the entity lacks become attributes. Single-entity ubiquitous
+  rules that no invariant states become invariants.
+- one `generated/<domain>.modelith.yaml` per domain for the code entities no
+  human model names. An entity is defined by its description or, failing
+  that, a placeholder; the README lists those placeholders as questions.
+- `models/provenance.json`, which says where each field codetospec decided
+  comes from (human, description, placeholder, column or rule).
+
+Copy a model back into your repository, edit it, and pass it with
+`--domain-model` next time: definitions you write are kept.
+
 ## Output
 
 ```

@@ -8,27 +8,30 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/graph"
 )
 
-func dependency(path, lines, service, operation string) extract.Fact {
+// caller is the file that makes the service calls.
+const caller = "tasks/nickname.go"
+
+// dependency is a call from caller's lines to an operation of service.
+func dependency(lines, service, operation string) extract.Fact {
 	return extract.Fact{
 		Kind:   extract.KindDependency,
-		ID:     "dependency." + path + ":" + lines + ":" + service,
+		ID:     "dependency." + caller + ":" + lines + ":" + service,
 		Attrs:  map[string]string{extract.AttrService: service, extract.AttrOperation: operation},
-		Source: extract.Ref{Path: path, Lines: lines},
+		Source: extract.Ref{Path: caller, Lines: lines},
 	}
 }
 
 func TestBuildServiceNodes(t *testing.T) {
-	const caller = "tasks/nickname.go"
 	facts := []extract.Fact{
 		{
-			Kind:   "module",
-			Attrs:  map[string]string{"name": "tasks"},
-			Source: extract.Ref{Path: caller, Lines: "1-1"},
+			Kind:   extract.KindModule,
+			Attrs:  map[string]string{extract.AttrName: "tasks"},
+			Source: extract.Ref{Path: caller, Lines: firstLine},
 		},
-		dependency(caller, "40-40", "assignments", "Mutation.acceptInvitation"),
-		dependency(caller, "12-12", "assignments", "Query.classroom"),
-		dependency(caller, "60-60", "assignments", "Query.roster"),
-		dependency(caller, "50-50", "Not A Slug", "Query.ignored"),
+		dependency("40-40", "assignments", "Mutation.acceptInvitation"),
+		dependency("12-12", "assignments", "Query.classroom"),
+		dependency("60-60", "assignments", "Query.roster"),
+		dependency("50-50", "Not A Slug", "Query.ignored"),
 		ruleFact("rule.x"), // gives the caller's domain a domain node
 	}
 	facts[5].Attrs[extract.AttrDomain] = "tasks"

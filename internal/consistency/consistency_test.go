@@ -1,8 +1,9 @@
-package consistency
+package consistency_test
 
 import (
 	"testing"
 
+	"github.com/StevenACoffman/codetospec/internal/consistency"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 )
 
@@ -30,7 +31,7 @@ func TestFindDuplicatesFlagsNearIdentical(t *testing.T) {
 		),
 		{ID: "domain.x", Type: "domain", Body: "ignore me"},
 	}
-	pairs := FindDuplicates(nodes, DefaultThreshold)
+	pairs := consistency.FindDuplicates(nodes, consistency.DefaultThreshold)
 	if len(pairs) != 1 {
 		t.Fatalf("pairs = %d, want 1 (the two Gol notes)", len(pairs))
 	}
@@ -38,8 +39,8 @@ func TestFindDuplicatesFlagsNearIdentical(t *testing.T) {
 	if p.A != "rule.root.note-gol" || p.B != "rule.usine.note-gol" {
 		t.Errorf("pair = %s ↔ %s", p.A, p.B)
 	}
-	if p.Similarity < DefaultThreshold {
-		t.Errorf("similarity = %.2f, want ≥ %.2f", p.Similarity, DefaultThreshold)
+	if p.Similarity < consistency.DefaultThreshold {
+		t.Errorf("similarity = %.2f, want ≥ %.2f", p.Similarity, consistency.DefaultThreshold)
 	}
 }
 
@@ -54,7 +55,7 @@ func TestFindDuplicatesIgnoresDistinctRules(t *testing.T) {
 			"QUAND un utilisateur se connecte, le système doit vérifier son mot de passe.",
 		),
 	}
-	if pairs := FindDuplicates(nodes, DefaultThreshold); len(pairs) != 0 {
+	if pairs := consistency.FindDuplicates(nodes, consistency.DefaultThreshold); len(pairs) != 0 {
 		t.Fatalf("distinct rules should not pair, got %+v", pairs)
 	}
 }
@@ -70,8 +71,8 @@ func TestFindDuplicatesDeterministicOrder(t *testing.T) {
 			"Le système doit afficher le cumul de la semaine pour Bois Rouge et Le Gol.",
 		),
 	}
-	p1 := FindDuplicates(nodes, DefaultThreshold)
-	p2 := FindDuplicates(nodes, DefaultThreshold)
+	p1 := consistency.FindDuplicates(nodes, consistency.DefaultThreshold)
+	p2 := consistency.FindDuplicates(nodes, consistency.DefaultThreshold)
 	if len(p1) != 1 || len(p2) != 1 || p1[0] != p2[0] {
 		t.Fatalf("non-deterministic or wrong: %+v vs %+v", p1, p2)
 	}
@@ -104,7 +105,7 @@ func TestFindDuplicatesNegationAware(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			pairs := FindDuplicates(
+			pairs := consistency.FindDuplicates(
 				[]graph.Node{rule("rule.d.a", tc.a), rule("rule.d.b", tc.b)},
 				0.7,
 			)
@@ -123,7 +124,7 @@ func TestFindDuplicatesReadsEnglishRules(t *testing.T) {
 			Body: "**Requirement (EARS)**: " + requirement,
 		}
 	}
-	pairs := FindDuplicates([]graph.Node{
+	pairs := consistency.FindDuplicates([]graph.Node{
 		en("rule.d.a", "WHEN an order is paid, the system shall send a receipt."),
 		en("rule.d.b", "WHEN an invoice is overdue, the system shall lock the account."),
 	}, 0.5)
@@ -160,7 +161,12 @@ func TestFindDuplicatesSkipsTwoExtractorRules(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := FindDuplicates(tc.nodes, DefaultThreshold); len(got) != tc.want {
+			if got := consistency.FindDuplicates(
+				tc.nodes,
+				consistency.DefaultThreshold,
+			); len(
+				got,
+			) != tc.want {
 				t.Fatalf("got %d pairs %v, want %d", len(got), got, tc.want)
 			}
 		})

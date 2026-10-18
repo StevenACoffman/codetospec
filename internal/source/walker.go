@@ -29,56 +29,32 @@ type File struct {
 // entry matches directory and file names exactly or as a glob pattern
 // (e.g. "*.md", "*.csv").
 func Walk(root string, exclude []string) ([]File, error) {
-	var patterns []string
-	for _, name := range exclude {
-		if name = strings.TrimSpace(name); name != "" {
-			patterns = append(patterns, name)
-		}
-	}
-	excluded := func(name string) bool {
-		for _, p := range patterns {
-			if p == name {
-				return true
-			}
-			if ok, err := filepath.Match(p, name); err == nil && ok {
-				return true
-			}
-		}
-		return false
-	}
-
+	excluded := excluder(exclude)
 	var files []File
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		name := d.Name()
-		if d.IsDir() {
-			if path == root {
-				return nil
-			}
-			if excluded(name) || strings.HasPrefix(name, ".") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if strings.HasPrefix(name, ".") || excluded(name) {
+		skipped := strings.HasPrefix(name, ".") || excluded(name)
+		switch {
+		case d.IsDir() && path != root && skipped:
+			return filepath.SkipDir
+		case d.IsDir() || skipped:
 			return nil
 		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return fmt.Errorf("relativize %s: %w", path, err)
 		}
-		kind := sniff(path)
-		if kind.binary {
-			return nil
+		if kind := sniff(path); !kind.binary {
+			files = append(files, File{
+				Path:      filepath.ToSlash(rel),
+				AbsPath:   path,
+				Language:  sitter.LanguageForPath(name),
+				Generated: kind.generated,
+			})
 		}
-		files = append(files, File{
-			Path:      filepath.ToSlash(rel),
-			AbsPath:   path,
-			Language:  sitter.LanguageForPath(name),
-			Generated: kind.generated,
-		})
 		return nil
 	})
 	if err != nil {
@@ -86,6 +62,29 @@ func Walk(root string, exclude []string) ([]File, error) {
 	}
 	return files, nil
 }
+
+// excluder matches a file or directory name against the exclude entries,
+// exactly or as a glob.
+func excluder(exclude []string) func(name string) bool {
+	var patterns []string
+	for _, name := range exclude {
+		if name = strings.TrimSpace(name); name != "" {
+			patterns = append(patterns, name)
+		}
+	}
+	return func(name string) bool {
+		for _, p := range patterns {
+			if ok, err := filepath.Match(p, name); p == name || err == nil && ok {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// sniffBytes is how much of a file sniff reads: enough for a header and a
+// fair sample of text.
+const sniffBytes = 8000
 
 // fileKind is what the first bytes of a file tell about it.
 type fileKind struct {
@@ -96,12 +95,14 @@ type fileKind struct {
 // sniff reads the first bytes of a file to decide whether it is source
 // text at all, and whether a tool generated it.
 func sniff(path string) fileKind {
-	f, err := os.Open(path)
+	f, err := os.Open(filepath.Clean(path))
 	if err != nil {
 		return fileKind{binary: true}
 	}
-	defer f.Close()
-	buf := make([]byte, 8000)
+	defer func() {
+		_ = f.Close() // read-only: a failed close loses nothing
+	}()
+	buf := make([]byte, sniffBytes)
 	n, _ := f.Read(buf)
 	if looksBinary(buf[:n]) {
 		return fileKind{binary: true}

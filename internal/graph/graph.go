@@ -128,7 +128,7 @@ func Build(
 }
 
 // EntityID derives the node id for a table fact.
-func EntityID(f extract.Fact) string {
+func EntityID(f *extract.Fact) string {
 	name := f.Attrs["name"]
 	if name == "" {
 		name = strings.TrimPrefix(f.ID, "table.")
@@ -143,7 +143,7 @@ const rootPathSlug = "root"
 // EndpointID derives the node id for a route fact: its verb and path,
 // slugged. Paths differing only by punctuation share an id (/graphql and
 // /graphql/); changing that would rename existing endpoints.
-func EndpointID(f extract.Fact) string {
+func EndpointID(f *extract.Fact) string {
 	verb := strings.ToLower(routeVerb(f))
 	path := f.Attrs["path"]
 	if extract.Slugify(path) == "" {
@@ -152,14 +152,14 @@ func EndpointID(f extract.Fact) string {
 	return "endpoint." + extract.Slugify(verb+" "+path)
 }
 
-func routeVerb(f extract.Fact) string {
+func routeVerb(f *extract.Fact) string {
 	if v := f.Attrs["method"]; v != "" {
 		return v
 	}
 	return f.Attrs["verb"]
 }
 
-func routeHandler(f extract.Fact) string {
+func routeHandler(f *extract.Fact) string {
 	handler := f.Attrs["handler"]
 	if handler == "" {
 		handler = f.Attrs["controller"]
@@ -190,7 +190,7 @@ func entityNodes(facts []extract.Fact, text *locale.Text) []Node {
 			body.WriteString("- `" + col + "`\n")
 		}
 		nodes = append(nodes, Node{
-			ID:      EntityID(f),
+			ID:      EntityID(&f),
 			Type:    TypeEntity,
 			Status:  StatusGenerated,
 			Sources: []extract.Ref{f.Source},
@@ -217,14 +217,14 @@ func endpointNodes(facts []extract.Fact, text *locale.Text) []Node {
 		if f.Kind != extract.KindRoute {
 			continue
 		}
-		verb := strings.ToUpper(routeVerb(f))
+		verb := strings.ToUpper(routeVerb(&f))
 		path := f.Attrs["path"]
 		body := text.Method + verb + "\n\n" + text.Path + "`" + path + "`"
-		if handler := routeHandler(f); handler != "" {
+		if handler := routeHandler(&f); handler != "" {
 			body += "\n\n" + text.Handler + "`" + handler + "`"
 		}
 		nodes = append(nodes, Node{
-			ID:      EndpointID(f),
+			ID:      EndpointID(&f),
 			Type:    "endpoint",
 			Status:  StatusGenerated,
 			Sources: []extract.Ref{f.Source},
@@ -383,56 +383,15 @@ func domainDependencies(
 	for _, d := range domains {
 		existing[strings.TrimPrefix(d.ID, "domain.")] = true
 	}
-
-	type module struct {
-		segments []string
-		domain   string
-	}
-	var modules []module
-	for _, f := range facts {
-		if f.Kind != "module" {
-			continue
-		}
-		name := f.Attrs["name"]
-		if name == "" {
-			continue
-		}
-		modules = append(modules, module{
-			segments: extract.SplitQualified(name),
-			domain:   resolver.Resolve(name, f.Source.Path),
-		})
-	}
-
+	modules := moduleDomains(facts, resolver)
 	deps := make(map[string]map[string]bool)
-	for _, f := range facts {
+	for i := range facts {
+		f := &facts[i]
 		if f.Kind != "import" {
 			continue
 		}
 		from := resolver.Resolve(f.Attrs["namespace"], f.Source.Path)
-		targetSegments := extract.SplitQualified(f.Attrs["target"])
-		to, bestLen := "", 0
-		for _, m := range modules {
-			if len(m.segments) > bestLen && segmentsPrefix(m.segments, targetSegments) {
-				to, bestLen = m.domain, len(m.segments)
-			}
-		}
-		if to == "" {
-			// Suffix fallback for languages where imports carry a path while
-			// module facts carry the bare package name (Go: import
-			// "app/internal/billing" vs package "billing"). Only applied
-			// when it resolves to exactly one domain.
-			suffixDomains := map[string]bool{}
-			for _, m := range modules {
-				if len(m.segments) > 0 && segmentsSuffix(m.segments, targetSegments) {
-					suffixDomains[m.domain] = true
-				}
-			}
-			if len(suffixDomains) == 1 {
-				for domain := range suffixDomains {
-					to = domain
-				}
-			}
-		}
+		to := importDomain(modules, extract.SplitQualified(f.Attrs["target"]))
 		if to == "" || to == from || !existing[from] || !existing[to] {
 			continue
 		}
@@ -452,6 +411,56 @@ func domainDependencies(
 		edges[from] = list
 	}
 	return edges
+}
+
+// moduleDomain is a module fact's qualified name, split, and its domain.
+type moduleDomain struct {
+	segments []string
+	domain   string
+}
+
+// moduleDomains lists the named module facts with their domain.
+func moduleDomains(facts []extract.Fact, resolver extract.DomainResolver) []moduleDomain {
+	var modules []moduleDomain
+	for i := range facts {
+		f := &facts[i]
+		if name := f.Attrs["name"]; f.Kind == "module" && name != "" {
+			modules = append(modules, moduleDomain{
+				segments: extract.SplitQualified(name),
+				domain:   resolver.Resolve(name, f.Source.Path),
+			})
+		}
+	}
+	return modules
+}
+
+// importDomain is the domain of the module an import target names: the
+// longest module prefix of the target, else the single domain whose module
+// is a suffix of it (Go imports carry a path, "app/internal/billing", while
+// its package fact names "billing"); "" when neither resolves.
+func importDomain(modules []moduleDomain, target []string) string {
+	to, bestLen := "", 0
+	for _, m := range modules {
+		if len(m.segments) > bestLen && segmentsPrefix(m.segments, target) {
+			to, bestLen = m.domain, len(m.segments)
+		}
+	}
+	if to != "" {
+		return to
+	}
+	suffixDomains := map[string]bool{}
+	for _, m := range modules {
+		if len(m.segments) > 0 && segmentsSuffix(m.segments, target) {
+			suffixDomains[m.domain] = true
+		}
+	}
+	if len(suffixDomains) != 1 {
+		return ""
+	}
+	for domain := range suffixDomains {
+		to = domain
+	}
+	return to
 }
 
 // segmentsPrefix reports whether prefix is a segment-wise prefix of full.
@@ -491,16 +500,11 @@ func sortEdges(edges []Edge) {
 }
 
 func edgeTypeRank(t string) int {
-	switch t {
-	case EdgeBelongsTo:
-		return 0
-	case EdgeTouches:
-		return 1
-	case EdgeExposedBy:
-		return 2
-	default: // depends_on
-		return 3
+	order := []string{EdgeBelongsTo, EdgeTouches, EdgeExposedBy}
+	if i := slices.Index(order, t); i >= 0 {
+		return i
 	}
+	return len(order) // depends_on
 }
 
 func dedupSorted(values []string) []string {

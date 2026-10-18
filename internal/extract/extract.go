@@ -54,6 +54,11 @@ const (
 	// KindRoute is an endpoint: Attrs path, method, handler, AttrHandlerPath
 	// and AttrHandlerLines.
 	KindRoute = "route"
+	// The structural kinds every layer emits.
+	KindModule = "module"
+	KindImport = "import"
+	KindTable  = "table"
+	KindSymbol = "symbol"
 )
 
 // Values of AttrAs.
@@ -71,6 +76,11 @@ const (
 	AttrNature      = "nature"
 	AttrDomain      = "domain"
 	AttrName        = "name"
+	AttrPath        = "path"      // a route's path
+	AttrMethod      = "method"    // a route's HTTP method
+	AttrNamespace   = "namespace" // the namespace a fact sits in
+	AttrTarget      = "target"    // what an import names
+	AttrColumns     = "columns"   // a table's "name:type" columns, comma-separated
 	AttrValue       = "value"
 	AttrRoute       = "route"
 	AttrText        = "text"
@@ -135,7 +145,7 @@ func Merge(sets ...[]Fact) []Fact {
 				order = append(order, f.ID)
 				continue
 			}
-			if factRank(f) > factRank(existing) {
+			if factRank(&f) > factRank(&existing) {
 				byID[f.ID] = f
 			}
 		}
@@ -148,16 +158,23 @@ func Merge(sets ...[]Fact) []Fact {
 	return merged
 }
 
+// Fact precedence ranks, highest first.
+const (
+	rankProved    = 3 // runtime-proved
+	rankExtractor = 2 // an external extractor's static fact
+	rankSitter    = 1 // the universal tree-sitter layer
+)
+
 // factRank orders fact precedence: proved beats external extractors,
 // which beat the universal tree-sitter layer.
-func factRank(f Fact) int {
+func factRank(f *Fact) int {
 	switch {
 	case f.Certainty == CertaintyProved:
-		return 3
+		return rankProved
 	case f.Origin != OriginSitter:
-		return 2
+		return rankExtractor
 	default:
-		return 1
+		return rankSitter
 	}
 }
 
@@ -233,7 +250,7 @@ func domainFromDir(path string) string {
 
 // DomainOf derives the domain slug for a fact using the auto strategy:
 // namespace attribute when available, first directory under --src otherwise.
-func DomainOf(f Fact, path string) string {
+func DomainOf(f *Fact, path string) string {
 	return DomainResolver{Strategy: "auto"}.Resolve(f.Attrs["namespace"], path)
 }
 

@@ -1,4 +1,4 @@
-package crosscheck
+package crosscheck_test
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/StevenACoffman/codetospec/internal/crosscheck"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/llm"
@@ -36,9 +37,9 @@ func ruleNode() graph.Node {
 // supportedReply is a minimal valid crosscheck reply.
 const supportedReply = `{"verdict": "supported", "reason": "ok"}`
 
-func newChecker(t *testing.T, chat llm.Chatter) *Checker {
+func newChecker(t *testing.T, chat llm.Chatter) *crosscheck.Checker {
 	t.Helper()
-	return &Checker{
+	return &crosscheck.Checker{
 		Log:     slog.New(slog.NewTextHandler(t.Output(), nil)),
 		LLM:     chat,
 		Lang:    "fr",
@@ -48,26 +49,25 @@ func newChecker(t *testing.T, chat llm.Chatter) *Checker {
 	}
 }
 
+// TestCitedExcerptShowsContext: the reviewer sees the cited lines marked
+// ">" and surrounding context lines marked "·".
 func TestCitedExcerptShowsContext(t *testing.T) {
-	c := newChecker(t, nil)
-	excerpt, err := c.citedExcerpt(ruleNode().Sources) // cites lines 11-24
-	if err != nil {
-		t.Fatalf("citedExcerpt: %v", err)
+	var prompt string
+	c := newChecker(
+		t,
+		chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+			prompt = msgs[1].Content
+			return supportedReply, llm.Usage{}, nil
+		}),
+	)
+	if _, err := c.Run(context.Background(), []graph.Node{ruleNode()}); err != nil { // cites 11-24
+		t.Fatalf("Run: %v", err)
 	}
-	// Cited lines are marked ">", context lines "·".
-	if !strings.Contains(excerpt, "11 > ") {
-		t.Errorf("first cited line 11 should be marked '>':\n%s", excerpt)
+	if !strings.Contains(prompt, "11 > ") {
+		t.Errorf("first cited line 11 should be marked '>':\n%s", prompt)
 	}
-	// At least one line before the cited span (< 11) must appear as context.
-	hasContext := false
-	for ln := range strings.SplitSeq(excerpt, "\n") {
-		if strings.Contains(ln, " · ") {
-			hasContext = true
-			break
-		}
-	}
-	if !hasContext {
-		t.Errorf("excerpt should include surrounding context lines marked '·':\n%s", excerpt)
+	if !strings.Contains(prompt, " · ") {
+		t.Errorf("the excerpt should include context lines marked '·':\n%s", prompt)
 	}
 }
 
@@ -107,7 +107,7 @@ func TestCrosscheckNominal(t *testing.T) {
 		t.Fatalf("calls = %d, want 1 (domains are not checked)", calls)
 	}
 	v := verdicts["rule.services.prorata-activation"]
-	if v.Verdict != VerdictSupported || v.Reason == "" {
+	if v.Verdict != crosscheck.VerdictSupported || v.Reason == "" {
 		t.Fatalf("verdict = %+v", v)
 	}
 }
@@ -133,7 +133,8 @@ func TestCrosscheckRejectsBadVerdictThenCorrects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if calls != 2 || verdicts["rule.services.prorata-activation"].Verdict != VerdictPartial {
+	if calls != 2 ||
+		verdicts["rule.services.prorata-activation"].Verdict != crosscheck.VerdictPartial {
 		t.Fatalf("calls=%d verdicts=%+v", calls, verdicts)
 	}
 }
@@ -181,7 +182,7 @@ func TestCrosscheckCacheByInputHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !recalled || verdicts[changed.ID].Verdict != VerdictUnsupported {
+	if !recalled || verdicts[changed.ID].Verdict != crosscheck.VerdictUnsupported {
 		t.Fatalf("changed rule should be re-checked, got %+v", verdicts[changed.ID])
 	}
 }
@@ -239,19 +240,19 @@ func TestRepairIsReviewedAgain(t *testing.T) {
 	}{
 		"supported: repair adopted": {
 			reReview:      `{"verdict": "supported", "reason": "calculate facture au prorata"}`,
-			want:          VerdictRepaired,
-			wantReview:    VerdictSupported,
+			want:          crosscheck.VerdictRepaired,
+			wantReview:    crosscheck.VerdictSupported,
 			wantCitations: 1,
 		},
 		"partial: first verdict kept": {
 			reReview:   `{"verdict": "partial", "reason": "seuil absent"}`,
-			want:       VerdictUnsupported,
-			wantReview: VerdictPartial,
+			want:       crosscheck.VerdictUnsupported,
+			wantReview: crosscheck.VerdictPartial,
 		},
 		"review failure: first verdict kept": {
 			reReview:   `not json`,
-			want:       VerdictUnsupported,
-			wantReview: VerdictUnchecked,
+			want:       crosscheck.VerdictUnsupported,
+			wantReview: crosscheck.VerdictUnchecked,
 		},
 	}
 	for name, tc := range cases {
@@ -300,7 +301,7 @@ func TestRepairRejectsUngroundedCitation(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 	v := verdicts["rule.services.prorata-activation"]
-	if v.Verdict != VerdictUnsupported {
+	if v.Verdict != crosscheck.VerdictUnsupported {
 		t.Fatalf("ungrounded citation must not repair; verdict = %q", v.Verdict)
 	}
 	if len(v.NewCitations) != 0 {
@@ -322,51 +323,51 @@ func TestRepairNoopWithoutSymbols(t *testing.T) {
 	if call != 1 {
 		t.Fatalf("without symbols, no repair call should happen; calls = %d", call)
 	}
-	if verdicts["rule.services.prorata-activation"].Verdict != VerdictUnsupported {
+	if verdicts["rule.services.prorata-activation"].Verdict != crosscheck.VerdictUnsupported {
 		t.Fatal("verdict should stay unsupported")
 	}
 }
 
 func TestAnnotateAndCount(t *testing.T) {
 	cases := map[string]struct {
-		verdict   *Verdict // nil: the rule got no verdict
+		verdict   *crosscheck.Verdict // nil: the rule got no verdict
 		wantExtra string
-		wantTally Tally
+		wantTally crosscheck.Tally
 	}{
 		"supported": {
-			verdict:   &Verdict{Verdict: VerdictSupported},
-			wantExtra: VerdictSupported,
-			wantTally: Tally{Supported: 1},
+			verdict:   &crosscheck.Verdict{Verdict: crosscheck.VerdictSupported},
+			wantExtra: crosscheck.VerdictSupported,
+			wantTally: crosscheck.Tally{Supported: 1},
 		},
 		"failed check": {
-			verdict:   &Verdict{Failed: true, Error: "boom"},
-			wantExtra: VerdictUnchecked,
-			wantTally: Tally{Unchecked: 1},
+			verdict:   &crosscheck.Verdict{Failed: true, Error: "boom"},
+			wantExtra: crosscheck.VerdictUnchecked,
+			wantTally: crosscheck.Tally{Unchecked: 1},
 		},
 		"no verdict": {
 			verdict:   nil,
-			wantExtra: VerdictUnchecked,
-			wantTally: Tally{Unchecked: 1},
+			wantExtra: crosscheck.VerdictUnchecked,
+			wantTally: crosscheck.Tally{Unchecked: 1},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			rule := ruleNode()
 			domain := graph.Node{ID: "domain.services", Type: "domain"}
-			verdicts := map[string]Verdict{}
+			verdicts := map[string]crosscheck.Verdict{}
 			if tc.verdict != nil {
 				v := *tc.verdict
 				v.RuleID = rule.ID
 				verdicts[rule.ID] = v
 			}
-			nodes := Annotate([]graph.Node{rule, domain}, verdicts)
+			nodes := crosscheck.Annotate([]graph.Node{rule, domain}, verdicts)
 			if got := nodes[0].Extra["crosscheck"]; got != tc.wantExtra {
 				t.Errorf("rule crosscheck = %q, want %q", got, tc.wantExtra)
 			}
 			if _, ok := nodes[1].Extra["crosscheck"]; ok {
 				t.Errorf("non-rule node annotated: %v", nodes[1].Extra)
 			}
-			if got := Count(nodes); got != tc.wantTally {
+			if got := crosscheck.Count(nodes); got != tc.wantTally {
 				t.Errorf("tally = %+v, want %+v", got, tc.wantTally)
 			}
 		})
@@ -375,13 +376,13 @@ func TestAnnotateAndCount(t *testing.T) {
 
 func TestCrosscheckCacheKeyedByModelAndPrompt(t *testing.T) {
 	cases := map[string]struct {
-		change    func(c *Checker)
+		change    func(c *crosscheck.Checker)
 		wantCalls int
 	}{
-		"unchanged":   {change: func(*Checker) {}, wantCalls: 0},
-		"other model": {change: func(c *Checker) { c.Model = "model-b" }, wantCalls: 1},
-		"other lang":  {change: func(c *Checker) { c.Lang = "en" }, wantCalls: 1},
-		"repair on":   {change: func(c *Checker) { c.Repair = true }, wantCalls: 1},
+		"unchanged":   {change: func(*crosscheck.Checker) {}, wantCalls: 0},
+		"other model": {change: func(c *crosscheck.Checker) { c.Model = "model-b" }, wantCalls: 1},
+		"other lang":  {change: func(c *crosscheck.Checker) { c.Lang = "en" }, wantCalls: 1},
+		"repair on":   {change: func(c *crosscheck.Checker) { c.Repair = true }, wantCalls: 1},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -433,11 +434,11 @@ func TestMechanicalRulesSkipTheReviewer(t *testing.T) {
 	if len(reviewed) != 1 || strings.Contains(reviewed[0], mechanical.ID) {
 		t.Fatalf("reviewer saw %d prompts, want only the LLM rule", len(reviewed))
 	}
-	nodes = Annotate(nodes, verdicts)
-	if got := nodes[1].Extra["crosscheck"]; got != VerdictMechanical {
-		t.Errorf("mechanical rule crosscheck = %q, want %q", got, VerdictMechanical)
+	nodes = crosscheck.Annotate(nodes, verdicts)
+	if got := nodes[1].Extra["crosscheck"]; got != crosscheck.VerdictMechanical {
+		t.Errorf("mechanical rule crosscheck = %q, want %q", got, crosscheck.VerdictMechanical)
 	}
-	if got := Count(nodes); got != (Tally{Supported: 1, Mechanical: 1}) {
+	if got := crosscheck.Count(nodes); got != (crosscheck.Tally{Supported: 1, Mechanical: 1}) {
 		t.Errorf("tally = %+v", got)
 	}
 }
@@ -446,12 +447,17 @@ func TestMechanicalRulesSkipTheReviewer(t *testing.T) {
 // not reviewed here; it keeps the verdict it came with.
 func TestAnnotateKeepsInheritedVerdict(t *testing.T) {
 	rule := ruleNode()
-	rule.Extra = map[string]string{graph.ExtraInheritedFrom: "pkg", "crosscheck": VerdictSupported}
+	rule.Extra = map[string]string{
+		graph.ExtraInheritedFrom: "pkg",
+		"crosscheck":             crosscheck.VerdictSupported,
+	}
 	if graph.Reviewable(&rule) {
 		t.Fatal("an inherited rule is reviewable")
 	}
-	verdicts := map[string]Verdict{rule.ID: {RuleID: rule.ID, Verdict: VerdictUnsupported}}
-	if got := Annotate([]graph.Node{rule}, verdicts)[0].Extra["crosscheck"]; got != VerdictSupported {
-		t.Fatalf("crosscheck = %q, want the inherited %q", got, VerdictSupported)
+	verdicts := map[string]crosscheck.Verdict{
+		rule.ID: {RuleID: rule.ID, Verdict: crosscheck.VerdictUnsupported},
+	}
+	if got := crosscheck.Annotate([]graph.Node{rule}, verdicts)[0].Extra["crosscheck"]; got != crosscheck.VerdictSupported {
+		t.Fatalf("crosscheck = %q, want the inherited %q", got, crosscheck.VerdictSupported)
 	}
 }

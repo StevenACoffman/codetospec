@@ -5,6 +5,7 @@ import (
 	"go/printer"
 	"go/token"
 	"go/types"
+	"net/http"
 	"regexp"
 	"strings"
 
@@ -23,27 +24,21 @@ type Route struct {
 	Ref        Ref
 }
 
-// httpVerbs are router method names that name an HTTP verb directly
-// (gin/echo use upper-case, chi uses title-case).
-var httpVerbs = map[string]string{
-	"GET":     "GET",
-	"POST":    "POST",
-	"PUT":     "PUT",
-	"PATCH":   "PATCH",
-	"DELETE":  "DELETE",
-	"OPTIONS": "OPTIONS",
-	"HEAD":    "HEAD",
-	"ANY":     "ANY",
-	"Get":     "GET",
-	"Post":    "POST",
-	"Put":     "PUT",
-	"Patch":   "PATCH",
-	"Delete":  "DELETE",
-	"Options": "OPTIONS",
-	"Head":    "HEAD",
-	"Connect": "CONNECT",
-	"Trace":   "TRACE",
-	"Any":     "ANY",
+// httpVerb is the HTTP verb a router method name declares directly, ""
+// for any other name: gin/echo use upper case ("GET", and "ANY" for every
+// verb), chi title case ("Get").
+func httpVerb(name string) string {
+	upper := strings.ToUpper(name)
+	switch {
+	case name == "ANY":
+		return name
+	case !isHTTPMethod(upper):
+		return ""
+	case name == upper, name == upper[:1]+strings.ToLower(upper[1:]):
+		return upper
+	default:
+		return ""
+	}
 }
 
 var methodPrefixRe = regexp.MustCompile(`^(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+(/\S*)$`)
@@ -110,7 +105,7 @@ func groupPrefixes(body *ast.BlockStmt) map[string]string {
 			return true
 		}
 		base := ""
-		if recv, ok := sel.X.(*ast.Ident); ok {
+		if recv, isIdent := sel.X.(*ast.Ident); isIdent {
 			base = recv.Name
 		}
 		direct[lhs.Name] = struct {
@@ -166,7 +161,7 @@ func routeFrom(
 	}
 	name := sel.Sel.Name
 	recvPrefix := ""
-	if recv, ok := sel.X.(*ast.Ident); ok {
+	if recv, isIdent := sel.X.(*ast.Ident); isIdent {
 		recvPrefix = prefixes[recv.Name]
 	}
 
@@ -190,16 +185,20 @@ func routeFrom(
 	}, true
 }
 
+// methodAndPathArgs is how many arguments Handle(method, path, …) takes
+// before its handler.
+const methodAndPathArgs = 2
+
 // methodAndPath reads the method and path a registration call named name
 // declares with args: r.GET("/x", h), Handle(method, path, h) (gin, chi)
 // or Handle(path, h) (net/http), HandleFunc("GET /x", h) (Go 1.22).
 func methodAndPath(name string, args []ast.Expr) (string, string, bool) {
 	switch {
-	case httpVerbs[name] != "":
+	case httpVerb(name) != "":
 		p, ok := stringLit(args[0])
-		return httpVerbs[name], p, ok && strings.HasPrefix(p, "/")
+		return httpVerb(name), p, ok && strings.HasPrefix(p, "/")
 	case name == "Handle" || name == "Method":
-		if len(args) < 2 {
+		if len(args) < methodAndPathArgs {
 			return "", "", false
 		}
 		m, isMethod := stringLit(args[0])
@@ -245,25 +244,31 @@ func handlerName(expr ast.Expr, info *types.Info) string {
 		}
 		return e.Name
 	case *ast.SelectorExpr:
-		if info != nil {
-			if sel, ok := info.Selections[e]; ok {
-				if recv := sel.Recv(); recv != nil {
-					return typeName(recv) + "." + e.Sel.Name
-				}
-			}
-			if obj := info.Uses[e.Sel]; obj != nil {
-				return qualify(obj)
-			}
-		}
-		if x, ok := e.X.(*ast.Ident); ok {
-			return x.Name + "." + e.Sel.Name
-		}
-		return e.Sel.Name
+		return selectorName(e, info)
 	case *ast.CallExpr:
 		return handlerName(e.Fun, info) // constructor / wrapper
 	default:
 		return renderExpr(expr)
 	}
+}
+
+// selectorName names a selector handler: a method value by its receiver
+// type (Adapter.WebHookApple), a package function by its package.
+func selectorName(e *ast.SelectorExpr, info *types.Info) string {
+	if info != nil {
+		if sel, found := info.Selections[e]; found {
+			if recv := sel.Recv(); recv != nil {
+				return typeName(recv) + "." + e.Sel.Name
+			}
+		}
+		if obj := info.Uses[e.Sel]; obj != nil {
+			return qualify(obj)
+		}
+	}
+	if x, isIdent := e.X.(*ast.Ident); isIdent {
+		return x.Name + "." + e.Sel.Name
+	}
+	return e.Sel.Name
 }
 
 func qualify(obj types.Object) string {
@@ -302,7 +307,8 @@ func stringLit(expr ast.Expr) (string, bool) {
 
 func isHTTPMethod(s string) bool {
 	switch strings.ToUpper(s) {
-	case "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD", "CONNECT", "TRACE":
+	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete,
+		http.MethodOptions, http.MethodHead, http.MethodConnect, http.MethodTrace:
 		return true
 	}
 	return false

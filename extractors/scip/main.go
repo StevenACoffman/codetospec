@@ -40,14 +40,14 @@ func main() {
 		os.Exit(1)
 	}
 	var index scip.Index
-	if err := proto.Unmarshal(data, &index); err != nil {
+	if err = proto.Unmarshal(data, &index); err != nil {
 		fmt.Fprintf(os.Stderr, "scip2facts: parse SCIP index: %v\n", err)
 		os.Exit(1)
 	}
 
 	facts := convert(&index, *root)
 	sort.Slice(facts, func(i, j int) bool { return facts[i].ID < facts[j].ID })
-	if err := json.NewEncoder(os.Stdout).
+	if err = json.NewEncoder(os.Stdout).
 		Encode(Envelope{Schema: schemaID, Facts: facts}); err != nil {
 		fmt.Fprintf(os.Stderr, "scip2facts: encode: %v\n", err)
 		os.Exit(1)
@@ -180,7 +180,7 @@ func symbolFact(
 		attrs["namespace"] = namespace
 	}
 	if signature != "" {
-		attrs["signature"] = truncate(signature, 400)
+		attrs["signature"] = truncate(signature, signatureMaxLen)
 	}
 	return &Fact{
 		Kind:      "symbol",
@@ -192,10 +192,17 @@ func symbolFact(
 	}
 }
 
+// signatureMaxLen caps a signature carried in a fact.
+const signatureMaxLen = 400
+
+// qualifiedDescriptors is the fewest descriptors a qualified symbol has:
+// its own and at least one enclosing.
+const qualifiedDescriptors = 2
+
 // qualifier joins the enclosing descriptors (namespace/type path) of a
 // symbol, excluding its own final descriptor.
 func qualifier(sym *scip.Symbol) string {
-	if len(sym.GetDescriptors()) < 2 {
+	if len(sym.GetDescriptors()) < qualifiedDescriptors {
 		return ""
 	}
 	parts := make([]string, 0, len(sym.GetDescriptors())-1)
@@ -207,23 +214,27 @@ func qualifier(sym *scip.Symbol) string {
 	return strings.Join(parts, ".")
 }
 
+// symbolKind maps the SCIP kinds codetospec distinguishes; every other kind
+// (of the dozens SCIP defines) has none.
 func symbolKind(k scip.SymbolInformation_Kind) string {
-	switch k {
-	case scip.SymbolInformation_Class, scip.SymbolInformation_Struct:
-		return "class"
-	case scip.SymbolInformation_Interface:
-		return "interface"
-	case scip.SymbolInformation_Method:
-		return "method"
-	case scip.SymbolInformation_Function:
-		return "function"
-	case scip.SymbolInformation_Enum:
-		return "enum"
-	case scip.SymbolInformation_Trait:
-		return "trait"
-	default:
-		return ""
+	kinds := []struct {
+		kind scip.SymbolInformation_Kind
+		name string
+	}{
+		{scip.SymbolInformation_Class, "class"},
+		{scip.SymbolInformation_Struct, "class"},
+		{scip.SymbolInformation_Interface, "interface"},
+		{scip.SymbolInformation_Method, "method"},
+		{scip.SymbolInformation_Function, "function"},
+		{scip.SymbolInformation_Enum, "enum"},
+		{scip.SymbolInformation_Trait, "trait"},
 	}
+	for _, entry := range kinds {
+		if entry.kind == k {
+			return entry.name
+		}
+	}
+	return ""
 }
 
 func normalizePath(path, root string) string {

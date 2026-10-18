@@ -53,7 +53,7 @@ func handlerSpans(facts []extract.Fact) []handlerSpan {
 		if a, b, err := extract.ParseLines(lines); err == nil {
 			spans = append(
 				spans,
-				handlerSpan{path: path, start: a, end: b, endpoint: EndpointID(f)},
+				handlerSpan{path: path, start: a, end: b, endpoint: EndpointID(&f)},
 			)
 		}
 	}

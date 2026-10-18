@@ -9,6 +9,12 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
+// Handler names the route test expects.
+const (
+	closureHandler = "closure"
+	reviewHandler  = "handleReview"
+)
+
 func TestParseTables(t *testing.T) {
 	sql := `
 CREATE TABLE IF NOT EXISTS shops (
@@ -70,11 +76,11 @@ func setup(r *gin.Engine, a Adapter) {
 	if err := os.WriteFile(
 		filepath.Join(dir, "go.mod"),
 		[]byte("module srv\n\ngo 1.26\n"),
-		0o644,
+		0o600,
 	); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "server.go"), []byte(src), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "server.go"), []byte(src), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -95,10 +101,10 @@ func setup(r *gin.Engine, a Adapter) {
 		got[r.Method+" "+r.Path] = r.Handler
 	}
 	cases := map[string]string{
-		"GET /version":      "closure",
-		"GET /r/:token":     "handleReview",
-		"GET /api/v1/shops": "closure",
-		"PUT /things/:id":   "closure",
+		"GET /version":      closureHandler,
+		"GET /r/:token":     reviewHandler,
+		"GET /api/v1/shops": closureHandler,
+		"PUT /things/:id":   closureHandler,
 	}
 	for key, wantHandler := range cases {
 		h, ok := got[key]
@@ -106,7 +112,7 @@ func setup(r *gin.Engine, a Adapter) {
 			t.Errorf("route %q not detected (got %v)", key, keys(got))
 			continue
 		}
-		if wantHandler == "handleReview" && h != "server.handleReview" && h != "handleReview" {
+		if wantHandler == reviewHandler && h != "server.handleReview" && h != reviewHandler {
 			t.Errorf("route %q handler = %q, want handleReview", key, h)
 		}
 	}

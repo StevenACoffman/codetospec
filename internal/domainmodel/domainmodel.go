@@ -36,9 +36,10 @@ type Set struct {
 
 // Model is one loaded model file.
 type Model struct {
-	Path  string
-	Scope string // the scope an import of this file binds: its basename
-	Model *model.Model
+	Path   string
+	Scope  string // the scope an import of this file binds: its basename
+	Model  *model.Model
+	Source []byte // the file as read, for editing it without losing comments
 }
 
 // Load reads and lints the model files, then parses them. Any lint error,
@@ -83,7 +84,9 @@ func Load(paths []string) (*Set, error) {
 		}
 		set.Models = append(
 			set.Models,
-			Model{Path: in.Path, Scope: model.ScopeFromPath(in.Path), Model: m},
+			Model{
+				Path: in.Path, Scope: model.ScopeFromPath(in.Path), Model: m, Source: in.Source,
+			},
 		)
 	}
 	return set, nil

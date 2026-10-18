@@ -26,6 +26,18 @@ type Text struct {
 
 	Labels
 	Readme
+	ModelFile
+}
+
+// ModelFile is the text codetospec writes into modelith model files.
+type ModelFile struct {
+	// PlaceholderPrefix opens every definition codetospec writes for an
+	// entity nobody described: a later run recognizes it by this prefix
+	// (in any language) and replaces it once a description exists.
+	PlaceholderPrefix string
+	PlaceholderFmt    string // %s prefix, %s table name, %s source path:lines
+	GeneratedDescFmt  string // %s domain slug
+	CodeTypeFmt       string // %s the column's type in the code
 }
 
 // Labels are the labels of node bodies and footers.
@@ -102,6 +114,9 @@ type ReadmeModel struct {
 	ModelUnmatchedFmt     string // %d invariants no rule states
 	ModelClosestFmt       string // %s rule id, %d similarity percent
 	ModelUnstatedRulesFmt string // %d rules stating no invariant
+	ModelFilesHeading     string
+	ModelFilesIntroFmt    string // %d files written
+	ModelUndefinedFmt     string // %d entities without a definition
 }
 
 // newText builds the Text of lang ("fr" or "en"). Each field holds its
@@ -148,8 +163,9 @@ Navigation: start at nodes/domains/, then follow the frontmatter edges
 (belongs_to, touches, exposed_by, depends_on). graph.json holds the full graph
 in machine form; `+"`path:lines`"+` citations point into the source repository.`,
 		),
-		Labels: newLabels(tr),
-		Readme: newReadme(tr),
+		Labels:    newLabels(tr),
+		Readme:    newReadme(tr),
+		ModelFile: newModelFile(tr),
 	}
 }
 
@@ -215,6 +231,21 @@ func newLabels(tr translate) Labels {
 	}
 }
 
+func newModelFile(tr translate) ModelFile {
+	return ModelFile{
+		PlaceholderPrefix: tr("Pas encore défini.", "Not yet defined."),
+		PlaceholderFmt: tr(
+			"%s codetospec l'a trouvée comme la table %s (%s) : dire ce qu'elle est, et ce qu'elle n'est pas.",
+			"%s codetospec found it as the table %s (%s): say what it is, and what it is not.",
+		),
+		GeneratedDescFmt: tr(
+			"Entités que codetospec a trouvées dans le code du domaine %s et qu'aucun modèle humain ne nomme.",
+			"Entities codetospec found in the code of the domain %s that no human model names.",
+		),
+		CodeTypeFmt: tr("type dans le code : %s", "code type: %s"),
+	}
+}
+
 func newReadme(tr translate) Readme {
 	return Readme{
 		ReadmeCounts:   newReadmeCounts(tr),
@@ -265,6 +296,18 @@ func newReadmeModel(tr translate) ReadmeModel {
 		ModelClosestFmt: tr(
 			"plus proche : `%s`, %d %%",
 			"closest: `%s`, %d%%",
+		),
+		ModelFilesHeading: tr(
+			"## Fichiers du modèle de domaine",
+			"## Domain model files",
+		),
+		ModelFilesIntroFmt: tr(
+			"%d fichiers de modèle modelith écrits sous `models/` (provenance de chaque champ : `models/provenance.json`) :",
+			"%d modelith model files written under `models/` (where each field comes from: `models/provenance.json`):",
+		),
+		ModelUndefinedFmt: tr(
+			"%d entités n'ont pas encore de définition : que sont-elles, et que ne sont-elles pas ?",
+			"%d entities have no definition yet: what are they, and what are they not?",
 		),
 		ModelUnstatedRulesFmt: tr(
 			"%d règles sur des entités modélisées n'énoncent aucun invariant du modèle : à ajouter au modèle ?",

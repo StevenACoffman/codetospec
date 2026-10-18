@@ -2,3 +2,8 @@ bin/
 .DS_Store
 extractors/php/vendor/
 extractors/php/composer.lock
+
+# Binaries go build writes inside an extractor module directory.
+extractors/scip/scip
+extractors/go/go
+extractors/webapp/webapp

@@ -59,6 +59,16 @@ const (
 	KindImport = "import"
 	KindTable  = "table"
 	KindSymbol = "symbol"
+	// KindReach marks code of a shared root (Source.Root) that the
+	// analyzed code reaches: a declaration it calls or uses, directly or
+	// through other shared code. Rules of the shared root's own spec that
+	// cite reached code are inherited (see package inherit).
+	KindReach = "reach"
+	// KindCall records that the definition at Source (the caller) calls or
+	// uses the definition at AttrCalleePath, AttrCalleeLines (the callee),
+	// both in --src. A definition the callers of one domain alone use is
+	// placed in that domain (see package callers).
+	KindCall = "call"
 )
 
 // Values of AttrAs.
@@ -112,6 +122,9 @@ const (
 	// code ("a-b"): a rule citing it is linked to the endpoint (exposed_by)
 	// without asking the LLM.
 	AttrHandlerLines = "handler_lines"
+	// AttrCalleePath and AttrCalleeLines, on a call fact, cite the callee.
+	AttrCalleePath  = "callee_path"
+	AttrCalleeLines = "callee_lines"
 )
 
 // Ref pins a fact to a file location.

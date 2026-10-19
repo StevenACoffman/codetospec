@@ -19,7 +19,6 @@ const attrInServices = "in_services"
 // AllInputs are what AnalyzeAll reads: a whole webapp checkout.
 type AllInputs struct {
 	Webapp     fs.FS // the checkout root: services/, pkg/, gengraphql/, go.mod
-	GOROOT     fs.FS
 	Lang       string
 	AccessPkgs []string
 }
@@ -73,7 +72,6 @@ func analyzeService(in *AllInputs, supergraph fs.FS, svc string) ([]Fact, []stri
 	}
 	return Analyze(&Inputs{
 		Service:      sub,
-		GOROOT:       in.GOROOT,
 		Webapp:       in.Webapp,
 		Supergraph:   supergraph,
 		ServiceGraph: strings.ToUpper(strings.ReplaceAll(svc, "-", "_")),
@@ -108,7 +106,7 @@ func goServices(webapp fs.FS) ([]string, error) {
 
 // consolidate rebases one service's facts onto the checkout root: a
 // citation of the service moves under services/<svc>/, one of shared code
-// (webappRoot) is already relative to the root and loses its root; ids,
+// (pkgRoot) moves under pkg/ and loses its root; ids,
 // domains and route links of the service's own facts are namespaced by the
 // service, so services never collide while a shared fact keeps its id and
 // merges (see mergeFact). Every fact records its service (attrInServices).
@@ -121,8 +119,8 @@ func consolidate(svc string, facts []Fact) []Fact {
 		}
 		attrs[attrInServices] = svc
 		switch {
-		case f.Source.Root == webappRoot:
-			f.Source.Root = ""
+		case f.Source.Root == pkgRoot:
+			f.Source.Path, f.Source.Root = path.Join(sharedDir, f.Source.Path), ""
 		case f.Source.Path != "":
 			f.Source.Path = path.Join(servicesDir, svc, f.Source.Path)
 			f.ID = svc + ":" + f.ID

@@ -15,18 +15,19 @@
 #   1. build bin/codetospec and bin/webapp-extract (extractors/webapp);
 #   2. run the webapp extractor on $WEBAPP_DIR/services/<service>: mechanical
 #      authorization and rate-limit rules, schema-file domains, GraphQL
-#      endpoints, Datastore entities, numeric constants, schema docs and
-#      cross-service calls; the Go extractor for net/http routes (pub/sub
-#      push handlers, REST endpoints); and index the service with scip-go for
-#      precise symbols (SCIP=0 skips);
+#      endpoints, Datastore entities, schema docs, cross-service calls and
+#      the pkg/ declarations the service reaches; the Go extractor for
+#      net/http routes (pub/sub push handlers, REST endpoints), numeric
+#      constants, precise symbols and call edges (pkg too); and, with SCIP=1,
+#      index the service with scip-go;
 #   3. run codetospec on the service with those facts, against Gemini's
 #      OpenAI-compatible endpoint, with the key from $GEMINI_API_KEY.
 #
 # Shared code: `./scanwebapp.sh pkg` scans $WEBAPP_DIR/pkg as a spec of its
 # own (~/spec-graphs/pkg: no service extractors). A service scan then
-# inherits that spec's rules about the pkg/ code the service reaches (cited
-# in pkg/, labeled inherited_from: pkg) — scan pkg first, and rescan
-# services after rescanning it.
+# inherits that spec's rules about the pkg/ code the service reaches
+# (codetospec --inherit; cited @pkg/…, labeled inherited_from: pkg) — scan
+# pkg first, and rescan services after rescanning it.
 #
 # Environment (all optional except the API key):
 #   GEMINI_API_KEY   Gemini key (or LLM_API_KEY); never printed
@@ -43,8 +44,8 @@
 #   REDUCE_MODE      merge|full                 (default: merge — only
 #                    near-duplicate candidates go to the LLM, the others keep
 #                    no acceptance criteria; full: the LLM consolidates all)
-#   SCIP             1|0                        (default: 1 — index with scip-go
-#                    for precise citation spans; first run downloads it)
+#   SCIP             1|0                        (default: 0 — the Go extractor
+#                    gives precise symbols; 1 also indexes with scip-go)
 #   PKG_GRAPH        pkg spec to inherit from   (default: <OUT_DIR>/../pkg
 #                    when it exists; empty disables inheriting)
 #   DRY_RUN=1        stop before calling the LLM, print the command
@@ -103,7 +104,7 @@ spec_lang=${SPEC_LANG:-en}
 workers=${WORKERS:-4}
 max_tokens=${MAX_TOKENS:-16384}
 reduce_mode=${REDUCE_MODE:-merge}
-scip=${SCIP:-1}
+scip=${SCIP:-0}
 scip_go=github.com/scip-code/scip-go/cmd/scip-go@v0.2.7
 base_url=https://generativelanguage.googleapis.com/v1beta/openai
 
@@ -157,29 +158,33 @@ fi
 
 mkdir -p "$out_dir/.codetospec"
 facts_args=()
+inherit_args=()
 if [ "$service" != pkg ]; then
     facts_file=$out_dir/.codetospec/webapp-extractor.facts.json
-    inherit_args=()
     if [ -n "$pkg_graph" ] && [ -d "$pkg_graph/nodes/rules" ]; then
-        inherit_args=(-inherit "$pkg_graph")
+        inherit_args=(--inherit "pkg=$pkg_graph")
     fi
     printf '==> extracting %s → %s\n' "$service_dir" "$facts_file" >&2
-    "$repo_dir/bin/webapp-extract" -root "$service_dir" -lang "$spec_lang" "${inherit_args[@]}" >"$facts_file"
+    "$repo_dir/bin/webapp-extract" -root "$service_dir" -lang "$spec_lang" >"$facts_file"
     count() { grep -o "\"kind\":\"$1\"" "$facts_file" | wc -l | tr -d ' '; }
-    printf '    rules %s (inherited from %s: %s) · domains %s · endpoints %s · entities %s · constants %s · docs %s · cross-service calls %s\n' \
-        "$(count rule)" "${pkg_graph:-none}" "$(grep -o '"inherited_from":' "$facts_file" | wc -l | tr -d ' ')" \
-        "$(count domain)" "$(count route)" "$(count table)" \
-        "$(count constant)" "$(count doc)" "$(count dependency)" >&2
+    printf '    rules %s · domains %s · endpoints %s · entities %s · docs %s · cross-service calls %s · pkg declarations reached %s (inheriting from %s)\n' \
+        "$(count rule)" "$(count domain)" "$(count route)" "$(count table)" \
+        "$(count doc)" "$(count dependency)" "$(count reach)" "${inherit_args[*]:-nothing}" >&2
     facts_args+=(--facts "$facts_file")
 
-    # net/http routes: optional, a failed package load only loses the routes.
-    routes_file=$out_dir/.codetospec/go-routes.facts.json
-    if (cd "$service_dir" && "$repo_dir/bin/go-extract" -root . -skip-dirs testutil >"$routes_file" 2>"$routes_file.log"); then
-        printf '    %s net/http routes\n' "$(grep -o '"kind":"route"' "$routes_file" | wc -l | tr -d ' ')" >&2
-        facts_args+=(--facts "$routes_file")
-    else
-        printf 'scanwebapp: warning: Go route extraction failed (see %s); continuing without it\n' "$routes_file.log" >&2
-    fi
+fi
+
+# The Go extractor, for services and pkg alike: net/http routes, numeric
+# constants, precise symbols and who calls whom (for domains). Optional: a
+# failed package load only loses those facts.
+go_file=$out_dir/.codetospec/go.facts.json
+if (cd "$service_dir" && "$repo_dir/bin/go-extract" -root . -skip-dirs testutil >"$go_file" 2>"$go_file.log"); then
+    gcount() { grep -o "\"kind\":\"$1\"" "$go_file" | wc -l | tr -d ' '; }
+    printf '    routes %s · constants %s · precise symbols %s · calls %s\n' \
+        "$(gcount route)" "$(gcount constant)" "$(gcount symbol)" "$(gcount call)" >&2
+    facts_args+=(--facts "$go_file")
+else
+    printf 'scanwebapp: warning: Go extraction failed (see %s); continuing without it\n' "$go_file.log" >&2
 fi
 
 if [ "$scip" = 1 ]; then
@@ -198,7 +203,8 @@ fi
 cmd=(
     "$repo_dir/bin/codetospec" run
     --src "$service_dir"
-    --ref-root "webapp=$webapp_dir"
+    --ref-root "pkg=$webapp_dir/pkg"
+    "${inherit_args[@]}"
     --out "$out_dir"
     --lang "$spec_lang"
     --max-tokens "$max_tokens"

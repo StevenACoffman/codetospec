@@ -60,7 +60,7 @@ func ConstantFacts(pkgs []*packages.Package, fset *token.FileSet, root string) [
 			facts = append(facts, Fact{
 				Kind:      "constant",
 				ID:        "constant.go." + name,
-				Attrs:     map[string]string{"name": name, "value": value},
+				Attrs:     map[string]string{attrName: name, "value": value},
 				Source:    sources[name],
 				Origin:    origin,
 				Certainty: certain,

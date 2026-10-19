@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/ast"
 	"path"
+	"strings"
 )
 
 // sharedDomainPrefix starts the domain of a rule webapp's shared code
@@ -14,7 +15,7 @@ const sharedDomainPrefix = "shared-"
 // the service, derived as the service's own are: the guards of a checking
 // wrapper (serve.ValidateGraphqlSecretMiddleware, serve.CreateTaskHandler)
 // and the policies, of the functions the service reaches (see reached).
-// They are cited in pkg/, under the webappRoot citation root.
+// They are cited in pkg/, under the pkgRoot citation root.
 func sharedFacts(shared sharedCode, reach map[declKey]bool, known checks, w *wording) []Fact {
 	idx := indexFuncs(shared.sources)
 	var facts []Fact
@@ -53,14 +54,21 @@ func sharedFacts(shared sharedCode, reach map[declKey]bool, known checks, w *wor
 // service's own: the one place a shared fact's citation and domain are set.
 func rooted(facts []Fact) []Fact {
 	for i := range facts {
-		facts[i].Source.Root = webappRoot
 		if _, ok := facts[i].Attrs[attrDomain]; ok {
 			facts[i].Attrs[attrDomain] = sharedDomainPrefix + domainOf(
 				path.Dir(facts[i].Source.Path),
 			)
 		}
+		facts[i].Source = underPkg(facts[i].Source)
 	}
 	return facts
+}
+
+// underPkg re-roots a citation of the checkout's pkg/ onto pkgRoot.
+func underPkg(ref Ref) Ref {
+	ref.Path = strings.TrimPrefix(ref.Path, sharedDir+"/")
+	ref.Root = pkgRoot
+	return ref
 }
 
 // addSharedTexts sets the phrases of shared rules.

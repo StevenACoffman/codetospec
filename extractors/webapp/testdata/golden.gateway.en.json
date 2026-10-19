@@ -1,28 +1,70 @@
 [
   {
-    "kind": "constant",
-    "id": "constant.webapp.http.StatusBadRequest",
+    "kind": "reach",
+    "id": "reach.pkg.gcloud/pubsub/protobuf.go#computeSignature",
     "attrs": {
-      "name": "http.StatusBadRequest",
-      "value": "400"
+      "symbol": "pubsub.computeSignature"
     },
     "source": {
-      "path": "",
-      "lines": ""
+      "path": "gcloud/pubsub/protobuf.go",
+      "lines": "3-9",
+      "root": "pkg"
     },
     "origin": "webapp",
     "certainty": "static"
   },
   {
-    "kind": "constant",
-    "id": "constant.webapp.http.StatusOK",
+    "kind": "reach",
+    "id": "reach.pkg.gcloud/pubsub/receiving.go#DecodeAndValidatePushMsg",
     "attrs": {
-      "name": "http.StatusOK",
-      "value": "200"
+      "symbol": "pubsub.DecodeAndValidatePushMsg"
     },
     "source": {
-      "path": "",
-      "lines": ""
+      "path": "gcloud/pubsub/receiving.go",
+      "lines": "5-15",
+      "root": "pkg"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "reach",
+    "id": "reach.pkg.gcloud/pubsub/receiving.go#Decode",
+    "attrs": {
+      "symbol": "pubsub.Decode"
+    },
+    "source": {
+      "path": "gcloud/pubsub/receiving.go",
+      "lines": "18-20",
+      "root": "pkg"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "reach",
+    "id": "reach.pkg.web/serve/task_handler_util.go#CreateTaskHandler",
+    "attrs": {
+      "symbol": "serve.CreateTaskHandler"
+    },
+    "source": {
+      "path": "web/serve/task_handler_util.go",
+      "lines": "4-13",
+      "root": "pkg"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "reach",
+    "id": "reach.pkg.web/serve/task_handler_util.go#WithLogging",
+    "attrs": {
+      "symbol": "serve.WithLogging"
+    },
+    "source": {
+      "path": "web/serve/task_handler_util.go",
+      "lines": "16-20",
+      "root": "pkg"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -151,25 +193,6 @@
     "source": {
       "path": "gateway/rate_limiting.go",
       "lines": "29-29"
-    },
-    "origin": "webapp",
-    "certainty": "static"
-  },
-  {
-    "kind": "rule",
-    "id": "rule.webapp.authz.pkg/web/serve/task_handler_util.go:4-10",
-    "attrs": {
-      "domain": "shared-serve",
-      "ears": "unwanted",
-      "nature": "business",
-      "requirement": "IF `ctx.RequestIsTask()` does not hold, THEN the system shall reject requests through `CreateTaskHandler` with the `StatusUnauthorized` error.",
-      "slug": "authz-requests-through-createtaskhandler",
-      "title": "Access control: requests through `CreateTaskHandler`"
-    },
-    "source": {
-      "path": "pkg/web/serve/task_handler_util.go",
-      "lines": "4-10",
-      "root": "webapp"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -425,6 +448,25 @@
     "source": {
       "path": "routes/settings.go",
       "lines": "56-59"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.pkg/web/serve/task_handler_util.go:4-10",
+    "attrs": {
+      "domain": "shared-serve",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "IF `ctx.RequestIsTask()` does not hold, THEN the system shall reject requests through `CreateTaskHandler` with the `StatusUnauthorized` error.",
+      "slug": "authz-requests-through-createtaskhandler",
+      "title": "Access control: requests through `CreateTaskHandler`"
+    },
+    "source": {
+      "path": "web/serve/task_handler_util.go",
+      "lines": "4-10",
+      "root": "pkg"
     },
     "origin": "webapp",
     "certainty": "static"

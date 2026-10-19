@@ -27,6 +27,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/mapper"
 	"github.com/StevenACoffman/codetospec/internal/render"
 	"github.com/StevenACoffman/codetospec/internal/sitter"
+	"github.com/StevenACoffman/codetospec/internal/state"
 	"github.com/StevenACoffman/codetospec/internal/ui"
 	"github.com/StevenACoffman/codetospec/internal/verify"
 )
@@ -812,5 +813,136 @@ func checkModelFiles(t *testing.T, output map[string]string, wantFiles []string)
 	}
 	if !strings.Contains(output["README.md"], "## Domain model files") {
 		t.Errorf("README lacks the model files section:\n%s", output["README.md"])
+	}
+}
+
+// TestEndToEndInheritsSharedRules: rules of a shared spec whose citation
+// lies in reached code (reach facts) come into the analyzed code's spec,
+// cited under the shared root and labeled inherited_from.
+func TestEndToEndInheritsSharedRules(t *testing.T) {
+	const root = "pkg" // the shared root
+	server := mockLLM(t)
+	defer server.Close()
+	logger := slog.New(slog.NewTextHandler(t.Output(), nil))
+
+	// The shared spec: the fixture, rendered.
+	sharedOut := t.TempDir()
+	shared := e2eConfig(t, server.URL, sharedOut)
+	if err := runPipeline(context.Background(), shared, ui.Discard{}, logger); err != nil {
+		t.Fatalf("shared run: %v", err)
+	}
+
+	// The analyzed code reaches the prorata calculator of the shared code.
+	appSrc := t.TempDir()
+	reach := `{"schema": "codetospec/facts/v1", "facts": [{"kind": "reach",
+"id": "reach.pkg.prorata", "attrs": {},
+"source": {"path": "app/Services/Billing/ProrataCalculator.php", "lines": "1-200", "root": "pkg"},
+"origin": "go", "certainty": "static"}]}`
+	factsFile := filepath.Join(t.TempDir(), "reach.facts.json")
+	if err := os.WriteFile(factsFile, []byte(reach), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	appOut := t.TempDir()
+	app := e2eConfig(t, server.URL, appOut)
+	app.Src, app.FactsFiles = appSrc, []string{factsFile}
+	app.RefRoots = map[string]string{root: shared.Src}
+	app.Inherit = map[string]string{root: sharedOut}
+	if err := runPipeline(context.Background(), app, ui.Discard{}, logger); err != nil {
+		t.Fatalf("app run: %v", err)
+	}
+
+	nodes, err := render.LoadDir(appOut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inherited := 0
+	for i := range nodes {
+		n := &nodes[i]
+		if n.Extra[graph.ExtraInheritedFrom] != root {
+			continue
+		}
+		inherited++
+		if n.Sources[0].Root != root ||
+			n.Sources[0].Path != "app/Services/Billing/ProrataCalculator.php" {
+			t.Errorf("inherited rule %s cites %+v", n.ID, n.Sources)
+		}
+	}
+	if inherited == 0 {
+		t.Fatalf("no rule inherited; nodes: %d", len(nodes))
+	}
+}
+
+// TestEndToEndCallerDomain: call facts reach the pipeline, and a caller in
+// another directory leaves a package's domain alone — the prorata
+// calculator (services), used only by the activation controller (http),
+// keeps its rule in services. Same-directory callers: internal/callers.
+func TestEndToEndCallerDomain(t *testing.T) {
+	server := mockLLM(t)
+	defer server.Close()
+	calls := `{"schema": "codetospec/facts/v1", "facts": [{"kind": "call",
+"id": "call.store#calculate", "source": {"path": "app/Http/Controllers/ActivationController.php", "lines": "10-30"},
+"attrs": {"callee_path": "app/Services/Billing/ProrataCalculator.php", "callee_lines": "11-24"},
+"origin": "go", "certainty": "static"}]}`
+	factsFile := filepath.Join(t.TempDir(), "calls.facts.json")
+	if err := os.WriteFile(factsFile, []byte(calls), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outDir := t.TempDir()
+	cfg := e2eConfig(t, server.URL, outDir)
+	cfg.FactsFiles = append(cfg.FactsFiles, factsFile)
+	if err := runPipeline(context.Background(), cfg, ui.Discard{},
+		slog.New(slog.NewTextHandler(t.Output(), nil))); err != nil {
+		t.Fatalf("runPipeline: %v", err)
+	}
+	nodes, err := render.LoadDir(outDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range nodes {
+		n := &nodes[i]
+		if n.Type != graph.TypeRule ||
+			n.Sources[0].Path != "app/Services/Billing/ProrataCalculator.php" {
+			continue
+		}
+		if !strings.HasPrefix(n.ID, "rule.services.") {
+			t.Errorf("the calculator's rule %s left its domain services", n.ID)
+		}
+		return
+	}
+	t.Fatal("no rule cites the prorata calculator")
+}
+
+// TestEndToEndRefusesAnotherSourcesOutput: a run into an output holding
+// another source's spec fails before writing anything there.
+func TestEndToEndRefusesAnotherSourcesOutput(t *testing.T) {
+	server := mockLLM(t)
+	defer server.Close()
+	outDir := t.TempDir()
+	logger := slog.New(slog.NewTextHandler(t.Output(), nil))
+	if err := runPipeline(
+		context.Background(),
+		e2eConfig(t, server.URL, outDir),
+		ui.Discard{},
+		logger,
+	); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	factsPath := filepath.Clean(filepath.Join(outDir, ".codetospec", "facts.json"))
+	before, err := os.ReadFile(factsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := e2eConfig(t, server.URL, outDir)
+	other.Src = t.TempDir()
+	err = runPipeline(context.Background(), other, ui.Discard{}, logger)
+	if !errors.Is(err, state.ErrOtherSource) {
+		t.Fatalf("second source: err = %v, want ErrOtherSource", err)
+	}
+	after, err := os.ReadFile(factsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatal("the refused run rewrote facts.json")
 	}
 }

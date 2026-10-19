@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -61,6 +62,10 @@ type fileConfig struct {
 // Config is the resolved configuration for one command invocation.
 type Config struct {
 	Src string
+	// Inherit names, by shared root, the spec of that root's code
+	// (--inherit name=dir): its rules citing code the analyzed code reaches
+	// (reach facts) are inherited. Each name is also a --ref-root.
+	Inherit map[string]string
 	// RefRoots are the extra source trees extractor rules may cite, by
 	// root name (--ref-root name=dir): webapp's shared pkg/ for a service.
 	RefRoots       map[string]string
@@ -111,37 +116,41 @@ func (l *stringList) Set(v string) error {
 	return nil
 }
 
-// refRoots is the --ref-root flag: name=dir pairs, repeatable.
-type refRoots map[string]string
+// namedDirs is a repeatable name=dir flag (--ref-root, --inherit): each
+// name once, each dir readable.
+type namedDirs struct {
+	flag string
+	dirs map[string]string
+}
 
-func (r refRoots) String() string {
-	pairs := make([]string, 0, len(r))
-	for name, dir := range r {
+func (n namedDirs) String() string {
+	pairs := make([]string, 0, len(n.dirs))
+	for name, dir := range n.dirs {
 		pairs = append(pairs, name+"="+dir)
 	}
 	slices.Sort(pairs)
 	return strings.Join(pairs, ",")
 }
 
-func (r refRoots) Set(v string) error {
+func (n namedDirs) Set(v string) error {
 	name, dir, ok := strings.Cut(v, "=")
 	switch {
 	case !ok || name == "" || dir == "":
-		return fmt.Errorf("--ref-root %q: want name=dir", v)
-	case r[name] != "":
-		return fmt.Errorf("--ref-root %q: root %q given twice", v, name)
+		return fmt.Errorf("--%s %q: want name=dir", n.flag, v)
+	case n.dirs[name] != "":
+		return fmt.Errorf("--%s %q: %q given twice", n.flag, v, name)
 	}
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-		return fmt.Errorf("--ref-root %q: %q is not a readable directory", v, dir)
+		return fmt.Errorf("--%s %q: %q is not a readable directory", n.flag, v, dir)
 	}
-	r[name] = dir
+	n.dirs[name] = dir
 	return nil
 }
 
 // registerRefRoots adds --ref-root to a command that reads citations.
 func registerRefRoots(flags *flag.FlagSet, cfg *Config) {
 	cfg.RefRoots = make(map[string]string)
-	flags.Var(refRoots(cfg.RefRoots), "ref-root",
+	flags.Var(namedDirs{flag: "ref-root", dirs: cfg.RefRoots}, "ref-root",
 		"name=dir: an extra source tree extractor rules cite (repeatable)")
 }
 
@@ -166,6 +175,10 @@ func ParseRun(args []string) (*Config, error) {
 	)
 	flags.StringVar(&cfg.Src, "src", "", "root of the analyzed repository (required)")
 	registerRefRoots(flags, cfg)
+	cfg.Inherit = make(map[string]string)
+	flags.Var(namedDirs{flag: "inherit", dirs: cfg.Inherit}, "inherit",
+		"name=dir: the spec of the shared root name, whose rules on code the analyzed code "+
+			"reaches are inherited (repeatable; needs --ref-root name=...)")
 	flags.StringVar(&cfg.Out, "out", "", "output graph directory (required)")
 	flags.StringVar(
 		&configPath,
@@ -338,6 +351,11 @@ func ParseStats(args []string) (*Config, error) {
 }
 
 func (c *Config) validateRun() error {
+	for _, name := range slices.Sorted(maps.Keys(c.Inherit)) {
+		if c.RefRoots[name] == "" {
+			return fmt.Errorf("--inherit %s needs --ref-root %s=<dir of its code>", name, name)
+		}
+	}
 	if info, err := os.Stat(c.Src); err != nil || !info.IsDir() {
 		return fmt.Errorf("--src %q is not a readable directory", c.Src)
 	}

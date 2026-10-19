@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/callers"
 	"github.com/StevenACoffman/codetospec/internal/communities"
 	"github.com/StevenACoffman/codetospec/internal/config"
 	"github.com/StevenACoffman/codetospec/internal/consistency"
@@ -23,6 +24,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/grounding"
+	"github.com/StevenACoffman/codetospec/internal/inherit"
 	"github.com/StevenACoffman/codetospec/internal/llm"
 	"github.com/StevenACoffman/codetospec/internal/locale"
 	"github.com/StevenACoffman/codetospec/internal/mapper"
@@ -127,6 +129,10 @@ func (p *pipeline) run(ctx context.Context) error {
 		return resolver.Resolve(namespace, path)
 	}
 	chunks, generated := chunkFiles(&ext, domainOf)
+	// A definition its callers of one domain alone use joins that domain.
+	chunks = callers.Reassign(chunks, ext.facts, func(path string, line int) bool {
+		return hints.At(path, line) != ""
+	})
 	p.sink.Emit(ui.Chunked{Chunks: len(chunks)})
 
 	idx := indexFacts(ext.facts)
@@ -200,18 +206,20 @@ func (p *pipeline) finish(
 	return nil
 }
 
-// start extracts the facts, persists them and opens the state store with
-// the extractors' outcome.
+// start opens the state store, first: an output holding another source's
+// spec stops the run before anything is written. It then extracts the
+// facts, persists them and records the extractors' outcome.
 func (p *pipeline) start(ctx context.Context) (extraction, error) {
+	statePath := filepath.Join(p.cfg.Out, ".codetospec", "state.json")
+	var err error
+	if p.st, err = state.Open(statePath, p.cfg.Src); err != nil {
+		return extraction{}, err
+	}
 	ext, err := p.extract(ctx)
 	if err != nil {
 		return extraction{}, err
 	}
 	if err = writeFactsFile(p.cfg.Out, ext.facts); err != nil {
-		return extraction{}, err
-	}
-	statePath := filepath.Join(p.cfg.Out, ".codetospec", "state.json")
-	if p.st, err = state.Open(statePath, p.cfg.Src); err != nil {
 		return extraction{}, err
 	}
 	err = p.st.Update(func(s *state.State) { maps.Copy(s.Extractors, ext.status) })
@@ -234,6 +242,10 @@ func (p *pipeline) enter(phase string, reset func(*state.State)) error {
 // the configured external extractors (B) and the facts files (C), then
 // merges them and drops malformed rule facts.
 func (p *pipeline) extract(ctx context.Context) (extraction, error) {
+	specs, err := loadSpecs(p.cfg.Inherit)
+	if err != nil {
+		return extraction{}, err
+	}
 	files, err := source.Walk(p.cfg.Src, p.cfg.Exclude)
 	if err != nil {
 		return extraction{}, err
@@ -251,9 +263,13 @@ func (p *pipeline) extract(ctx context.Context) (extraction, error) {
 		return extraction{}, err
 	}
 
+	merged := extract.Merge(sitterFacts, extractorFacts, fileFacts)
 	ext.facts, ext.rejected = graph.ValidateRuleFacts(
-		extract.Merge(sitterFacts, extractorFacts, fileFacts),
+		extract.Merge(merged, inheritedRules(specs, merged)),
 	)
+	if err = p.cfg.Roots().CheckRoots(ext.facts); err != nil {
+		return extraction{}, err
+	}
 	for _, reason := range ext.rejected {
 		p.sink.Emit(
 			ui.LogLine{Level: slog.LevelWarn, Message: "invalid rule fact dropped: " + reason},
@@ -336,6 +352,32 @@ func (p *pipeline) runExtractors(ctx context.Context) ([]extract.Fact, map[strin
 		p.sink.Emit(ui.ExtractorFinished{Name: e.Name, Status: "ok", Facts: len(extracted)})
 	}
 	return facts, status, nil
+}
+
+// loadSpecs reads the --inherit specs: their nodes, by shared root name.
+func loadSpecs(dirs map[string]string) (map[string][]graph.Node, error) {
+	specs := make(map[string][]graph.Node, len(dirs))
+	for name, dir := range dirs {
+		nodes, err := render.LoadDir(dir)
+		if err != nil {
+			return nil, fmt.Errorf("--inherit %s: %w", name, err)
+		}
+		if len(nodes) == 0 {
+			return nil, fmt.Errorf("--inherit %s: %s holds no spec nodes", name, dir)
+		}
+		specs[name] = nodes
+	}
+	return specs, nil
+}
+
+// inheritedRules are the rules of each inherited spec that the reach facts
+// among facts cover.
+func inheritedRules(specs map[string][]graph.Node, facts []extract.Fact) []extract.Fact {
+	var rules []extract.Fact
+	for _, name := range slices.Sorted(maps.Keys(specs)) {
+		rules = append(rules, inherit.Rules(specs[name], name, facts)...)
+	}
+	return rules
 }
 
 // loadFactsFiles reads the --facts files (layer C).
@@ -733,7 +775,8 @@ func qualifiedSymbols(facts []extract.Fact) []qualifiedSymbol {
 
 // endpointsByPath maps each source file to the endpoint ids its code
 // serves: the file holding a route's handler (handler_path), else the
-// files declaring a symbol its controller or handler names. Ids are sorted.
+// files declaring a symbol its controller or handler names. Ids are sorted
+// and distinct (colliding routes share one).
 func endpointsByPath(facts []extract.Fact) map[string][]string {
 	symbols := qualifiedSymbols(facts)
 	byPath := make(map[string][]string)

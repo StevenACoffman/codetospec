@@ -24,7 +24,6 @@ const fallbackDomain = "resolvers"
 // Inputs are the file trees and settings Analyze reads.
 type Inputs struct {
 	Service fs.FS // the service root, holding resolvers/ and gqlgen.yml
-	GOROOT  fs.FS // a Go installation, for net/http's status constants
 	// Webapp is the webapp checkout the service lives in: the checkers its
 	// shared packages (pkg/) mark are known by what they are; nil skips it.
 	Webapp fs.FS
@@ -33,10 +32,6 @@ type Inputs struct {
 	Supergraph   fs.FS
 	ServiceGraph string // this service's subgraph name, e.g. "USERS"
 	Lang         string // requirement language, "fr" or "en"
-	// Inherit is the spec of webapp's shared code (a codetospec graph of
-	// pkg/) whose rules about code the service reaches it inherits; nil
-	// inherits none.
-	Inherit fs.FS
 	// AccessPkgs names the service's own access packages (permissions):
 	// their exported functions returning bool first are access checks.
 	AccessPkgs []string
@@ -68,14 +63,7 @@ func Analyze(in *Inputs) ([]Fact, []string, error) {
 	known, sharedWarnings := knownChecks(sources, shared.sources, in)
 	found := policies(sources, known)
 	reach := reached(sources, shared)
-	var inherited []Fact
-	if in.Inherit != nil {
-		var inheritWarnings []string
-		inherited, inheritWarnings = inheritFacts(in.Inherit, inheritedSpec, in.Lang, shared, reach)
-		warnings = append(warnings, inheritWarnings...)
-	}
 	resolverFacts, resolverWarnings := resolverScan(sources, schema, known, &w)
-	constFacts, constWarnings := constantFacts(in.GOROOT, sources)
 	entFacts, entWarnings := entityFacts(sources)
 	depFacts, depWarnings := dependencyFacts(in, sources)
 
@@ -87,14 +75,13 @@ func Analyze(in *Inputs) ([]Fact, []string, error) {
 		sharedFacts(shared, reach, known, &w),
 		contractFacts(sources, shared, reach, &w),
 		servedFacts(sources, &w),
-		inherited,
-		constFacts,
+		reachFacts(shared, reach),
 		entFacts,
 		depFacts,
 		roleFacts(sources, &w),
 	)
 	warnings = slices.Concat(
-		warnings, sharedWarnings, resolverWarnings, constWarnings, entWarnings, depWarnings)
+		warnings, sharedWarnings, resolverWarnings, entWarnings, depWarnings)
 	sortFacts(facts)
 	return facts, warnings, nil
 }
@@ -198,7 +185,6 @@ func resolverScan(
 		facts = append(facts, fileFacts...)
 		warnings = append(warnings, fileWarnings...)
 	}
-	facts = append(facts, helperDomainFacts(resolverFiles, facts)...)
 	return facts, warnings
 }
 
@@ -571,9 +557,6 @@ func isRootType(typeName string) bool {
 	}
 	return false
 }
-
-// inheritedSpec names the spec of webapp's pkg/ in inherited rules.
-const inheritedSpec = "pkg"
 
 // gqlQuery is GraphQL's query root type.
 const gqlQuery = "Query"

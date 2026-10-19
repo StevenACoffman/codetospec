@@ -58,6 +58,13 @@ type State struct {
 	Tokens        map[string]*PhaseTokens `json:"tokens"`
 }
 
+// sameSource reports whether a state recording recorded may be reused for
+// the absolute source src: nothing recorded, a relative path (older
+// versions stored --src as given) or the same path.
+func sameSource(recorded, src string) bool {
+	return recorded == "" || !filepath.IsAbs(recorded) || filepath.Clean(recorded) == src
+}
+
 // Store persists State atomically after every mutation.
 type Store struct {
 	mu   sync.Mutex
@@ -65,9 +72,18 @@ type Store struct {
 	s    State
 }
 
+// ErrOtherSource reports an output directory whose state records another
+// source: running there would replace that source's spec.
+var ErrOtherSource = errors.New("output holds the spec of another source")
+
 // Open loads the state file when present, otherwise initializes a fresh
 // state for srcPath; either way it starts a run, resetting the latest-run
 // token counters.
+//
+// Requires: srcPath names the analyzed repository.
+// Ensures:  the state records srcPath made absolute; ErrOtherSource when
+// the loaded state records another absolute source (a relative one, from
+// an older version, is taken as matching).
 func Open(path, srcPath string) (*Store, error) {
 	store := &Store{path: path}
 	data, err := os.ReadFile(filepath.Clean(path))
@@ -84,7 +100,16 @@ func Open(path, srcPath string) (*Store, error) {
 	default:
 		return nil, fmt.Errorf("load state %s: %w", path, err)
 	}
-	store.s.SrcPath = srcPath
+	src, err := filepath.Abs(srcPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve source %s: %w", srcPath, err)
+	}
+	if !sameSource(store.s.SrcPath, src) {
+		return nil, fmt.Errorf(
+			"%w: %s records %s, not %s; choose another --out, or delete the file to take it over",
+			ErrOtherSource, path, store.s.SrcPath, src)
+	}
+	store.s.SrcPath = src
 	if store.s.Extractors == nil {
 		store.s.Extractors = map[string]string{}
 	}

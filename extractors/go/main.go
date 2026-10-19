@@ -5,7 +5,8 @@
 //
 // It emits what tree-sitter cannot: `route` facts (gin/echo/chi/net-http,
 // with group prefixes and handlers resolved via go/packages type info),
-// `constant` facts (numeric constants the code refers to, for grounding)
+// `constant` facts (numeric constants the code refers to, for grounding),
+// precise `symbol` facts and `call` facts (who uses whom, for domains)
 // and `table` facts (SQL CREATE TABLE from schema files, e.g. sqlc).
 //
 // Usage: extract --root <src> [--sql-glob "sql/schema/*.sql"]
@@ -24,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 
+	"golang.org/x/mod/modfile"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -70,6 +72,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		"comma-separated directory names whose route registrations are not entry points "+
 			"(e.g. testutil, where test helpers register mock servers)",
 	)
+	var sharedSpecs nameDirs
+	flags.Var(&sharedSpecs, "shared",
+		"name=dir of shared code the module builds on (repeatable): emit a reach fact for "+
+			"each declaration of it the module reaches, cited under the root name")
 	if err := flags.Parse(args); err != nil {
 		return exitError
 	}
@@ -82,6 +88,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		log("%v", err)
 		return exitError
 	}
+	shared, err := sharedRoots(sharedSpecs)
+	if err != nil {
+		log("%v", err)
+		return exitError
+	}
 
 	var facts []Fact
 	if pkgs, fset, ok := loadPackages(absRoot, log); ok {
@@ -89,6 +100,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 		constants := ConstantFacts(pkgs, fset, absRoot)
 		log("%d constant(s)", len(constants))
 		facts = append(facts, constants...)
+		symbols, calls := SymbolFacts(pkgs, fset, absRoot), CallFacts(pkgs, fset, absRoot)
+		log("%d symbol(s), %d call(s)", len(symbols), len(calls))
+		facts = append(facts, symbols...)
+		facts = append(facts, calls...)
+		for i := range shared {
+			reach := ReachFacts(pkgs, fset, &shared[i])
+			log("%d declaration(s) of %s reached", len(reach), shared[i].Name)
+			facts = append(facts, reach...)
+		}
 	}
 	facts = append(facts, tableFacts(absRoot, *sqlGlob, log)...)
 
@@ -126,6 +146,43 @@ func inDir(file string, dirs map[string]bool) bool {
 // routeFacts loads the module with type information and converts detected
 // routes to facts, but those registered under a skipped directory. Load
 // errors are tolerated: partial results still ship.
+// nameDirs is a repeatable name=dir flag.
+type nameDirs []string
+
+func (n *nameDirs) String() string { return strings.Join(*n, ",") }
+
+// Set records one name=dir pair, checked by sharedRoots.
+func (n *nameDirs) Set(value string) error {
+	*n = append(*n, value)
+	return nil
+}
+
+// sharedRoots resolves -shared name=dir pairs: the directory made absolute,
+// the module path read from its go.mod.
+func sharedRoots(specs []string) ([]SharedRoot, error) {
+	roots := make([]SharedRoot, 0, len(specs))
+	for _, spec := range specs {
+		name, dir, found := strings.Cut(spec, "=")
+		if !found || name == "" || dir == "" {
+			return nil, fmt.Errorf("-shared %q: want name=dir", spec)
+		}
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			return nil, fmt.Errorf("-shared %s: %w", name, err)
+		}
+		data, err := os.ReadFile(filepath.Clean(filepath.Join(abs, "go.mod")))
+		if err != nil {
+			return nil, fmt.Errorf("-shared %s: %w", name, err)
+		}
+		module := modfile.ModulePath(data)
+		if module == "" {
+			return nil, fmt.Errorf("-shared %s: %s/go.mod declares no module", name, dir)
+		}
+		roots = append(roots, SharedRoot{Name: name, Dir: abs, Module: module})
+	}
+	return roots, nil
+}
+
 // loadPackages loads the module under root with syntax and type
 // information, for routes and constants. A load error skips both (false);
 // package errors only leave type information partial.
@@ -213,7 +270,7 @@ func tableFacts(root, sqlGlob string, log logf) []Fact {
 				Kind: "table",
 				ID:   "table." + t.Name,
 				Attrs: map[string]string{
-					"name":    t.Name,
+					attrName:  t.Name,
 					"columns": strings.Join(t.Columns, ", "),
 				},
 				Source:    Ref{Path: rel, Lines: itoa(t.Line) + "-" + itoa(t.Line)},

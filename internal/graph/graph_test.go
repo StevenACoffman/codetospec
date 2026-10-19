@@ -1,6 +1,7 @@
 package graph_test
 
 import (
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -361,5 +362,45 @@ func TestEndpointIDNamesRoot(t *testing.T) {
 		if got := graph.EndpointID(&f); got != want {
 			t.Errorf("EndpointID(%v) = %q, want %q", f.Attrs, got, want)
 		}
+	}
+}
+
+// TestBuildMergesCollidingEndpoints: routes whose ids collide share one
+// endpoint node that cites both routes and lists both paths.
+func TestBuildMergesCollidingEndpoints(t *testing.T) {
+	const server = "cmd/webserver/webserver.go"
+	route := func(path, line string) extract.Fact {
+		return extract.Fact{
+			Kind: extract.KindRoute,
+			ID:   "route.any." + path,
+			Attrs: map[string]string{
+				extract.AttrPath: path, "handler": "backend.AuthServer.LoginStaticHandler",
+			},
+			Source: extract.Ref{Path: server, Lines: line},
+		}
+	}
+	facts := []extract.Fact{route("/login/", "412-412"), route("/login", "411-411")}
+	var endpoints []graph.Node
+	for _, n := range graph.Build(facts, nil, extract.DomainResolver{}, "en") {
+		if n.Type == "endpoint" {
+			endpoints = append(endpoints, n)
+		}
+	}
+	if len(endpoints) != 1 {
+		t.Fatalf("got %d endpoint nodes, want 1: %+v", len(endpoints), endpoints)
+	}
+	got := endpoints[0]
+	if got.ID != "endpoint.login" || got.Title != " /login, /login/" {
+		t.Errorf("id %q title %q", got.ID, got.Title)
+	}
+	wantSources := []extract.Ref{
+		{Path: server, Lines: "411-411"},
+		{Path: server, Lines: "412-412"},
+	}
+	if !reflect.DeepEqual(got.Sources, wantSources) {
+		t.Errorf("sources %v, want %v", got.Sources, wantSources)
+	}
+	if strings.Count(got.Body, "LoginStaticHandler") != 1 {
+		t.Errorf("handler not listed once: %q", got.Body)
 	}
 }

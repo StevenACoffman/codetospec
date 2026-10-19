@@ -5,32 +5,18 @@ import (
 	"encoding/json"
 	"go/ast"
 	"io/fs"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
 )
 
-// testGOROOT() stands in for a Go installation: two net/http status codes.
-func testGOROOT() fstest.MapFS {
-	return fstest.MapFS{httpStatusFile: {Data: []byte(`package http
-
-const (
-	StatusOK         = 200 // RFC 9110, 15.3.1
-	StatusBadRequest = 400 // RFC 9110, 15.5.1
-)
-`)}}
-}
-
 // testInputs analyzes testdata/service against a small supergraph.
 func testInputs(lang string) *Inputs {
 	return &Inputs{
 		Service:      os.DirFS(filepath.Join("testdata", "service")),
-		GOROOT:       testGOROOT(),
 		Supergraph:   os.DirFS(filepath.Join("testdata", "supergraph")),
 		Webapp:       os.DirFS(filepath.Join("testdata", "webapp")),
 		ServiceGraph: "USERS",
@@ -77,7 +63,6 @@ func TestAnalyzeGolden(t *testing.T) {
 func TestGatewayGolden(t *testing.T) {
 	in := &Inputs{
 		Service: os.DirFS(filepath.Join("testdata", "gateway")),
-		GOROOT:  testGOROOT(),
 		Webapp:  os.DirFS(filepath.Join("testdata", "webapp")),
 		Lang:    "en",
 	}
@@ -188,15 +173,13 @@ func TestAnalyzeFacts(t *testing.T) {
 	}
 	// 16 resolver methods with a schema field (not helpers, not Orphan), plus
 	// the whole of kaid.go, whose methods share one domain.
-	// …and 3 helpers whose callers share a domain (_canEditDrafts, _isActor,
-	// formatKaid): not helper (no caller) nor _audit (two domains).
-	// …and validateRename, called by rename only.
+	// Helpers take their callers' domain in codetospec, from call facts.
 	// …and AIProfile.summary, 6 entity finders (2 without a rule: an alias
 	// of an unchecked one), blockEmail and its helper _blockEmail,
 	// devadminAddAuthEmail (federation.go spans two domains: no whole-file
 	// fact).
-	if domainFacts != 45 {
-		t.Errorf("got %d domain facts, want 45", domainFacts)
+	if domainFacts != 41 {
+		t.Errorf("got %d domain facts, want 41", domainFacts)
 	}
 	wholeFile := map[string]bool{}
 	for _, f := range facts {
@@ -316,48 +299,6 @@ func TestAccessPredicates(t *testing.T) {
 	}
 }
 
-// TestHelperDomains: a helper takes the domain its callers agree on.
-func TestHelperDomains(t *testing.T) {
-	facts, _, err := Analyze(testInputs("en"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	src, err := os.ReadFile(filepath.Join("testdata", "service", "resolvers", "guards.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	lineOf := func(prefix string) int {
-		for i, line := range strings.Split(string(src), "\n") {
-			if strings.HasPrefix(line, prefix) {
-				return i + 1
-			}
-		}
-		t.Fatalf("no line starts with %q", prefix)
-		return 0
-	}
-	domainAt := func(line int) string {
-		for _, f := range facts {
-			if f.Kind == kindDomain && f.Source.Path == "resolvers/guards.go" &&
-				strings.HasPrefix(f.Source.Lines, strconv.Itoa(line)+"-") {
-				return f.Attrs[attrDomain]
-			}
-		}
-		return ""
-	}
-	cases := map[string]struct{ decl, want string }{
-		"callers in one domain":  {"func _canEditDrafts(", "user"},
-		"callers in two domains": {"func _audit(", ""},
-		"no caller":              {"func helper(", ""},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			if got := domainAt(lineOf(tc.decl)); got != tc.want {
-				t.Fatalf("domain of %s = %q, want %q", tc.decl, got, tc.want)
-			}
-		})
-	}
-}
-
 // TestSharedCheckers: the checkers webapp's pkg/ marks are known only when
 // the webapp checkout is given; the service's own markings win.
 func TestSharedCheckers(t *testing.T) {
@@ -441,7 +382,7 @@ func TestAnalyzeAll(t *testing.T) {
 	if err != nil || !slices.Equal(services, []string{gateway, users}) {
 		t.Fatalf("goServices = %v, %v; want the two Go services", services, err)
 	}
-	facts, _, err := AnalyzeAll(&AllInputs{Webapp: webapp, GOROOT: testGOROOT(), Lang: "en"})
+	facts, _, err := AnalyzeAll(&AllInputs{Webapp: webapp, Lang: "en"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,9 +398,6 @@ func TestAnalyzeAll(t *testing.T) {
 		}
 		if f.Kind == kindRule && strings.HasPrefix(f.Source.Path, servicesDir+"/") {
 			rules[f.Attrs[attrInServices]]++
-		}
-		if f.ID == "constant.webapp.http.StatusOK" && f.Attrs[attrInServices] != gateway+","+users {
-			t.Errorf("a shared constant lists %q", f.Attrs[attrInServices])
 		}
 	}
 	for svc, dir := range map[string]string{users: "service", gateway: "gateway"} {
@@ -482,7 +420,6 @@ func ownRules(t *testing.T, dir, svc string) int {
 	t.Helper()
 	single, _, err := Analyze(&Inputs{
 		Service:      os.DirFS(filepath.Join("testdata", dir)),
-		GOROOT:       testGOROOT(),
 		Webapp:       os.DirFS(filepath.Join("testdata", "webapp")),
 		Supergraph:   os.DirFS(filepath.Join("testdata", "supergraph")),
 		ServiceGraph: strings.ToUpper(svc),
@@ -500,39 +437,42 @@ func ownRules(t *testing.T, dir, svc string) int {
 	return own
 }
 
-// TestInheritFacts: the pkg spec's LLM rules about code the service
-// reaches — a function, a method through its type — are inherited, cited in
-// pkg/ under webappRoot with the spec's verdict; unreached code, a rule
-// citing two files and the spec's own extractor rules are not.
-func TestInheritFacts(t *testing.T) {
-	in := testInputs("en")
-	in.Inherit = os.DirFS(filepath.Join("testdata", "pkgspec"))
-	facts, warnings, err := Analyze(in)
+// TestReachFacts: the shared declarations the service reaches — a
+// function, a type and its method — are reach facts cited under pkgRoot,
+// for codetospec to inherit the pkg spec's rules on them; unreached code is
+// not.
+func TestReachFacts(t *testing.T) {
+	facts, _, err := Analyze(testInputs("en"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := map[string]Fact{}
+	got := map[string]Ref{}
 	for _, f := range facts {
-		if f.Attrs[attrInheritedFrom] != "" {
-			got[f.ID] = f
+		if f.Kind == kindReach {
+			got[f.Attrs[attrSymbol]] = f.Source
 		}
 	}
-	want := []string{
-		"rule.inherited.pkg.web-gqlclient.send-needs-headers",
-		"rule.inherited.pkg.web-serve.missing-secret",
+	cases := map[string]struct {
+		symbol string
+		want   Ref // zero when not reached
+	}{
+		"called function": {
+			"serve.HandleGraphQL", Ref{Path: "web/serve/graphql.go", Lines: "6-8", Root: pkgRoot},
+		},
+		"type built by a callee": {
+			"gqlclient.Sender", Ref{Path: "web/gqlclient/client.go", Lines: "21-21", Root: pkgRoot},
+		},
+		"method of a reached type": {
+			"gqlclient.Sender.Send",
+			Ref{Path: "web/gqlclient/client.go", Lines: "26-31", Root: pkgRoot},
+		},
+		"unreached function": {"gqlclient.unreached", Ref{}},
 	}
-	if ids := slices.Sorted(maps.Keys(got)); !slices.Equal(ids, want) {
-		t.Fatalf("inherited %v, want %v", ids, want)
-	}
-	f := got[want[1]]
-	if f.Source != (Ref{Path: "pkg/web/serve/graphql.go", Lines: "15-18", Root: webappRoot}) ||
-		f.Attrs[attrCrosscheck] != "supported" || f.Attrs[attrDomain] != "shared-web-serve" {
-		t.Errorf("inherited rule = %+v", f)
-	}
-	if !slices.ContainsFunc(
-		warnings,
-		func(w string) bool { return strings.Contains(w, "1 rules citing several files") },
-	) {
-		t.Errorf("no warning for the rule citing two files: %v", warnings)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got[tc.symbol] != tc.want {
+				t.Errorf("%s: source = %+v, want %+v", tc.symbol, got[tc.symbol], tc.want)
+			}
+		})
 	}
 }

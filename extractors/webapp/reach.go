@@ -171,3 +171,46 @@ func references(
 	})
 	return found
 }
+
+// reachFacts lists, as reach facts cited under pkgRoot, the shared
+// declarations the service reaches: functions and methods, variables and
+// types. codetospec inherits the pkg/ spec's rules citing them
+// (codetospec run --inherit pkg=<spec> --ref-root pkg=<checkout>/pkg).
+func reachFacts(shared sharedCode, reach map[declKey]bool) []Fact {
+	var facts []Fact
+	for i := range shared.sources {
+		s := &shared.sources[i]
+		dir := path.Dir(s.name)
+		add := func(name string, n ast.Node) {
+			if !reach[declKey{dir, name}] {
+				return
+			}
+			ref := underPkg(Ref{
+				Path:  s.name,
+				Lines: lines(s.fset.Position(n.Pos()).Line, s.fset.Position(n.End()).Line),
+			})
+			facts = append(facts, Fact{
+				Kind:      kindReach,
+				ID:        "reach." + pkgRoot + "." + ref.Path + "#" + name,
+				Attrs:     map[string]string{attrSymbol: s.file.Name.Name + "." + name},
+				Source:    ref,
+				Origin:    origin,
+				Certainty: certain,
+			})
+		}
+		for _, fn := range funcDecls(s.file) {
+			if fn.Recv == nil {
+				add(fn.Name.Name, fn)
+			} else if recv := receiverName(fn); recv != "" {
+				add(recv+"."+fn.Name.Name, fn)
+			}
+		}
+		for _, v := range packageVars(s.file) {
+			add(v.name, v.value)
+		}
+		for _, t := range typeSpecs(s.file) {
+			add(t.Name.Name, t)
+		}
+	}
+	return facts
+}

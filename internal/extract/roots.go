@@ -4,7 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"path"
+	"slices"
+	"strings"
 )
 
 // ErrUnknownRoot is returned for a Ref naming a root that was not given.
@@ -53,4 +56,29 @@ func (r Ref) File() string {
 		return r.Path
 	}
 	return "@" + r.Root + "/" + r.Path
+}
+
+// CheckRoots reports the citation roots facts use that roots does not name.
+// A rule citing an unknown root would fail verification only after the
+// LLM phases; checked first, the run stops before spending on them.
+//
+// Ensures: nil when every rooted fact can be read; otherwise an error naming
+// each missing root once, sorted, with a fact citing it.
+func (r Roots) CheckRoots(facts []Fact) error {
+	missing := map[string]string{} // root → a fact citing it
+	for i := range facts {
+		root := facts[i].Source.Root
+		if _, known := r.Extra[root]; root != "" && !known && missing[root] == "" {
+			missing[root] = facts[i].ID
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	reasons := make([]string, 0, len(missing))
+	for _, root := range slices.Sorted(maps.Keys(missing)) {
+		reasons = append(reasons, fmt.Sprintf("%s (cited by %s): add --ref-root %s=<dir>",
+			root, missing[root], root))
+	}
+	return fmt.Errorf("%w: %s", ErrUnknownRoot, strings.Join(reasons, "; "))
 }

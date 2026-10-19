@@ -161,7 +161,8 @@ extract (layers 1+2) ──▶ chunk (AST) ──▶ map (LLM, parallel, per chu
   file (same namespace and domain) are packed up to 150 lines: each call
   carries several hundred tokens of fixed prompt, so packing cuts calls ~3×
   on a codebase of small functions. When
-  a SCIP index is supplied (via the SCIP converter), each chunk's prompt is
+  precise symbols are supplied (Go extractor, or a SCIP index via the SCIP
+  converter), each chunk's prompt is
   grounded with the exact signatures and line spans of the symbols it
   contains, so the model cites real code spans instead of guessing.
 - **reduce**: one call per domain deduplicates and consolidates candidates;
@@ -198,6 +199,8 @@ bin/codetospec run --src /path/to/legacy-repo --out /path/to/spec-graph
 On an interactive terminal, `run` shows a full-screen dashboard (files
 parsed, facts, map/reduce progress, failures, live token counts; `q` stops
 cleanly and the run resumes later). Use `--no-tui` for plain logs (CI).
+An output directory belongs to one source: `run` refuses an `--out` whose
+`.codetospec/state.json` records another `--src`, before writing anything.
 
 Other commands:
 
@@ -360,15 +363,44 @@ Two more kinds let an extractor contribute beyond structure (contract in
   rendered `inherited_from: <spec>` — never `extracted_by` — and is not
   reviewed again by `--crosscheck`; it is grounded and digested like any.
 
+**Shared code in a workspace.** A Go workspace whose modules build on a
+shared module (districts-jobs and its `pkg/`) gets one spec per module that
+includes the rules of the shared code the module uses:
+
+- scan the shared module once, as a spec of its own;
+- run the Go extractor on a module with `-shared pkg=<dir>`. It emits a
+  `reach` fact for every shared declaration the module reaches: what its
+  code names and, in turn, what those declarations name; a reached type
+  reaches its methods; interfaces are not followed (a lower bound);
+- run codetospec on the module with `--inherit pkg=<shared spec>` and
+  `--ref-root pkg=<dir>`. Each rule of the shared spec with one citation in
+  reached code is inherited (`inherited_from: pkg`, domain
+  `shared-<domain>`, cited `@pkg/…`), keeping its verdict.
+
+`scandistricts.sh pkg`, then `scandistricts.sh <module>` (or `all`), does
+this for districts-jobs, into `~/spec-graphs/districts-jobs/<module>`
+(`~/spec-graphs/districts` is the webapp districts service's, from
+`scanwebapp.sh`).
+
 For Khan webapp, `scanwebapp-authz.sh` lists the authorization rules of every
 Go service at once (no LLM): `extractors/webapp -all` on the checkout, the Go
 extractor per service, then `scripts/authzall.py` writes `authz.html` (the
 authzview page), `authz.csv` and `authz.md` into `~/authz-webapp`.
 
 An endpoint's node id is its verb and path, slugged (`endpoint.safelist-add`);
-the path `/` is `root` (`endpoint.root`, `endpoint.get-root`).
+the path `/` is `root` (`endpoint.root`, `endpoint.get-root`). Routes whose
+ids collide (`/login` and `/login/`) share one endpoint node citing both.
 - `domain` — attr `domain` assigns the code in `source` to a domain,
   overriding the domain strategy for chunks starting there.
+- `call` — attrs `callee_path` and `callee_lines`: the definition at
+  `source` calls the one there. A chunk no `domain` fact places takes the
+  domain all its callers in its own directory agree on, callers decided
+  first (a helper of a helper follows the operation at the top);
+  disagreeing callers, no caller or a call cycle leave it be. Callers in
+  other directories are ignored: they use a package, whose domain stands.
+  The Go extractor emits these.
+- `reach` — the shared declaration at `source` (rooted) is reached by the
+  scanned code; read by `--inherit`.
 - `constant` — attrs `name` (as written in code, e.g.
   `http.StatusBadRequest`) and `value`: grounding then finds a stated `400`
   behind the constant's name.

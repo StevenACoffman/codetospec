@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"go/build"
 	"io"
 	"os"
 	"path/filepath"
@@ -60,8 +59,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 	)
 	accessPkgs := flags.String("access-pkgs", "permissions",
 		"comma-separated service packages whose bool functions are access checks")
-	inherit := flags.String("inherit", "",
-		"codetospec graph of webapp's pkg/ whose rules about reached code to inherit")
 	all := flags.Bool("all", false,
 		"analyze every Go service of the webapp checkout -root, consolidated")
 	if err := flags.Parse(args); err != nil {
@@ -74,7 +71,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if *all {
 		facts, warnings, err := AnalyzeAll(&AllInputs{
 			Webapp:     os.DirFS(*root),
-			GOROOT:     os.DirFS(build.Default.GOROOT),
 			Lang:       *lang,
 			AccessPkgs: strings.Split(*accessPkgs, ","),
 		})
@@ -83,7 +79,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	in := Inputs{
 		Service:      os.DirFS(*root),
-		GOROOT:       os.DirFS(build.Default.GOROOT),
 		ServiceGraph: *graph,
 		Lang:         *lang,
 		AccessPkgs:   strings.Split(*accessPkgs, ","),
@@ -107,9 +102,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 	); statErr == nil &&
 		info.IsDir() {
 		in.Webapp = os.DirFS(webappDir)
-	}
-	if *inherit != "" {
-		in.Inherit = os.DirFS(*inherit)
 	}
 	facts, warnings, err := Analyze(&in)
 	return emit(facts, warnings, err, stdout, logf)

@@ -79,8 +79,9 @@ Pipeline : `extract → chunk → map → reduce → crosscheck(+repair) → bui
   chaud, où le map n'est jamais re-demandé (les listes d'endpoints autorisés
   ne sont pas dans `promptKey`).
 - `extract.Roots` — seule lecture des fichiers cités : `--src`, plus les
-  arbres `--ref-root nom=dir` qu'une citation nomme (`Ref.Root`, réservé
-  aux règles d'extracteur : le `pkg/` partagé de webapp). Grounding, drift,
+  arbres `--ref-root nom=dir` qu'une citation nomme (`Ref.Root` : le code
+  partagé, `pkg` pour webapp et districts-jobs). Une racine citée sans
+  `--ref-root` arrête le run avant tout appel LLM (`Roots.CheckRoots`). Grounding, drift,
   verify passent par elle ; `Ref.File()` (`@nom/chemin`) sert de clé et
   d'affichage. Un `Root` vide ne change rien (digests, goldens, caches).
   Une règle d'extracteur peut être **héritée** d'une autre spec
@@ -90,6 +91,22 @@ Pipeline : `extract → chunk → map → reduce → crosscheck(+repair) → bui
   d'imports (Louvain de gonum + composantes connexes, graine fixe), section
   du README de sortie. gonum est épinglé : une montée de version peut
   changer les communautés.
+- `internal/inherit` — hérite d'une spec de code partagé (`--inherit
+  nom=graphe`, exige `--ref-root nom=dir`) : chaque règle LLM à une seule
+  citation tombant dans du code atteint (faits `reach`, émis par un
+  extracteur, ex. `extractors/go -shared pkg=…`) devient une règle héritée
+  du domaine `shared-<domaine>`. Le cœur lit son propre format de spec ;
+  l'extracteur ne dit que ce qui est atteint. `scandistricts.sh` l'applique
+  à districts-jobs, `scanwebapp.sh` à webapp (faits `reach` de l'extracteur
+  webapp).
+- `internal/callers` — après le chunking, un chunk sans fait `domain`
+  prend le domaine sur lequel s'accordent ses appelants **du même
+  répertoire** (faits `call`, émis par l'extracteur Go), appelants décidés
+  d'abord (ordre de Kahn, prêts triés : déterministe) ; un cycle d'appels
+  garde ses domaines. Un appelant d'un autre répertoire est ignoré : sinon
+  le code de bibliothèque prend le domaine `main` de son seul appelant, et
+  les `models` partagés celui de `servicetest` (les vrais appelants sont
+  dans d'autres modules).
 - `internal/consistency` — détection de règles quasi-doublons (Jaccard sur
   les exigences), listées dans le README de sortie.
 - `graph.SharedEntities` — entités touchées par des règles de plusieurs
@@ -120,8 +137,11 @@ Pipeline : `extract → chunk → map → reduce → crosscheck(+repair) → bui
 `vektah/gqlparser/v2` + yaml) **ne sont pas** construits par `go build ./...` depuis la racine.
 Les tester/builder depuis leur dossier. Raison : le module principal a un jeu
 de dépendances verrouillé (yaml, tree-sitter, charm) — les extracteurs vivent
-hors de ce jeu. Le convertisseur SCIP émet des facts `symbol` avec
-`precise: true` que le map injecte comme ancres de citation.
+hors de ce jeu. Le convertisseur SCIP et l'extracteur Go émettent des
+facts `symbol` avec `precise: true` (mêmes IDs, ils fusionnent) que le map
+injecte comme ancres de citation ; pour Go, SCIP est donc facultatif
+(`SCIP=0` par défaut dans les scripts). L'extracteur Go émet aussi les
+faits `constant` (webapp n'en émet plus) et `call`.
 
 Faits `constant` (grounding : `400` ↔ `http.StatusBadRequest`), `doc`
 (section `SCHEMA_DOCS` du map), `dependency` (nœuds `service` +
@@ -153,7 +173,10 @@ périmé.
 
 Reprise = existence de ces fichiers. Pour rejouer une phase, **purger son
 cache** (`rm -rf .codetospec/reduce`) puis relancer ; les phases amont
-restantes sont réutilisées. `state.json` cumule les tokens entre runs.
+restantes sont réutilisées. `state.json` cumule les tokens entre runs et
+enregistre la source (chemin absolu) : `state.Open` refuse un `--out` qui
+appartient à une autre source (`state.ErrOtherSource`), avant toute
+écriture — `start` ouvre l'état avant d'écrire `facts.json`.
 
 Les trois phases sont *content-aware* : map (clé = hash contenu du chunk),
 reduce (clé = hash des candidates du domaine, stocké dans le `.json`) et

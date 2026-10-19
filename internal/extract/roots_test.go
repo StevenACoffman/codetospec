@@ -3,6 +3,7 @@ package extract_test
 import (
 	"errors"
 	"io/fs"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -54,5 +55,39 @@ func TestRefFile(t *testing.T) {
 	}
 	if got := (extract.Ref{Path: "pkg/x.go", Root: "webapp"}).File(); got != "@webapp/pkg/x.go" {
 		t.Errorf("File() = %q", got)
+	}
+}
+
+// TestCheckRoots: a fact citing a root no --ref-root names stops the run
+// before the LLM, naming the root and the flag to add.
+func TestCheckRoots(t *testing.T) {
+	roots := extract.Roots{Extra: map[string]fs.FS{"pkg": fstest.MapFS{}}}
+	fact := func(id, root string) extract.Fact {
+		return extract.Fact{ID: id, Source: extract.Ref{Path: "x.go", Lines: "1-1", Root: root}}
+	}
+	cases := map[string]struct {
+		facts   []extract.Fact
+		wantErr string
+	}{
+		"unrooted and known roots": {facts: []extract.Fact{fact("a", ""), fact("b", "pkg")}},
+		"unknown root": {
+			facts:   []extract.Fact{fact("a", "pkg"), fact("b", "webapp"), fact("c", "webapp")},
+			wantErr: "webapp (cited by b): add --ref-root webapp=<dir>",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := roots.CheckRoots(tc.facts)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if !errors.Is(err, extract.ErrUnknownRoot) ||
+				!strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("err = %v, want %q", err, tc.wantErr)
+			}
+		})
 	}
 }

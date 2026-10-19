@@ -105,8 +105,8 @@ modèle reproduit cher et approximativement, ou pas du tout :
   l'enregistrement ; (4) une fonction non marquée qui refuse elle-même avec
   une erreur d'autorisation sous une condition sur un contrôle connu
   (`_ensureDevAccess`, `checkAIGuidePermissions`) : son erreur refuse.
-- **Règles du code partagé** (citées dans `pkg/`, racine `webapp` :
-  `codetospec --ref-root webapp=<checkout>`, que passe `scanwebapp.sh`) : les
+- **Règles du code partagé** (citées dans `pkg/`, racine `pkg` :
+  `codetospec --ref-root pkg=<checkout>/pkg`, que passe `scanwebapp.sh`) : les
   paquets de `pkg/` que le service importe sont lus transitivement, et seules
   les fonctions qu'il **atteint** — appelées ou passées en valeur, d'un paquet
   à l'autre, méthodes et interfaces non suivies (borne basse) — donnent des
@@ -117,14 +117,11 @@ modèle reproduit cher et approximativement, ou pas du tout :
   comparaison avec un local tenant une valeur de requête
   (`actual := r.Header.Get(H)`) se lit côte à côte : « `r.Header.Get(H)`
   ne vaut pas `expected` ».
-- **Règles héritées de la spec de `pkg/`** (`-inherit <graphe>`) : une fois
-  `pkg/` scanné comme spec à part (`./scanwebapp.sh pkg`), chaque service en
-  hérite les règles LLM dont la citation recouvre du code qu'il atteint — y
-  compris les méthodes, un type atteint atteignant ses méthodes — citées dans
-  `pkg/` (racine `webapp`), domaine `shared-<domaine>`, avec
-  `inherited_from: pkg` et le verdict de la spec. Une règle citant plusieurs
-  fichiers n'est pas héritée (avertissement : un fait n'a qu'une citation) ;
-  les règles d'extracteur de la spec non plus. `scanwebapp.sh` le passe dès
+- **Code partagé atteint** (`reach`, racine `pkg`) : chaque déclaration de
+  `pkg/` que le service atteint (la même lecture que ci-dessus : fonctions,
+  variables, types, et les méthodes d'un type atteint). codetospec en tire
+  les règles héritées de la spec de `pkg/` (`codetospec run --inherit
+  pkg=<graphe>`, voir `internal/inherit`) ; `scanwebapp.sh` le passe dès
   que `~/spec-graphs/pkg` existe (`PKG_GRAPH`).
 - **Contrats d'en-tête** (`rule`, « Contrat d'en-tête : H ») : attributs
   `header`, `contract` (`sends` | `requires` | `forwards`) et `secret` (le nom
@@ -196,9 +193,10 @@ modèle reproduit cher et approximativement, ou pas du tout :
   domaine : ses méthodes prennent celui de leur fichier de resolvers
   (`user_district_info.go` → `user-district-info`).
   Un fichier de resolvers dont toutes les méthodes ont le même domaine le
-  donne au fichier entier ; une fonction auxiliaire prend en outre le
-  domaine de ses appelants quand ils s'accordent (`acls.go`, ou un fichier
-  dont les méthodes couvrent plusieurs domaines), de proche en proche.
+  donne au fichier entier. Une fonction auxiliaire prend le domaine de ses
+  appelants quand ils s'accordent : c'est le cœur qui le fait, à partir des
+  faits `call` de l'extracteur Go (que `scanwebapp.sh` lance sur chaque
+  service).
   `schema.graphql`, le fichier par défaut de gqlgen, ne nomme pas de domaine
   quand le service a d'autres schémas : c'est le fourre-tout.
 - **Endpoints** (`route`) : chaque champ racine (`Query`, `Mutation`,
@@ -209,8 +207,6 @@ modèle reproduit cher et approximativement, ou pas du tout :
 - **Entités** (`table`) : chaque `datastore.RegisterKind("Kind", new(T))`,
   colonnes = champs de `T` tels que Datastore les stocke (tag `datastore`),
   `description` = le commentaire de doc de `T`, sur une ligne.
-- **Constantes** (`constant`) : constantes numériques du service et
-  `http.Status*` (lus dans GOROOT), pour le grounding.
 - **Docs** (`doc`) : description GraphQL du champ et de ses arguments,
   montrée au map pour la méthode qui le résout.
 - **Appels inter-services** (`dependency`) : chaque appel

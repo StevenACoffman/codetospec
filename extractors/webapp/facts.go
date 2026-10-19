@@ -6,13 +6,14 @@ package main
 type Ref struct {
 	Path  string `json:"path"`
 	Lines string `json:"lines"`
-	// Root names the tree Path is in when it is not the service: webappRoot
-	// for webapp's shared pkg/ (codetospec --ref-root webapp=<checkout>).
+	// Root names the tree Path is in when it is not the service: pkgRoot
+	// for webapp's shared pkg/ (codetospec --ref-root pkg=<checkout>/pkg).
 	Root string `json:"root,omitempty"`
 }
 
-// webappRoot is the citation root of webapp's shared code.
-const webappRoot = "webapp"
+// pkgRoot is the citation root of webapp's shared code: paths under it
+// are relative to the checkout's pkg/ (sharedDir).
+const pkgRoot = "pkg"
 
 // Fact is one mechanically derived statement about the codebase.
 type Fact struct {
@@ -41,6 +42,7 @@ const (
 	kindRoute      = "route"
 	kindTable      = "table"
 	kindDoc        = "doc"
+	kindReach      = "reach" // shared code the service reaches (codetospec's extract.KindReach)
 	kindDependency = "dependency"
 
 	attrSlug        = "slug"
@@ -57,6 +59,7 @@ const (
 	attrHandler     = "handler"
 	attrHandlerPath = "handler_path"
 	attrColumns     = "columns"
+	attrSymbol      = "symbol" // the reached declaration, package-qualified
 	// attrDescription, on a table fact, is the entity's authored
 	// description: its struct's doc comment (codetospec's
 	// extract.AttrDescription).
@@ -65,12 +68,6 @@ const (
 	attrService     = "service"
 	attrOperation   = "operation"
 	attrAs          = "as" // a dependency's authority: asServiceAdmin, asUser
-	// An inherited rule's (see inheritFacts; codetospec's
-	// extract.AttrInheritedFrom and siblings).
-	attrInheritedFrom = "inherited_from"
-	attrCrosscheck    = "crosscheck"
-	attrOrigin        = "origin"
-	attrConfidence    = "confidence"
 )
 
 // Values of attrAs (codetospec's extract.AsServiceAdmin, extract.AsUser).

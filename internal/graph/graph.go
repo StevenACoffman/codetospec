@@ -3,6 +3,7 @@
 package graph
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"slices"
@@ -211,28 +212,62 @@ func splitColumns(columns string) []string {
 	return cols
 }
 
+// endpointDraft collects the route facts sharing one endpoint id.
+type endpointDraft struct {
+	verb     string
+	paths    []string
+	handlers []string
+	sources  []extract.Ref
+}
+
+// endpointNodes builds one endpoint node per endpoint id. Routes whose ids
+// collide (/login and /login/) share the node: its title and body list
+// every path and handler, and it cites every route, all sorted.
 func endpointNodes(facts []extract.Fact, text *locale.Text) []Node {
-	var nodes []Node
-	for _, f := range facts {
+	drafts := map[string]*endpointDraft{}
+	for i := range facts {
+		f := &facts[i]
 		if f.Kind != extract.KindRoute {
 			continue
 		}
-		verb := strings.ToUpper(routeVerb(&f))
-		path := f.Attrs["path"]
-		body := text.Method + verb + "\n\n" + text.Path + "`" + path + "`"
-		if handler := routeHandler(&f); handler != "" {
-			body += "\n\n" + text.Handler + "`" + handler + "`"
+		id := EndpointID(f)
+		d := drafts[id]
+		if d == nil {
+			d = &endpointDraft{verb: strings.ToUpper(routeVerb(f))}
+			drafts[id] = d
 		}
+		d.paths = append(d.paths, f.Attrs["path"])
+		if handler := routeHandler(f); handler != "" {
+			d.handlers = append(d.handlers, handler)
+		}
+		d.sources = append(d.sources, f.Source)
+	}
+	nodes := make([]Node, 0, len(drafts))
+	for _, id := range slices.Sorted(maps.Keys(drafts)) {
+		d := drafts[id]
+		paths := dedupSorted(d.paths)
+		body := text.Method + d.verb + "\n\n" + text.Path + codeList(paths)
+		if handlers := dedupSorted(d.handlers); len(handlers) > 0 {
+			body += "\n\n" + text.Handler + codeList(handlers)
+		}
+		slices.SortFunc(d.sources, func(a, b extract.Ref) int {
+			return cmp.Or(cmp.Compare(a.File(), b.File()), cmp.Compare(a.Lines, b.Lines))
+		})
 		nodes = append(nodes, Node{
-			ID:      EndpointID(&f),
+			ID:      id,
 			Type:    "endpoint",
 			Status:  StatusGenerated,
-			Sources: []extract.Ref{f.Source},
-			Title:   verb + " " + path,
+			Sources: d.sources,
+			Title:   d.verb + " " + strings.Join(paths, ", "),
 			Body:    body,
 		})
 	}
 	return nodes
+}
+
+// codeList renders values as comma-separated inline code.
+func codeList(values []string) string {
+	return "`" + strings.Join(values, "`, `") + "`"
 }
 
 // domainDraft collects one domain's summary and rule nodes before its

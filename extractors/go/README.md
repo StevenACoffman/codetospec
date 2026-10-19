@@ -29,6 +29,21 @@ Extracteur natif codetospec pour l'écosystème Go, sur le protocole
   (`go/constant`), bibliothèque standard comprise. Le grounding retrouve
   ainsi un « 400 » énoncé derrière `http.StatusBadRequest`. Un nom nu lié à
   deux valeurs (deux paquets) est écarté.
+- **Symboles précis** (`symbol`, `precise: true`) : chaque fonction,
+  méthode et type nommé du module, avec son span exact, son genre et sa
+  signature ; mêmes ids que la couche tree-sitter et le convertisseur SCIP
+  (ils fusionnent). Rend scip-go inutile pour Go.
+- **Appels** (`call`) : quelle fonction ou méthode du module appelle ou
+  utilise quelle autre déclaration du module (une paire par fait, chacune
+  citée par son span) ; codetospec place une définition utilisée par les
+  appelants d'un seul domaine dans ce domaine.
+- **Code partagé atteint** (`reach`, avec `-shared nom=dir`, répétable) :
+  chaque déclaration du module partagé (`go.mod` de `dir`) que le module
+  analysé atteint — ce que son code nomme, puis ce que ces déclarations
+  nomment ; un type atteint atteint ses méthodes ; les interfaces ne sont
+  pas suivies (borne basse). Citée sous la racine `nom` (`@nom/chemin`),
+  pour `codetospec run --inherit nom=… --ref-root nom=…`. Le module doit
+  résoudre le code partagé localement (go.work ou `replace`).
 - **Tables** (`table`) : `CREATE TABLE` des fichiers `.sql` (schéma sqlc,
   migrations), avec colonnes typées ; les contraintes de table sont ignorées.
 

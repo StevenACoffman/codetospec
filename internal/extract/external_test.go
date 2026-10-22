@@ -23,8 +23,10 @@ const (
 func echoExtractor(t *testing.T) string {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "echoextractor")
-	out, err := exec.CommandContext(t.Context(), "go", "build", "-o", bin, "./testdata/echoextractor").
-		CombinedOutput()
+	// bin is a path under t.TempDir, not outside input.
+	build := exec.CommandContext( //nolint:gosec // G204: see above.
+		t.Context(), "go", "build", "-o", bin, "./testdata/echoextractor")
+	out, err := build.CombinedOutput()
 	if err != nil {
 		t.Fatalf("build echoextractor: %v\n%s", err, out)
 	}

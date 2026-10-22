@@ -93,6 +93,7 @@ type ReadmeCoverage struct {
 // ReadmeReview lists rules for review and the domain graph heading.
 type ReadmeReview struct {
 	UngroundedHeading, UngroundedIntroFmt string // %d rules
+	CoverageGapsHeading, GapsIntroFmt     string // %d gaps, %d domains
 	DuplicatesHeading, DuplicatesIntroFmt string // %d pairs, intra, cross
 	SplitsHeading, SplitsIntroFmt         string // %d split domains
 	SplitFmt                              string // %d files, %d communities
@@ -155,13 +156,23 @@ func newText(lang string) *Text {
 
 Navigation : commencer par nodes/domains/, puis suivre les edges du frontmatter
 (belongs_to, touches, exposed_by, depends_on). graph.json contient le graphe complet
-au format machine ; les citations `+"`path:lines`"+` pointent dans le dépôt source.`,
+au format machine ; les citations `+"`path:lines`"+` pointent dans le dépôt source.
+
+Chaque règle ci-dessous porte sa citation, son verdict de revue (crosscheck) et son
+ancrage (grounding). Ne s'y fier que si elle est grounded et supported, repaired ou
+mechanical : unchecked n'est jamais un succès. Un domaine partial contient du code
+qui n'a produit aucune règle : l'absence d'une règle n'y prouve rien.`,
 			`> Business-rule specification extracted automatically from the source code.
 > Each node is a markdown file with YAML frontmatter carrying typed edges.
 
 Navigation: start at nodes/domains/, then follow the frontmatter edges
 (belongs_to, touches, exposed_by, depends_on). graph.json holds the full graph
-in machine form; `+"`path:lines`"+` citations point into the source repository.`,
+in machine form; `+"`path:lines`"+` citations point into the source repository.
+
+Each rule below carries its citation, its review verdict (crosscheck) and its
+grounding. Rely on it only when it is grounded and supported, repaired or
+mechanical: unchecked is never a pass. A partial domain holds code that produced
+no rule: a rule missing there proves nothing.`,
 		),
 		Labels:    newLabels(tr),
 		Readme:    newReadme(tr),
@@ -424,6 +435,14 @@ func newReadmeReview(tr translate) ReadmeReview {
 		UngroundedIntroFmt: tr(
 			"%d règles énoncent des valeurs absentes des lignes citées "+"(valeur inventée ou citation décalée ; `@` indique où la valeur apparaît hors citation) :",
 			"%d rules state values missing from their cited lines "+"(invented value or shifted citation; `@` shows where the value appears outside the citation):",
+		),
+		CoverageGapsHeading: tr(
+			"## Code sans règle",
+			"## Code without rules",
+		),
+		GapsIntroFmt: tr(
+			"%d morceaux de code de %d domaines n'ont produit aucune règle "+"(fichier généré, appel map ou reduce en échec) : ces domaines sont `coverage: partial`, l'absence d'une règle n'y prouve rien :",
+			"%d pieces of code in %d domains produced no rule "+"(generated file, failed map or reduce call): those domains are `coverage: partial`, and a rule missing there proves nothing:",
 		),
 		SplitsHeading: tr(
 			"## Domaines dispersés",

@@ -82,7 +82,8 @@ func TestConvertStripsRoot(t *testing.T) {
 
 func TestConvertFallsBackToIdentifierRange(t *testing.T) {
 	idx := syntheticIndex()
-	idx.Documents[0].Occurrences[0].EnclosingRange = nil // no body range
+	// The converter reads this raw field (main.go), so the test clears it too.
+	idx.Documents[0].Occurrences[0].EnclosingRange = nil //nolint:staticcheck // SA1019: see above.
 	facts := convert(idx, "")
 	if len(facts) != 1 || facts[0].Source.Lines != "11-11" {
 		t.Fatalf("want fallback to identifier line 11-11, got %+v", facts)

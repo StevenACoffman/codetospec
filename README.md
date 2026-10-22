@@ -172,7 +172,9 @@ extract (layers 1+2) ──▶ chunk (AST) ──▶ map (LLM, parallel, per chu
   is split in half and retried, so a large domain never loses its rules.
 - **build/verify/render**: nodes are assembled and cross-checked (unique
   ids, resolvable edges and citations, frontmatter round-trip). Nothing is
-  written unless verification passes.
+  written unless verification passes, and the render never leaves half an
+  output: `nodes/` (and `models/`) is built aside and swapped in, and each
+  top-level file is written by rename.
 
 Runs are **resumable** (Ctrl-C safe: state is saved after every unit, cached
 units are skipped on rerun) and **deterministic** (two warm-cache runs
@@ -212,7 +214,11 @@ bin/codetospec stats  --out <graph>                # phase counters; tokens of t
 
 Each rule stores a digest of its cited code, so `drift` reports which rules
 went stale as the source evolves — the spec stays honest about what it still
-matches. `drift --format json` emits a machine-readable summary and exits 1
+matches. When call facts are available (the Go extractor), a rule also
+stores the code its cited lines call, one hop (`callees`, `callees_digest`):
+a rule whose citation is unchanged but whose helper changed is reported
+**affected**, without failing the run, since a callee edit is often
+unrelated to the rule. `drift --format json` emits a machine-readable summary and exits 1
 on drift, so it drops straight into CI (see `examples/spec-drift.yml`). The
 output README also lists near-duplicate rule candidates (a deterministic
 consistency check, split into intra- and cross-domain) for a reviewer to
@@ -307,6 +313,19 @@ Domain `depends_on` edges are computed from import facts crossing domain
 boundaries — never by the LLM. The output README reports coverage: endpoints
 referenced by at least one rule, entities touched, failed chunks/domains,
 files without a grammar.
+
+Each domain node says whether a missing rule means anything there:
+`coverage: complete` when every chunk placed in the domain was mapped and
+reduced, `coverage: partial` plus `coverage_gaps` (generated files, failed
+map chunks, a failed reduce) otherwise. In a partial domain, "no rule about
+refunds" proves nothing; the output README lists the gaps under **Code
+without rules**. Excluded paths and files without a grammar belong to no
+domain, so they never make one partial.
+
+`llms.txt` indexes every node for an agent; each rule line carries its
+citations, crosscheck verdict and grounding, grouped by domain, so an agent
+knows which rules to rely on (grounded and supported, repaired or
+mechanical) before opening one.
 
 ## Extractor protocol (facts v1)
 
@@ -415,14 +434,32 @@ ids collide (`/login` and `/login/`) share one endpoint node citing both.
 A `route` fact may carry `handler_path` (the handler's file): its chunks may
 then cite the endpoint, without matching handler names to symbols.
 
+## Development
+
+```sh
+make check    # lint, test, race, go mod tidy -diff, govulncheck — every module
+make corpus   # re-check real rendered graphs against baselines (no LLM)
+```
+
+`make check` is what CI runs. The extractors are separate Go modules, so
+every target loops over the root and `extractors/{go,scip,webapp}`. Lint
+uses the repository's `.golangci.yml`; do not relax it. `make corpus`
+re-runs grounding, verify and drift over the graphs listed in
+`internal/corpus/testdata/corpus.json` and fails on any count worse than its
+baseline; entries absent from the machine, or whose source moved off the
+recorded commit, skip. `CODETOSPEC_CORPUS_UPDATE=1 make corpus` re-records
+the baselines.
+
 ## Limitations (v0.1)
 
 - Citations are guaranteed to resolve inside the cited chunk and file — not
   to point at the exact statement.
 - Deduplication happens per domain; the same behavior surfaced in two
-  domains yields two rules.
-- No agentic reduce, no SQLite, no MCP server, no CI drift-check yet — see
-  the roadmap in the spec.
+  domains yields two rules (the output README lists them as cross-domain
+  near-duplicate candidates, it does not merge them).
+- No agentic reduce, no SQLite, no MCP server. See
+  [docs/05-limits.md](docs/05-limits.md) for what the method itself cannot
+  guarantee.
 
 ## License
 

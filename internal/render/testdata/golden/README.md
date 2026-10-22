@@ -25,6 +25,12 @@ Graphe de connaissances des règles métier, extrait du code source par codetosp
 
 - `rule.billing.prorata-activation` : 30 @app/Services/Billing/ProrataCalculator.php:9
 
+## Code sans règle
+
+1 morceaux de code de 1 domaines n'ont produit aucune règle (fichier généré, appel map ou reduce en échec) : ces domaines sont `coverage: partial`, l'absence d'une règle n'y prouve rien :
+
+- `billing` : map-failed app/Services/Billing/Refunds.php:1-40
+
 ## Domaines
 
 ```mermaid

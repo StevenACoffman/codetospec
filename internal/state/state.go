@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/StevenACoffman/codetospec/internal/atomicfs"
 )
 
 // PhaseTokens accumulates token usage for one phase: over every run on
@@ -173,28 +175,5 @@ func (st *Store) saveLocked() error {
 	if err != nil {
 		return fmt.Errorf("encode state: %w", err)
 	}
-	return WriteFileAtomic(st.path, append(data, '\n'))
-}
-
-// WriteFileAtomic writes data to path via a temporary file and rename, so a
-// crash never leaves a truncated file behind. A failure to remove the
-// temporary file after an error is reported with it.
-func WriteFileAtomic(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return fmt.Errorf("create dir %s: %w", dir, err)
-	}
-	tmp, err := os.CreateTemp(dir, ".tmp-*")
-	if err != nil {
-		return fmt.Errorf("create temp file in %s: %w", dir, err)
-	}
-	tmpName := tmp.Name()
-	_, writeErr := tmp.Write(data)
-	if written := errors.Join(writeErr, tmp.Close()); written != nil {
-		return errors.Join(fmt.Errorf("write %s: %w", tmpName, written), os.Remove(tmpName))
-	}
-	if renameErr := os.Rename(tmpName, path); renameErr != nil {
-		return errors.Join(fmt.Errorf("rename to %s: %w", path, renameErr), os.Remove(tmpName))
-	}
-	return nil
+	return atomicfs.WriteFile(st.path, append(data, '\n'))
 }

@@ -8,10 +8,21 @@ Binaire Go qui lit un dépôt et produit un graphe markdown de règles métier
 
 ```sh
 go build -o bin/codetospec ./cmd/codetospec   # TOUJOURS rebuild avant un run réel
-make test                                      # go vet ./... && go test ./...
+make test                                      # go vet + go test, tous les modules
+make check                                     # lint + test + race + tidy + vuln (= CI)
+make corpus                                    # graphes réels vs baselines, sans LLM
 make run-fixture                               # run mocké sur testdata/fixture
 ```
 
+- Lint : `.golangci.yml` du dépôt (copie de `~/Documents/git/.golangci.yml`),
+  golangci-lint ≥ v2.14 (2.13 ne lit pas l'export data de go1.27.2). Ne
+  jamais le relâcher ; un `//nolint:<linter> // <raison>` seulement quand le
+  code est juste par conception (nolintlint exige la raison).
+- `make corpus` (`internal/corpus`, tag `corpus`) rejoue grounding, verify et
+  drift sur les graphes de `internal/corpus/testdata/corpus.json` (sorties
+  locales sous `~/spec-graphs`) et échoue si un compte empire ; une entrée
+  absente ou dont la source a quitté le commit enregistré est sautée.
+  `CODETOSPEC_CORPUS_UPDATE=1` ré-enregistre les baselines (après revue).
 - **Rebuild `bin/codetospec` après toute modif de code avant de le lancer** —
   un binaire périmé produit un run faux silencieusement (déjà arrivé).
 - CGO obligatoire (tree-sitter) : `CGO_ENABLED=1`, toolchain C requise.
@@ -51,6 +62,18 @@ Pipeline : `extract → chunk → map → reduce → crosscheck(+repair) → bui
 - `internal/{graph,verify,render}` — assemblage déterministe, contrôles, écriture.
 - `internal/drift` — digest du code cité par règle (frontmatter `digest:`) ;
   commande `drift` = re-hache et signale les règles périmées (déterministe).
+  Avec des faits `call`, `stamp` écrit aussi les appelés directs du code
+  cité (`callees:` + `callees_digest`, un seul saut : la fermeture couvrirait
+  tout le module) ; un appelé modifié rend la règle `affected`, signalé mais
+  jamais en échec. Autonome : `drift` ne lit pas `.codetospec/`.
+- `graph.AnnotateCoverage` — `coverage: complete | partial` par domaine, avec
+  `coverage_gaps` (fichier généré, chunk map en échec, reduce en échec),
+  calculé par `coverageGaps` dans `pipeline.go` ; section « Code sans règle »
+  du README de sortie. Un chemin exclu ou sans grammaire n'a pas de domaine :
+  il ne rend jamais un domaine partiel.
+- `internal/atomicfs` — seules écritures de la sortie : `WriteFile` (temp +
+  rename) et `ReplaceDir` (`nodes/`, `models/` construits à côté puis
+  échangés) ; un rendu interrompu laisse la sortie précédente intacte.
 - `internal/locale` — toutes les chaînes fixes de sortie, FR et EN côte à
   côte (`tr(fr, en)`), y compris les patrons EARS des prompts. Les écrivains
   prennent `locale.For(--lang)` ; les parseurs (`graph.RuleRequirement`,

@@ -38,6 +38,13 @@ doesn't cover. Coverage of endpoints and entities is measured; coverage of
 "unspecified business code" is the harder, more important gap, and the honest
 frontier for "guarantee spec↔code coherence."
 
+One part of it is measured: the code the tool *knows* it skipped. Each domain
+is marked `coverage: partial` when some of its code produced no rule because
+a phase failed or skipped it (a failed map chunk, a failed reduce, a generated
+file), with the gaps listed. That tells a reader where a missing rule proves
+nothing. It says nothing about code that was mapped and simply yielded no
+rule; that is still the frontier.
+
 ## 5.4 The human referent is not optional
 
 The output is *for* a domain expert to validate — the person who knows that

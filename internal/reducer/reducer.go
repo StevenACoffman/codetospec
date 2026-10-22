@@ -17,11 +17,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/atomicfs"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/llm"
 	"github.com/StevenACoffman/codetospec/internal/locale"
 	"github.com/StevenACoffman/codetospec/internal/mapper"
-	"github.com/StevenACoffman/codetospec/internal/state"
 	"github.com/StevenACoffman/codetospec/internal/workpool"
 )
 
@@ -226,7 +226,7 @@ func (r *Reducer) reduceDomain(
 	if err != nil {
 		return Output{}, usage, fmt.Errorf("encode reduce output: %w", err)
 	}
-	if err = state.WriteFileAtomic(outPath, append(data, '\n')); err != nil {
+	if err = atomicfs.WriteFile(outPath, append(data, '\n')); err != nil {
 		return Output{}, usage, fmt.Errorf("write reduce output: %w", err)
 	}
 	return out, usage, nil

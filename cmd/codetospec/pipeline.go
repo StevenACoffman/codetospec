@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/atomicfs"
 	"github.com/StevenACoffman/codetospec/internal/callers"
 	"github.com/StevenACoffman/codetospec/internal/communities"
 	"github.com/StevenACoffman/codetospec/internal/config"
@@ -83,17 +84,6 @@ type extraction struct {
 	status    map[string]string
 }
 
-// factIndex is what the LLM phases are allowed to cite or must know, per
-// source path.
-type factIndex struct {
-	entities        []string
-	allEndpoints    []string
-	endpointsByPath map[string][]string
-	symbols         map[string][]mapper.SymbolContext
-	mechanical      map[string][]mapper.Note
-	docs            map[string][]mapper.Note
-}
-
 // run is the phase sequence; runPipeline reports its outcome.
 func (p *pipeline) run(ctx context.Context) error {
 	cfg := p.cfg
@@ -153,25 +143,26 @@ func (p *pipeline) run(ctx context.Context) error {
 	if err = p.enter("build", nil); err != nil {
 		return err
 	}
-	nodes := graph.Build(ext.facts, reduced, resolver, cfg.Lang)
+	gaps := coverageGaps(generated, mapOutputs, reduced)
+	nodes := graph.AnnotateCoverage(graph.Build(ext.facts, reduced, resolver, cfg.Lang), gaps)
 	nodes, tally, err := p.crosscheck(ctx, nodes, idx.symbols)
 	if err != nil {
 		return err
 	}
-	nodes = stamp(cfg.Roots(), nodes, groundingOpts)
+	nodes = stamp(cfg.Roots(), nodes, ext.facts, groundingOpts)
 	if err = p.verify(ctx, nodes); err != nil {
 		return err
 	}
 
 	snapshot := p.st.Snapshot()
 	meta := buildMeta(cfg, &ext, &metaInputs{
-		chunks:    chunks,
-		generated: generated,
-		groups:    domainGroups(chunks, resolver.Ambiguous, &hints),
-		nodes:     nodes,
-		tally:     tally,
-		snapshot:  &snapshot,
-		models:    models,
+		chunks:   chunks,
+		gaps:     gaps,
+		groups:   domainGroups(chunks, resolver.Ambiguous, &hints),
+		nodes:    nodes,
+		tally:    tally,
+		snapshot: &snapshot,
+		models:   models,
 	})
 	written, err := p.domainModel(models, nodes, tablesOf(ext.facts, domainOf))
 	if err != nil {
@@ -394,21 +385,27 @@ func loadFactsFiles(paths []string) ([]extract.Fact, error) {
 }
 
 // chunkFiles cuts every read, non-generated file into chunks, sorted by
-// path then line, and counts the generated files left out: their rules
-// are their generator's, so they keep their facts but are not mapped.
+// path then line, and returns the generated files left out as coverage
+// gaps of the domain their code would have had: their rules are their
+// generator's, so they keep their facts but are not mapped.
 func chunkFiles(
 	ext *extraction,
 	domainOf func(namespace, path string, line int) string,
-) ([]sitter.Chunk, int) {
+) ([]sitter.Chunk, []graph.CoverageGap) {
 	var chunks []sitter.Chunk
-	generated := 0
+	var generated []graph.CoverageGap
 	for _, f := range ext.files {
 		data, ok := ext.fileData[f.Path]
 		if !ok {
 			continue
 		}
 		if f.Generated {
-			generated++
+			namespace := sitter.FileNamespace(ext.fileInfo[f.Path])
+			generated = append(generated, graph.CoverageGap{
+				Domain: domainOf(namespace, f.Path, 1),
+				Reason: graph.GapGenerated,
+				Path:   f.Path,
+			})
 			continue
 		}
 		chunks = append(chunks,
@@ -421,18 +418,6 @@ func chunkFiles(
 		return chunks[i].StartLine < chunks[j].StartLine
 	})
 	return chunks, generated
-}
-
-// indexFacts gathers, from the merged facts, what the LLM phases may cite.
-func indexFacts(facts []extract.Fact) factIndex {
-	return factIndex{
-		entities:        entityIDs(facts),
-		allEndpoints:    allEndpointIDs(facts),
-		endpointsByPath: endpointsByPath(facts),
-		symbols:         preciseSymbols(facts),
-		mechanical:      mechanicalRules(facts),
-		docs:            docNotes(facts),
-	}
 }
 
 // mapChunks runs the map phase: candidate rules per chunk.
@@ -500,6 +485,47 @@ func (p *pipeline) record(ctx context.Context, update func(*state.State)) {
 	if err := p.st.Update(update); err != nil {
 		p.logger.WarnContext(ctx, "state save failed", "err", err)
 	}
+}
+
+// coverageGaps lists, per domain, the code that produced no rule: the
+// generated files chunkFiles left out, the chunks whose map failed and the
+// domains whose reduce failed.
+func coverageGaps(
+	generated []graph.CoverageGap,
+	mapped []mapper.Output,
+	reduced []reducer.Output,
+) []graph.CoverageGap {
+	gaps := slices.Clone(generated)
+	for _, out := range mapped {
+		if out.Failed {
+			gaps = append(gaps, graph.CoverageGap{
+				Domain: out.Domain,
+				Reason: graph.GapMapFailed,
+				Path:   out.Path,
+				Lines:  fmt.Sprintf("%d-%d", out.StartLine, out.EndLine),
+			})
+		}
+	}
+	for _, out := range reduced {
+		if out.Failed {
+			gaps = append(
+				gaps,
+				graph.CoverageGap{Domain: out.Domain, Reason: graph.GapReduceFailed},
+			)
+		}
+	}
+	return gaps
+}
+
+// countGaps counts the gaps with reason.
+func countGaps(gaps []graph.CoverageGap, reason graph.GapReason) int {
+	n := 0
+	for _, g := range gaps {
+		if g.Reason == reason {
+			n++
+		}
+	}
+	return n
 }
 
 // candidatesByDomain groups the rules of successful map outputs by domain.
@@ -613,8 +639,14 @@ func (p *pipeline) crosscheck(
 
 // stamp checks, without an LLM, that each rule's stated values occur in
 // the code it cites (after crosscheck, whose repair may re-cite), and
-// stamps each rule with a digest of that code for later drift checks.
-func stamp(roots extract.Roots, nodes []graph.Node, opts grounding.Options) []graph.Node {
+// stamps each rule with a digest of that code, and of the code it calls
+// (from facts' call facts), for later drift checks.
+func stamp(
+	roots extract.Roots,
+	nodes []graph.Node,
+	facts []extract.Fact,
+	opts grounding.Options,
+) []graph.Node {
 	nodes = grounding.Annotate(roots, nodes, opts)
 	for i := range nodes {
 		if nodes[i].Type != graph.TypeRule {
@@ -628,6 +660,15 @@ func stamp(roots extract.Roots, nodes []graph.Node, opts grounding.Options) []gr
 			nodes[i].Extra = map[string]string{}
 		}
 		nodes[i].Extra["digest"] = digest
+		callees := drift.Callees(nodes[i].Sources, facts)
+		if calleesDigest, calleeErr := drift.Digest(
+			roots,
+			callees,
+		); calleeErr == nil &&
+			len(callees) > 0 {
+			nodes[i].Callees = callees
+			nodes[i].Extra[graph.ExtraCalleesDigest] = calleesDigest
+		}
 	}
 	return nodes
 }
@@ -654,13 +695,13 @@ func (p *pipeline) verify(ctx context.Context, nodes []graph.Node) error {
 // metaInputs is what the README summary needs beyond the configuration
 // and the extraction.
 type metaInputs struct {
-	chunks    []sitter.Chunk
-	generated int
-	groups    map[string]string
-	nodes     []graph.Node
-	tally     crosscheck.Tally
-	snapshot  *state.State
-	models    *domainmodel.Set // nil without --domain-model
+	chunks   []sitter.Chunk
+	gaps     []graph.CoverageGap // generated files and failed map or reduce units
+	groups   map[string]string
+	nodes    []graph.Node
+	tally    crosscheck.Tally
+	snapshot *state.State
+	models   *domainmodel.Set // nil without --domain-model
 }
 
 // buildMeta computes the output README's summary and checks.
@@ -674,7 +715,8 @@ func buildMeta(cfg *config.Config, ext *extraction, in *metaInputs) render.Meta 
 		DomainsFailed:         in.snapshot.DomainsFailed,
 		DomainsTotal:          in.snapshot.DomainsTotal,
 		FilesNoGrammar:        ext.noGrammar,
-		FilesGenerated:        in.generated,
+		FilesGenerated:        countGaps(in.gaps, graph.GapGenerated),
+		CoverageGaps:          graph.SortGaps(in.gaps),
 		Crosschecked:          cfg.Crosscheck,
 		CrosscheckSupported:   in.tally.Supported,
 		CrosscheckPartial:     in.tally.Partial,
@@ -732,165 +774,10 @@ func writeFactsFile(outDir string, facts []extract.Fact) error {
 	if err != nil {
 		return fmt.Errorf("encode facts.json: %w", err)
 	}
-	return state.WriteFileAtomic(
+	return atomicfs.WriteFile(
 		filepath.Join(outDir, ".codetospec", "facts.json"),
 		append(data, '\n'),
 	)
-}
-
-// entityIDs lists the entity node ids the table facts give, sorted.
-func entityIDs(facts []extract.Fact) []string {
-	var ids []string
-	for _, f := range facts {
-		if f.Kind == "table" {
-			ids = append(ids, graph.EntityID(&f))
-		}
-	}
-	sort.Strings(ids)
-	return dedup(ids)
-}
-
-// qualifiedSymbol is a symbol fact's file and names.
-type qualifiedSymbol struct {
-	path, fqn, name string
-}
-
-// qualifiedSymbols lists the symbol facts with their namespace-qualified
-// name (PHP's Namespace\Name).
-func qualifiedSymbols(facts []extract.Fact) []qualifiedSymbol {
-	var symbols []qualifiedSymbol
-	for _, f := range facts {
-		if f.Kind != "symbol" {
-			continue
-		}
-		name := f.Attrs["name"]
-		fqn := name
-		if ns := f.Attrs["namespace"]; ns != "" {
-			fqn = ns + "\\" + name
-		}
-		symbols = append(symbols, qualifiedSymbol{path: f.Source.Path, fqn: fqn, name: name})
-	}
-	return symbols
-}
-
-// endpointsByPath maps each source file to the endpoint ids its code
-// serves: the file holding a route's handler (handler_path), else the
-// files declaring a symbol its controller or handler names. Ids are sorted
-// and distinct (colliding routes share one).
-func endpointsByPath(facts []extract.Fact) map[string][]string {
-	symbols := qualifiedSymbols(facts)
-	byPath := make(map[string][]string)
-	for _, f := range facts {
-		if f.Kind != "route" {
-			continue
-		}
-		id := graph.EndpointID(&f)
-		if handlerPath := f.Attrs[extract.AttrHandlerPath]; handlerPath != "" {
-			byPath[handlerPath] = append(byPath[handlerPath], id)
-			continue
-		}
-		target := cmp.Or(f.Attrs["controller"], f.Attrs["handler"])
-		if target == "" {
-			continue
-		}
-		for _, s := range symbols {
-			if strings.Contains(target, s.fqn) {
-				byPath[s.path] = append(byPath[s.path], id)
-			}
-		}
-	}
-	for path := range byPath {
-		sort.Strings(byPath[path])
-		byPath[path] = dedup(byPath[path])
-	}
-	return byPath
-}
-
-// preciseSymbols groups indexer-resolved symbol definitions (attr
-// precise=true, e.g. from the SCIP converter) by file, for injection into
-// the map prompt as citation anchors.
-func preciseSymbols(facts []extract.Fact) map[string][]mapper.SymbolContext {
-	byPath := make(map[string][]mapper.SymbolContext)
-	for _, f := range facts {
-		if f.Kind != "symbol" || f.Attrs["precise"] != "true" {
-			continue
-		}
-		start, end, err := extract.ParseLines(f.Source.Lines)
-		if err != nil {
-			continue
-		}
-		byPath[f.Source.Path] = append(byPath[f.Source.Path], mapper.SymbolContext{
-			Name:      f.Attrs["name"],
-			StartLine: start,
-			EndLine:   end,
-			Kind:      f.Attrs["kind"],
-			Signature: f.Attrs["signature"],
-		})
-	}
-	return byPath
-}
-
-// mechanicalRules indexes the (validated) rule facts by cited file, for the
-// map prompt's MECHANICAL_RULES section.
-func mechanicalRules(facts []extract.Fact) map[string][]mapper.Note {
-	byPath := make(map[string][]mapper.Note)
-	for _, f := range facts {
-		if f.Kind != extract.KindRule {
-			continue
-		}
-		start, end, err := extract.ParseLines(f.Source.Lines)
-		if err != nil {
-			continue // ValidateRuleFacts already dropped these
-		}
-		byPath[f.Source.Path] = append(byPath[f.Source.Path], mapper.Note{
-			StartLine: start,
-			EndLine:   end,
-			Text:      f.Attrs[extract.AttrRequirement],
-		})
-	}
-	return byPath
-}
-
-// docNotes indexes the doc facts by file, for the map prompt's SCHEMA_DOCS
-// section.
-func docNotes(facts []extract.Fact) map[string][]mapper.Note {
-	byPath := make(map[string][]mapper.Note)
-	for _, f := range facts {
-		if f.Kind != extract.KindDoc || f.Attrs[extract.AttrText] == "" {
-			continue
-		}
-		start, end, err := extract.ParseLines(f.Source.Lines)
-		if err != nil {
-			continue
-		}
-		byPath[f.Source.Path] = append(byPath[f.Source.Path], mapper.Note{
-			StartLine: start,
-			EndLine:   end,
-			Text:      f.Attrs[extract.AttrText],
-		})
-	}
-	return byPath
-}
-
-func allEndpointIDs(facts []extract.Fact) []string {
-	var ids []string
-	for _, f := range facts {
-		if f.Kind == "route" {
-			ids = append(ids, graph.EndpointID(&f))
-		}
-	}
-	sort.Strings(ids)
-	return dedup(ids)
-}
-
-func dedup(sorted []string) []string {
-	var out []string
-	for i, s := range sorted {
-		if i == 0 || s != sorted[i-1] {
-			out = append(out, s)
-		}
-	}
-	return out
 }
 
 func sortedKeys(m map[string]string) []string {
@@ -1048,12 +935,19 @@ func (p *pipeline) writeModels(written *domainmodel.Enhanced) error {
 		return nil
 	}
 	dir := filepath.Join(p.cfg.Out, "models")
-	if err := os.RemoveAll(dir); err != nil {
-		return fmt.Errorf("clear models dir: %w", err)
-	}
 	if len(written.Files) == 0 {
+		if err := os.RemoveAll(dir); err != nil {
+			return fmt.Errorf("clear models dir: %w", err)
+		}
 		return nil
 	}
+	return atomicfs.ReplaceDir(dir, func(staging string) error {
+		return writeModelFiles(staging, written)
+	})
+}
+
+// writeModelFiles writes the models and their provenance.json under dir.
+func writeModelFiles(dir string, written *domainmodel.Enhanced) error {
 	for _, f := range written.Files {
 		path := filepath.Join(dir, filepath.FromSlash(f.Path))
 		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {

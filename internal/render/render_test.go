@@ -82,8 +82,20 @@ func testNodes() []graph.Node {
 	}
 }
 
+// testGaps is the code the golden run left without rules: the failed chunk
+// testMeta counts, in billing.
+func testGaps() []graph.CoverageGap {
+	return []graph.CoverageGap{{
+		Domain: "billing",
+		Reason: graph.GapMapFailed,
+		Path:   "app/Services/Billing/Refunds.php",
+		Lines:  "1-40",
+	}}
+}
+
 func testMeta() render.Meta {
 	return render.Meta{
+		CoverageGaps: testGaps(),
 		Coverage: graph.Coverage{
 			EndpointsTotal: 1, EndpointsReferenced: 1,
 			EntitiesTotal: 1, EntitiesTouched: 1,
@@ -101,7 +113,8 @@ func testMeta() render.Meta {
 
 func TestWriteGolden(t *testing.T) {
 	outDir := t.TempDir()
-	if err := render.Write(outDir, testNodes(), new(testMeta())); err != nil {
+	nodes := graph.AnnotateCoverage(testNodes(), testGaps())
+	if err := render.Write(outDir, nodes, new(testMeta())); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 

@@ -23,12 +23,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/atomicfs"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/llm"
 	"github.com/StevenACoffman/codetospec/internal/locale"
 	"github.com/StevenACoffman/codetospec/internal/mapper"
-	"github.com/StevenACoffman/codetospec/internal/state"
 	"github.com/StevenACoffman/codetospec/internal/workpool"
 )
 
@@ -252,7 +252,7 @@ func (c *Checker) checkRule(ctx context.Context, rule *graph.Node) (Verdict, llm
 	if err != nil {
 		return Verdict{}, usage, fmt.Errorf("encode verdict: %w", err)
 	}
-	if writeErr := state.WriteFileAtomic(outPath, append(data, '\n')); writeErr != nil {
+	if writeErr := atomicfs.WriteFile(outPath, append(data, '\n')); writeErr != nil {
 		return Verdict{}, usage, fmt.Errorf("write verdict: %w", writeErr)
 	}
 	return v, usage, nil

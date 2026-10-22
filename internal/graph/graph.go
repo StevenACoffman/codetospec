@@ -22,6 +22,9 @@ type Node struct {
 	Type    string // "domain" | "entity" | "endpoint" | "rule"
 	Status  string // always "generated" in v0.1
 	Sources []extract.Ref
+	// Callees is the code the cited lines call, one hop (rules only; see
+	// drift.Callees): drift re-hashes it to flag a rule whose helper changed.
+	Callees []extract.Ref
 	Edges   []Edge
 	Title   string
 	Body    string            // markdown body without frontmatter

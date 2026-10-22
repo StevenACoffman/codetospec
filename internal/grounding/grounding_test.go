@@ -158,6 +158,9 @@ func TestLoadErrors(t *testing.T) {
 	}{
 		"missing file": {extract.Ref{Path: "app/Nope.php", Lines: "1-2"}, "Nope.php"},
 		"bad range":    {extract.Ref{Path: billingPath, Lines: "x"}, "Billing.php"},
+		// The file shrank after the rule was cited (a graph checked
+		// against a newer tree): an error, never a panic in Check.
+		"starts past the end": {extract.Ref{Path: billingPath, Lines: "900-950"}, "exceed"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

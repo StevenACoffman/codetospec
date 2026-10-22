@@ -1,0 +1,153 @@
+{
+  "entries": [
+    {
+      "name": "pkg",
+      "src": "~/khan/webapp/pkg",
+      "out": "~/spec-graphs/pkg",
+      "lang": "en",
+      "commit": "1ec3acc959459b594e0b5884efd058b6577b5b3d",
+      "baseline": {
+        "rules": 1437,
+        "grounded": 290,
+        "ungrounded": 7,
+        "proven": 0,
+        "partial_domains": 0,
+        "violations": 1,
+        "drifted": 58
+      }
+    },
+    {
+      "name": "admin",
+      "src": "~/khan/webapp/services/admin",
+      "out": "~/spec-graphs/admin",
+      "ref_roots": {
+        "pkg": "~/khan/webapp/pkg"
+      },
+      "lang": "en",
+      "commit": "1ec3acc959459b594e0b5884efd058b6577b5b3d",
+      "baseline": {
+        "rules": 1038,
+        "grounded": 245,
+        "ungrounded": 6,
+        "proven": 0,
+        "partial_domains": 0,
+        "violations": 0,
+        "drifted": 0
+      }
+    },
+    {
+      "name": "ai-guide",
+      "src": "~/khan/webapp/services/ai-guide",
+      "out": "~/spec-graphs/ai-guide",
+      "ref_roots": {
+        "pkg": "~/khan/webapp/pkg"
+      },
+      "lang": "en",
+      "commit": "1ec3acc959459b594e0b5884efd058b6577b5b3d",
+      "baseline": {
+        "rules": 5853,
+        "grounded": 1277,
+        "ungrounded": 16,
+        "proven": 0,
+        "partial_domains": 0,
+        "violations": 0,
+        "drifted": 0
+      }
+    },
+    {
+      "name": "assignments",
+      "src": "~/khan/webapp/services/assignments",
+      "out": "~/spec-graphs/assignments",
+      "ref_roots": {
+        "pkg": "~/khan/webapp/pkg"
+      },
+      "lang": "en",
+      "commit": "1ec3acc959459b594e0b5884efd058b6577b5b3d",
+      "baseline": {
+        "rules": 1273,
+        "grounded": 235,
+        "ungrounded": 16,
+        "proven": 0,
+        "partial_domains": 0,
+        "violations": 18,
+        "drifted": 181
+      }
+    },
+    {
+      "name": "coaches",
+      "src": "~/khan/webapp/services/coaches",
+      "out": "~/spec-graphs/coaches",
+      "ref_roots": {
+        "pkg": "~/khan/webapp/pkg"
+      },
+      "lang": "en",
+      "commit": "1ec3acc959459b594e0b5884efd058b6577b5b3d",
+      "baseline": {
+        "rules": 2283,
+        "grounded": 463,
+        "ungrounded": 5,
+        "proven": 0,
+        "partial_domains": 0,
+        "violations": 0,
+        "drifted": 0
+      }
+    },
+    {
+      "name": "districts",
+      "src": "~/khan/webapp/services/districts",
+      "out": "~/spec-graphs/districts",
+      "ref_roots": {
+        "pkg": "~/khan/webapp/pkg"
+      },
+      "lang": "en",
+      "commit": "1ec3acc959459b594e0b5884efd058b6577b5b3d",
+      "baseline": {
+        "rules": 3556,
+        "grounded": 616,
+        "ungrounded": 7,
+        "proven": 0,
+        "partial_domains": 0,
+        "violations": 0,
+        "drifted": 0
+      }
+    },
+    {
+      "name": "graphql-gateway",
+      "src": "~/khan/webapp/services/graphql-gateway",
+      "out": "~/spec-graphs/graphql-gateway",
+      "ref_roots": {
+        "pkg": "~/khan/webapp/pkg"
+      },
+      "lang": "en",
+      "commit": "1ec3acc959459b594e0b5884efd058b6577b5b3d",
+      "baseline": {
+        "rules": 883,
+        "grounded": 209,
+        "ungrounded": 6,
+        "proven": 0,
+        "partial_domains": 0,
+        "violations": 0,
+        "drifted": 0
+      }
+    },
+    {
+      "name": "users",
+      "src": "~/khan/webapp/services/users",
+      "out": "~/spec-graphs/users",
+      "ref_roots": {
+        "pkg": "~/khan/webapp/pkg"
+      },
+      "lang": "en",
+      "commit": "1ec3acc959459b594e0b5884efd058b6577b5b3d",
+      "baseline": {
+        "rules": 2758,
+        "grounded": 588,
+        "ungrounded": 6,
+        "proven": 0,
+        "partial_domains": 0,
+        "violations": 0,
+        "drifted": 0
+      }
+    }
+  ]
+}

@@ -192,7 +192,8 @@ func (c cli) verify(cfg *config.Config) int {
 }
 
 // drift reports the rules whose cited code changed since they were
-// rendered; it fails when any did.
+// rendered, and fails when any did; rules whose callees alone changed are
+// reported as affected without failing.
 func (c cli) drift(cfg *config.Config) int {
 	nodes, err := render.LoadDir(cfg.Out)
 	if err != nil {
@@ -203,8 +204,8 @@ func (c cli) drift(cfg *config.Config) int {
 
 	if cfg.Format == "json" {
 		payload := map[string]int{
-			"ok": report.OK, "stale": report.Stale,
-			"broken": report.Broken, "unknown": report.Unknown, "total": len(report.Rules),
+			"ok": report.OK, "stale": report.Stale, "broken": report.Broken,
+			"unknown": report.Unknown, "affected": report.Affected, "total": len(report.Rules),
 		}
 		data, encodeErr := json.MarshalIndent(payload, "", "  ")
 		if encodeErr != nil {
@@ -214,16 +215,17 @@ func (c cli) drift(cfg *config.Config) int {
 		_, _ = fmt.Fprintln(c.stdout, string(data))
 	} else {
 		for _, rs := range report.Rules {
-			if rs.Status == drift.StatusStale || rs.Status == drift.StatusBroken {
+			if rs.Status != drift.StatusOK && rs.Status != drift.StatusUnknown {
 				_, _ = fmt.Fprintf(c.stdout, "%s: %s — %s\n", rs.Status, rs.RuleID, rs.Detail)
 			}
 		}
 		_, _ = fmt.Fprintf(
 			c.stdout,
-			"drift: %d ok, %d stale, %d broken, %d unknown (of %d rules)\n",
+			"drift: %d ok, %d stale, %d broken, %d affected, %d unknown (of %d rules)\n",
 			report.OK,
 			report.Stale,
 			report.Broken,
+			report.Affected,
 			report.Unknown,
 			len(report.Rules),
 		)

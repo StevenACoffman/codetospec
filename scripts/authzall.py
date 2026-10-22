@@ -47,6 +47,14 @@ def split_by_service(facts):
     return own, inherited
 
 
+def routed_services(routes_dir):
+    """The services with a routes file: listed even with no webapp fact, so
+    their net/http entry points count."""
+    if routes_dir is None:
+        return set()
+    return {p.name.removesuffix(".facts.json") for p in routes_dir.glob("*.facts.json")}
+
+
 def load_routes(routes_dir, service):
     """The Go extractor's routes of a service; [] without them."""
     if routes_dir is None:
@@ -143,9 +151,9 @@ def main():
     own, inherited = split_by_service(facts)
     callers = authzview.admin_callers(inherited)
     data = {}
-    for svc, svc_facts in sorted(own.items()):
+    for svc in sorted(set(own) | routed_services(args.routes_dir)):
         routes = [] if svc == SHARED else load_routes(args.routes_dir, svc)
-        ops = authzview.build_ops(svc, svc_facts, routes, callers)
+        ops = authzview.build_ops(svc, own.get(svc, []), routes, callers)
         if any(o["rules"] or o["root"] for o in ops):
             data[svc] = ops
     if not data:

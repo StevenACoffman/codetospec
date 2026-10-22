@@ -30,6 +30,10 @@ func Reviewable(n *Node) bool {
 // outside them (see grounding.Annotate).
 const ExtraGroundingWidened = "grounding_widened"
 
+// ExtraCalleesDigest is the frontmatter key of the digest of a rule's
+// callees (Node.Callees), which drift re-hashes.
+const ExtraCalleesDigest = "callees_digest"
+
 // ValidateRuleFacts drops extract.KindRule facts that do not satisfy the rule
 // fact contract, so an extractor bug cannot put a malformed rule in the
 // graph. Facts of other kinds pass through unchanged.

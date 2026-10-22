@@ -98,6 +98,12 @@ func Load(roots extract.Roots, refs []extract.Ref) ([]Citation, error) {
 			lines = strings.Split(string(data), "\n")
 			files[ref.File()] = lines
 		}
+		// An end past the file is clamped (a range may name the final
+		// newline's empty line), but a start past it cites nothing.
+		if start > len(lines) {
+			return nil, fmt.Errorf("grounding.Load: %s: lines %s exceed file (%d lines)",
+				ref.File(), ref.Lines, len(lines))
+		}
 		citations = append(citations, Citation{
 			Path:  ref.File(),
 			Start: start,

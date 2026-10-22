@@ -5,7 +5,6 @@ package render
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -14,24 +13,27 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/atomicfs"
 	"github.com/StevenACoffman/codetospec/internal/communities"
 	"github.com/StevenACoffman/codetospec/internal/consistency"
 	"github.com/StevenACoffman/codetospec/internal/domainmodel"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/locale"
-	"gopkg.in/yaml.v3"
 )
 
 // Meta is run-level information rendered into README.md.
 type Meta struct {
-	Coverage         graph.Coverage
-	ChunksFailed     int
-	ChunksTotal      int
-	DomainsFailed    int
-	DomainsTotal     int
-	FilesNoGrammar   []string
-	FilesGenerated   int // generated files, not mapped
+	Coverage       graph.Coverage
+	ChunksFailed   int
+	ChunksTotal    int
+	DomainsFailed  int
+	DomainsTotal   int
+	FilesNoGrammar []string
+	FilesGenerated int // generated files, not mapped
+	// CoverageGaps is the code of each domain that produced no rule, sorted
+	// (see graph.AnnotateCoverage).
+	CoverageGaps     []graph.CoverageGap
 	ExtractorsFailed []string
 	// Adversarial cross-check tally; only rendered when Crosschecked is true.
 	Crosschecked          bool
@@ -67,14 +69,38 @@ type Meta struct {
 }
 
 // Write renders the whole graph into outDir: nodes/, graph.json, README.md
-// and llms.txt. nodes/ is emptied then rewritten; .codetospec/ is never
-// touched.
+// and llms.txt. nodes/ is built aside and swapped in, and each top-level
+// file is written by rename, so an interrupted render leaves the previous
+// output readable, never half of it; .codetospec/ is never touched.
 func Write(outDir string, nodes []graph.Node, meta *Meta) error {
 	text := locale.For(meta.Lang)
-	nodesDir := filepath.Join(outDir, "nodes")
-	if err := os.RemoveAll(nodesDir); err != nil {
-		return fmt.Errorf("clear nodes dir: %w", err)
+	err := atomicfs.ReplaceDir(filepath.Join(outDir, "nodes"), func(staging string) error {
+		return writeNodes(staging, nodes, text)
+	})
+	if err != nil {
+		return err
 	}
+	if err = writeGraphJSON(outDir, nodes); err != nil {
+		return err
+	}
+	if err = atomicfs.WriteFile(
+		filepath.Join(outDir, "README.md"),
+		[]byte(readme(nodes, meta, text)),
+	); err != nil {
+		return fmt.Errorf("write README.md: %w", err)
+	}
+	if err = atomicfs.WriteFile(
+		filepath.Join(outDir, "llms.txt"),
+		[]byte(llmsTxt(nodes, text)),
+	); err != nil {
+		return fmt.Errorf("write llms.txt: %w", err)
+	}
+	return nil
+}
+
+// writeNodes writes one markdown file per node under nodesDir, the
+// directory NodeFile's "nodes/" prefix names.
+func writeNodes(nodesDir string, nodes []graph.Node, text *locale.Text) error {
 	for _, sub := range []string{"domains", "entities", "endpoints", "rules", "services"} {
 		if err := os.MkdirAll(filepath.Join(nodesDir, sub), 0o750); err != nil {
 			return fmt.Errorf("create nodes dir: %w", err)
@@ -82,27 +108,11 @@ func Write(outDir string, nodes []graph.Node, meta *Meta) error {
 	}
 	for i := range nodes {
 		n := &nodes[i]
-		path := filepath.Join(outDir, filepath.FromSlash(NodeFile(n)))
+		rel := strings.TrimPrefix(NodeFile(n), "nodes/")
+		path := filepath.Join(nodesDir, filepath.FromSlash(rel))
 		if err := os.WriteFile(path, []byte(NodeMarkdown(n, text)), 0o600); err != nil {
 			return fmt.Errorf("write node %s: %w", n.ID, err)
 		}
-	}
-	if err := writeGraphJSON(outDir, nodes); err != nil {
-		return err
-	}
-	if err := os.WriteFile(
-		filepath.Join(outDir, "README.md"),
-		[]byte(readme(nodes, meta, text)),
-		0o600,
-	); err != nil {
-		return fmt.Errorf("write README.md: %w", err)
-	}
-	if err := os.WriteFile(
-		filepath.Join(outDir, "llms.txt"),
-		[]byte(llmsTxt(nodes, text)),
-		0o600,
-	); err != nil {
-		return fmt.Errorf("write llms.txt: %w", err)
 	}
 	return nil
 }
@@ -121,6 +131,48 @@ func NodeFile(n *graph.Node) string {
 	default:
 		return "nodes/rules/" + strings.TrimPrefix(n.ID, "rule.") + ".md"
 	}
+}
+
+// extraField is one optional frontmatter key read from Node.Extra; quoted
+// values are free text that may hold YAML-significant characters.
+type extraField struct {
+	key    string
+	quoted bool
+}
+
+// frontmatterExtras lists the optional frontmatter keys in output order.
+// A key is written only when its value is set, so adding one here changes
+// no existing node file.
+func frontmatterExtras() []extraField {
+	return []extraField{
+		{key: "ears"},
+		{key: "acceptance"},
+		{key: "nature"},
+		{key: "origin"},
+		{key: "confidence"},
+		{key: "crosscheck"},
+		{key: graph.ExtraExtractedBy},
+		{key: graph.ExtraInheritedFrom},
+		{key: "grounding"},
+		{key: "grounding_missing", quoted: true},
+		{key: graph.ExtraGroundingWidened, quoted: true},
+		{key: "digest"},
+		{key: graph.ExtraCoverage},
+		{key: graph.ExtraCoverageGaps, quoted: true},
+	}
+}
+
+// writeCallees writes a rule's callees and their digest: the code drift
+// re-hashes to flag the rule as affected.
+func writeCallees(b *strings.Builder, n *graph.Node) {
+	if len(n.Callees) == 0 {
+		return
+	}
+	b.WriteString("callees:\n")
+	for _, c := range n.Callees {
+		fmt.Fprintf(b, "  - path: %s\n    lines: %q\n", c.Path, c.Lines)
+	}
+	fmt.Fprintf(b, "%s: %s\n", graph.ExtraCalleesDigest, n.Extra[graph.ExtraCalleesDigest])
 }
 
 // Frontmatter renders the exact YAML frontmatter of a node.
@@ -149,41 +201,16 @@ func Frontmatter(n *graph.Node) string {
 			fmt.Fprintf(&b, "  - {type: %s, to: %s}\n", e.Type, e.To)
 		}
 	}
-	if v := n.Extra["ears"]; v != "" {
-		fmt.Fprintf(&b, "ears: %s\n", v)
-	}
-	if v := n.Extra["acceptance"]; v != "" {
-		fmt.Fprintf(&b, "acceptance: %s\n", v)
-	}
-	if v := n.Extra["nature"]; v != "" {
-		fmt.Fprintf(&b, "nature: %s\n", v)
-	}
-	if v := n.Extra["origin"]; v != "" {
-		fmt.Fprintf(&b, "origin: %s\n", v)
-	}
-	if v := n.Extra["confidence"]; v != "" {
-		fmt.Fprintf(&b, "confidence: %s\n", v)
-	}
-	if v := n.Extra["crosscheck"]; v != "" {
-		fmt.Fprintf(&b, "crosscheck: %s\n", v)
-	}
-	if v := n.Extra[graph.ExtraExtractedBy]; v != "" {
-		fmt.Fprintf(&b, "%s: %s\n", graph.ExtraExtractedBy, v)
-	}
-	if v := n.Extra[graph.ExtraInheritedFrom]; v != "" {
-		fmt.Fprintf(&b, "%s: %s\n", graph.ExtraInheritedFrom, v)
-	}
-	if v := n.Extra["grounding"]; v != "" {
-		fmt.Fprintf(&b, "grounding: %s\n", v)
-	}
-	if v := n.Extra["grounding_missing"]; v != "" {
-		fmt.Fprintf(&b, "grounding_missing: %q\n", v)
-	}
-	if v := n.Extra[graph.ExtraGroundingWidened]; v != "" {
-		fmt.Fprintf(&b, "%s: %q\n", graph.ExtraGroundingWidened, v)
-	}
-	if v := n.Extra["digest"]; v != "" {
-		fmt.Fprintf(&b, "digest: %s\n", v)
+	writeCallees(&b, n)
+	for _, field := range frontmatterExtras() {
+		v := n.Extra[field.key]
+		switch {
+		case v == "":
+		case field.quoted:
+			fmt.Fprintf(&b, "%s: %q\n", field.key, v)
+		default:
+			fmt.Fprintf(&b, "%s: %s\n", field.key, v)
+		}
 	}
 	b.WriteString("---\n")
 	return b.String()
@@ -242,9 +269,10 @@ func edgeLink(e graph.Edge, text *locale.Text) string {
 
 // graphJSONNode is one entry of graph.json.
 type graphJSONNode struct {
-	Type  string       `json:"type"`
-	File  string       `json:"file"`
-	Edges []graph.Edge `json:"edges"`
+	Type     string       `json:"type"`
+	File     string       `json:"file"`
+	Coverage string       `json:"coverage,omitempty"` // domains only
+	Edges    []graph.Edge `json:"edges"`
 }
 
 func writeGraphJSON(outDir string, nodes []graph.Node) error {
@@ -254,16 +282,20 @@ func writeGraphJSON(outDir string, nodes []graph.Node) error {
 		if edges == nil {
 			edges = []graph.Edge{}
 		}
-		entries[n.ID] = graphJSONNode{Type: n.Type, File: NodeFile(&n), Edges: edges}
+		entries[n.ID] = graphJSONNode{
+			Type:     n.Type,
+			File:     NodeFile(&n),
+			Coverage: n.Extra[graph.ExtraCoverage],
+			Edges:    edges,
+		}
 	}
 	data, err := json.MarshalIndent(map[string]any{"nodes": entries}, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode graph.json: %w", err)
 	}
-	if err = os.WriteFile(
+	if err = atomicfs.WriteFile(
 		filepath.Join(outDir, "graph.json"),
 		append(data, '\n'),
-		0o600,
 	); err != nil {
 		return fmt.Errorf("write graph.json: %w", err)
 	}
@@ -386,6 +418,7 @@ func readme(nodes []graph.Node, meta *Meta, text *locale.Text) string {
 	b.WriteString(readmeCoverage(meta, text))
 	b.WriteString(groundingSummary(nodes, text))
 	b.WriteString(ungroundedSection(nodes, text))
+	b.WriteString(gapsSection(meta.CoverageGaps, text))
 	b.WriteString(splitSection(meta.DomainSplits, text))
 	b.WriteString(sharedSection(meta.SharedEntities, text))
 
@@ -560,6 +593,28 @@ func ungroundedSection(nodes []graph.Node, text *locale.Text) string {
 	return b.String()
 }
 
+// gapsSection lists the code that produced no rule, by domain: where a
+// missing rule proves nothing.
+func gapsSection(gaps []graph.CoverageGap, text *locale.Text) string {
+	if len(gaps) == 0 {
+		return ""
+	}
+	domains := map[string]bool{}
+	for _, g := range gaps {
+		domains[g.Domain] = true
+	}
+	var b strings.Builder
+	b.WriteString("\n" + text.CoverageGapsHeading + "\n\n")
+	fmt.Fprintf(&b, text.GapsIntroFmt+"\n\n", len(gaps), len(domains))
+	for _, g := range gaps[:min(len(gaps), maxListed)] {
+		fmt.Fprintf(&b, "- `%s` : %s\n", g.Domain, g.String())
+	}
+	if len(gaps) > maxListed {
+		fmt.Fprintf(&b, text.AndMoreFmt+"\n", len(gaps)-maxListed)
+	}
+	return b.String()
+}
+
 // mermaidID makes a slug safe as a Mermaid node identifier.
 func mermaidID(slug string) string {
 	return strings.ReplaceAll(slug, "-", "_")
@@ -573,144 +628,6 @@ func ruleDomain(ruleID string) string {
 	}
 	domain, _, _ := strings.Cut(rest, ".")
 	return domain
-}
-
-func llmsTxt(nodes []graph.Node, text *locale.Text) string {
-	var b strings.Builder
-	b.WriteString("# codetospec knowledge graph\n\n")
-	b.WriteString(text.LLMsPreamble + "\n")
-	for _, nodeType := range []string{graph.TypeDomain, graph.TypeEntity, "endpoint", graph.TypeRule, graph.TypeService} {
-		var lines []string
-		for _, n := range nodes {
-			if n.Type == nodeType {
-				lines = append(lines, fmt.Sprintf("- %s : %s", NodeFile(&n), n.Title))
-			}
-		}
-		if len(lines) == 0 {
-			continue
-		}
-		fmt.Fprintf(&b, "\n## %s\n\n", nodeType)
-		b.WriteString(strings.Join(lines, "\n") + "\n")
-	}
-	return b.String()
-}
-
-// frontmatterDoc mirrors the YAML frontmatter for parsing.
-type frontmatterDoc struct {
-	ID      string `yaml:"id"`
-	Type    string `yaml:"type"`
-	Status  string `yaml:"status"`
-	Sources []struct {
-		Path  string `yaml:"path"`
-		Lines string `yaml:"lines"`
-		Root  string `yaml:"root"`
-	} `yaml:"sources"`
-	Edges []struct {
-		Type string `yaml:"type"`
-		To   string `yaml:"to"`
-	} `yaml:"edges"`
-	Ears       string   `yaml:"ears"`
-	Acceptance *int     `yaml:"acceptance"`
-	Nature     string   `yaml:"nature"`
-	Origin     string   `yaml:"origin"`
-	Confidence *float64 `yaml:"confidence"`
-	Crosscheck string   `yaml:"crosscheck"`
-	Extracted  string   `yaml:"extracted_by"`
-	Inherited  string   `yaml:"inherited_from"`
-	Grounding  string   `yaml:"grounding"`
-	Missing    string   `yaml:"grounding_missing"`
-	Widened    string   `yaml:"grounding_widened"`
-	Digest     string   `yaml:"digest"`
-}
-
-// ParseNode parses one rendered node file back into a Node (frontmatter
-// fields and title; the body is kept verbatim). Used by the round-trip
-// check and the verify command.
-func ParseNode(content string) (graph.Node, error) {
-	var n graph.Node
-	rest, ok := strings.CutPrefix(content, "---\n")
-	if !ok {
-		return n, errors.New("missing frontmatter opening")
-	}
-	front, body, ok := strings.Cut(rest, "\n---\n")
-	if !ok {
-		return n, errors.New("missing frontmatter closing")
-	}
-	var doc frontmatterDoc
-	if err := yaml.Unmarshal([]byte(front), &doc); err != nil {
-		return n, fmt.Errorf("parse frontmatter: %w", err)
-	}
-	n.ID = doc.ID
-	n.Type = doc.Type
-	n.Status = doc.Status
-	for _, s := range doc.Sources {
-		n.Sources = append(n.Sources, extract.Ref{Path: s.Path, Lines: s.Lines, Root: s.Root})
-	}
-	for _, e := range doc.Edges {
-		n.Edges = append(n.Edges, graph.Edge{Type: e.Type, To: e.To})
-	}
-	n.Extra = doc.extra()
-	for line := range strings.SplitSeq(body, "\n") {
-		if title, isTitle := strings.CutPrefix(line, "# "); isTitle {
-			n.Title = title
-			break
-		}
-	}
-	n.Body = body
-	return n, nil
-}
-
-// extra is the node's Extra map from its frontmatter; nil when empty.
-func (doc *frontmatterDoc) extra() map[string]string {
-	extra := map[string]string{}
-	set := func(key, value string) {
-		if value != "" {
-			extra[key] = value
-		}
-	}
-	set("ears", doc.Ears)
-	if doc.Acceptance != nil {
-		extra["acceptance"] = strconv.Itoa(*doc.Acceptance)
-	}
-	set("nature", doc.Nature)
-	set("origin", doc.Origin)
-	if doc.Confidence != nil {
-		extra["confidence"] = strconv.FormatFloat(*doc.Confidence, 'f', 2, 64)
-	}
-	set("crosscheck", doc.Crosscheck)
-	set(graph.ExtraExtractedBy, doc.Extracted)
-	set(graph.ExtraInheritedFrom, doc.Inherited)
-	set("grounding", doc.Grounding)
-	set("grounding_missing", doc.Missing)
-	set(graph.ExtraGroundingWidened, doc.Widened)
-	set("digest", doc.Digest)
-	if len(extra) == 0 {
-		return nil
-	}
-	return extra
-}
-
-// LoadDir reads every node file under outDir/nodes for re-verification.
-func LoadDir(outDir string) ([]graph.Node, error) {
-	pattern := filepath.Join(outDir, "nodes", "*", "*.md")
-	paths, err := filepath.Glob(pattern)
-	if err != nil {
-		return nil, fmt.Errorf("glob %s: %w", pattern, err)
-	}
-	sort.Strings(paths)
-	var nodes []graph.Node
-	for _, path := range paths {
-		data, readErr := os.ReadFile(filepath.Clean(path))
-		if readErr != nil {
-			return nil, fmt.Errorf("read node %s: %w", path, readErr)
-		}
-		n, parseErr := ParseNode(string(data))
-		if parseErr != nil {
-			return nil, fmt.Errorf("parse node %s: %w", path, parseErr)
-		}
-		nodes = append(nodes, n)
-	}
-	return nodes, nil
 }
 
 // splitSection lists the domains whose files fall into several code

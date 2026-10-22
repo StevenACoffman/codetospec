@@ -5,9 +5,11 @@
 package drift
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -23,6 +25,10 @@ const (
 	StatusStale   Status = "stale"   // cited code changed
 	StatusBroken  Status = "broken"  // a citation no longer resolves
 	StatusUnknown Status = "unknown" // rule has no stored digest
+	// StatusAffected: the cited code is unchanged but code it calls changed
+	// (or no longer resolves), so the rule may no longer hold. Reported,
+	// never a failure: a callee edit is often unrelated to the rule.
+	StatusAffected Status = "affected"
 )
 
 // RuleStatus is the drift result for one rule.
@@ -34,11 +40,12 @@ type RuleStatus struct {
 
 // Report is the outcome of a drift check.
 type Report struct {
-	Rules   []RuleStatus
-	OK      int
-	Stale   int
-	Broken  int
-	Unknown int
+	Rules    []RuleStatus
+	OK       int
+	Stale    int
+	Broken   int
+	Unknown  int
+	Affected int
 }
 
 // Drifted reports whether any rule is stale or broken.
@@ -83,8 +90,61 @@ func Digest(roots extract.Roots, sources []extract.Ref) (string, error) {
 	return hex.EncodeToString(h.Sum(nil))[:16], nil
 }
 
+// Callees returns the code the cited sources call, one hop: the callee of
+// every call fact whose caller overlaps a cited range, minus code a source
+// already cites. One hop, because a rule's closure would reach most of the
+// module and flag every rule on any edit.
+//
+// Requires: calls are call facts (others are ignored).
+// Ensures:  sorted by file then lines, no duplicates; nil when none. Only
+// sources and callers under --src (no Root) are matched: call facts are
+// emitted for the analyzed module alone.
+func Callees(sources []extract.Ref, calls []extract.Fact) []extract.Ref {
+	seen := map[extract.Ref]bool{}
+	var callees []extract.Ref
+	for i := range calls {
+		f := &calls[i]
+		if f.Kind != extract.KindCall || f.Source.Root != "" || !overlapsAny(sources, f.Source) {
+			continue
+		}
+		callee := extract.Ref{
+			Path:  f.Attrs[extract.AttrCalleePath],
+			Lines: f.Attrs[extract.AttrCalleeLines],
+		}
+		if seen[callee] || overlapsAny(sources, callee) {
+			continue
+		}
+		seen[callee] = true
+		callees = append(callees, callee)
+	}
+	slices.SortFunc(callees, func(a, b extract.Ref) int {
+		return cmp.Or(cmp.Compare(a.File(), b.File()), cmp.Compare(a.Lines, b.Lines))
+	})
+	return callees
+}
+
+// overlapsAny reports whether ref shares a line with one of refs in the
+// same file; a malformed range overlaps nothing.
+func overlapsAny(refs []extract.Ref, ref extract.Ref) bool {
+	start, end, err := extract.ParseLines(ref.Lines)
+	if err != nil {
+		return false
+	}
+	for _, r := range refs {
+		if r.File() != ref.File() {
+			continue
+		}
+		rStart, rEnd, rErr := extract.ParseLines(r.Lines)
+		if rErr == nil && rStart <= end && start <= rEnd {
+			return true
+		}
+	}
+	return false
+}
+
 // Check recomputes each rule's digest against the current source and
-// compares it to the digest stored in the rule node.
+// compares it to the digest stored in the rule node; a rule whose cited
+// code is unchanged is then checked against its callees' digest.
 func Check(nodes []graph.Node, roots extract.Roots) Report {
 	var report Report
 	for _, n := range nodes {
@@ -109,6 +169,10 @@ func Check(nodes []graph.Node, roots extract.Roots) Report {
 				rs.Status = StatusStale
 				rs.Detail = "cited code changed since generation"
 				report.Stale++
+			case calleesChanged(&n, roots):
+				rs.Status = StatusAffected
+				rs.Detail = "code the cited lines call changed since generation"
+				report.Affected++
 			default:
 				rs.Status = StatusOK
 				report.OK++
@@ -117,4 +181,16 @@ func Check(nodes []graph.Node, roots extract.Roots) Report {
 		report.Rules = append(report.Rules, rs)
 	}
 	return report
+}
+
+// calleesChanged reports whether the rule stores a callees digest that no
+// longer matches its callees; a callee that no longer resolves counts as
+// changed.
+func calleesChanged(n *graph.Node, roots extract.Roots) bool {
+	stored := n.Extra[graph.ExtraCalleesDigest]
+	if stored == "" {
+		return false
+	}
+	current, err := Digest(roots, n.Callees)
+	return err != nil || current != stored
 }

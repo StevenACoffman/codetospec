@@ -14,11 +14,11 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/atomicfs"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/llm"
 	"github.com/StevenACoffman/codetospec/internal/locale"
 	"github.com/StevenACoffman/codetospec/internal/sitter"
-	"github.com/StevenACoffman/codetospec/internal/state"
 	"github.com/StevenACoffman/codetospec/internal/workpool"
 )
 
@@ -377,7 +377,7 @@ func writeOutput(outPath string, out *Output) error {
 	if err != nil {
 		return fmt.Errorf("encode map output: %w", err)
 	}
-	if writeErr := state.WriteFileAtomic(outPath, append(data, '\n')); writeErr != nil {
+	if writeErr := atomicfs.WriteFile(outPath, append(data, '\n')); writeErr != nil {
 		return fmt.Errorf("write map output: %w", writeErr)
 	}
 	return nil

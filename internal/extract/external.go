@@ -56,7 +56,8 @@ func RunExtractor(
 		args[i] = placeholders.Replace(a)
 	}
 
-	cmd := exec.CommandContext(runCtx, cfg.Cmd, args...)
+	// Running the command the user configured is the point of an extractor.
+	cmd := exec.CommandContext(runCtx, cfg.Cmd, args...) //nolint:gosec // G204: see above.
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

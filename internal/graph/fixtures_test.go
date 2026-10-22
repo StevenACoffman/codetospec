@@ -9,4 +9,5 @@ const (
 	activateRoute  = "endpoint.post-api-activate"
 	servicesDomain = "domain.services"
 	firstLine      = "1-1"
+	billingDomain  = "billing"
 )

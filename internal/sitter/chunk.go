@@ -225,6 +225,17 @@ func contains(outer, inner Definition) bool {
 	return outer.StartLine <= inner.StartLine && inner.EndLine <= outer.EndLine
 }
 
+// FileNamespace returns the namespace a file's first line belongs to, the
+// one ChunkFile gives a chunk starting there; "" for a nil info. It places a
+// file that is never chunked (a generated one) in the domain its code would
+// have had.
+func FileNamespace(info *FileInfo) string {
+	if info == nil {
+		return ""
+	}
+	return namespaceAt(info.Modules, 1)
+}
+
 // namespaceAt returns the name of the last module declared at or before line.
 func namespaceAt(modules []Module, line int) string {
 	name := ""

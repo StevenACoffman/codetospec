@@ -299,9 +299,10 @@ func checkGraphJSON(t *testing.T, out fs.FS, nodeCount int) {
 	t.Helper()
 	var graphDoc struct {
 		Nodes map[string]struct {
-			Type  string `json:"type"`
-			File  string `json:"file"`
-			Edges []any  `json:"edges"`
+			Type     string `json:"type"`
+			File     string `json:"file"`
+			Coverage string `json:"coverage"`
+			Edges    []any  `json:"edges"`
 		} `json:"nodes"`
 	}
 	graphData, err := fs.ReadFile(out, "graph.json")
@@ -317,6 +318,10 @@ func checkGraphJSON(t *testing.T, out fs.FS, nodeCount int) {
 	for id, n := range graphDoc.Nodes {
 		if _, statErr := fs.Stat(out, n.File); statErr != nil {
 			t.Errorf("graph.json node %s references missing file %s", id, n.File)
+		}
+		// Every chunk of the fixture maps, so no domain has a gap.
+		if n.Type == graph.TypeDomain && n.Coverage != graph.CoverageComplete {
+			t.Errorf("domain %s coverage = %q, want %q", id, n.Coverage, graph.CoverageComplete)
 		}
 	}
 }
@@ -872,10 +877,6 @@ func TestEndToEndInheritsSharedRules(t *testing.T) {
 	}
 }
 
-// TestEndToEndCallerDomain: call facts reach the pipeline, and a caller in
-// another directory leaves a package's domain alone — the prorata
-// calculator (services), used only by the activation controller (http),
-// keeps its rule in services. Same-directory callers: internal/callers.
 func TestEndToEndCallerDomain(t *testing.T) {
 	server := mockLLM(t)
 	defer server.Close()

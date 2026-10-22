@@ -17,8 +17,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -113,13 +115,13 @@ type verdictPayload struct {
 	Reason  string `json:"reason"`
 }
 
-const repairSystemPrompt = `You are fixing a business rule whose citation does not prove it. You receive the rule and the precise symbol definitions (with exact line spans) available in the files it currently cites. Another reviewer rejected the current citation.
+const repairSystemPrompt = `You are fixing a business rule whose citation does not prove it. You receive the rule and the precise symbol definitions available in the files it currently cites, each with a label (S1, S2, ...). Another reviewer rejected the current citation.
 
 Hard rules:
 - Output ONLY a valid JSON object matching the schema. No markdown fences, no prose.
-- Pick the symbol whose body actually implements the rule and cite its EXACT line span (copy the lines shown). You may cite more than one symbol.
-- Only cite spans listed in AVAILABLE_SYMBOLS. Never invent a file or a range.
-- If no available symbol implements the rule, return {"citations": [], "reason": "..."}.
+- Answer with the label of the symbol whose body actually implements the rule. You may give more than one label.
+- Only use labels listed in AVAILABLE_SYMBOLS. Never write a file or a line range.
+- If no available symbol implements the rule, return {"symbols": [], "reason": "..."}.
 - Write the reason in <LANG>: one concrete sentence.`
 
 const repairUserPromptFormat = `RULE: %s
@@ -127,16 +129,16 @@ TITLE: %s
 REQUIREMENT (EARS): %s
 WHY THE CURRENT CITATION WAS REJECTED: %s
 
-AVAILABLE_SYMBOLS (cite only these exact spans):
+AVAILABLE_SYMBOLS (answer with their labels):
 %s
 
 OUTPUT JSON SCHEMA:
-{"citations": [{"path": string, "lines": "A-B"}], "reason": string}`
+{"symbols": ["S1"], "reason": string}`
 
 // repairPayload mirrors the repair JSON schema.
 type repairPayload struct {
-	Citations []extract.Ref `json:"citations"`
-	Reason    string        `json:"reason"`
+	Symbols []string `json:"symbols"`
+	Reason  string   `json:"reason"`
 }
 
 // Checker drives the adversarial cross-check phase.
@@ -359,10 +361,9 @@ func (c *Checker) tryRepair(
 	return out, usage, nil
 }
 
-// repairRule asks the model to re-cite the exact span of a precise symbol
-// that implements the rule, then validates the proposed citations
-// deterministically: each must sit in a file the rule already cited and
-// overlap a real symbol body. Without precise symbols it does nothing.
+// repairRule asks the model which precise symbol of the files the rule
+// already cites implements it, and cites that symbol's exact span (see
+// symbolCatalog). Without precise symbols it does nothing.
 func (c *Checker) repairRule(
 	ctx context.Context,
 	rule *graph.Node,
@@ -379,13 +380,13 @@ func (c *Checker) repairRule(
 		}
 		symbolsByPath[src.Path] = c.SymbolsFor(src.Path)
 	}
-	catalog := formatSymbolCatalog(symbolsByPath)
-	if catalog == "" {
+	catalog := newSymbolCatalog(symbolsByPath)
+	if len(catalog) == 0 {
 		return nil, llm.Usage{}, nil // nothing to ground against
 	}
 
 	userPrompt := fmt.Sprintf(repairUserPromptFormat,
-		rule.ID, rule.Title, graph.RuleRequirement(rule.Body), reason, catalog)
+		rule.ID, rule.Title, graph.RuleRequirement(rule.Body), reason, catalog.String())
 	msgs := []llm.Message{
 		{
 			Role:    "system",
@@ -395,16 +396,16 @@ func (c *Checker) repairRule(
 	}
 
 	var usage llm.Usage
-	payload, err := llm.ChatJSON(ctx, c.LLM, msgs, 1, func(u llm.Usage) { usage.Add(u) },
-		func(reply string) (repairPayload, error) {
+	citations, err := llm.ChatJSON(ctx, c.LLM, msgs, 1, func(u llm.Usage) { usage.Add(u) },
+		func(reply string) ([]extract.Ref, error) {
 			var p repairPayload
 			if unmarshalErr := json.Unmarshal(
 				[]byte(llm.StripFences(reply)),
 				&p,
 			); unmarshalErr != nil {
-				return p, fmt.Errorf("invalid JSON: %w", unmarshalErr)
+				return nil, fmt.Errorf("invalid JSON: %w", unmarshalErr)
 			}
-			return p, nil
+			return catalog.citations(p.Symbols)
 		})
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -412,78 +413,82 @@ func (c *Checker) repairRule(
 		}
 		return nil, usage, nil // a failed repair just leaves the rule flagged
 	}
-
-	valid := validateRepairCitations(payload.Citations, symbolsByPath)
-	if len(valid) == 0 {
-		return nil, usage, nil
-	}
-	return valid, usage, nil
+	return citations, usage, nil
 }
 
-// validateRepairCitations keeps only citations that land in an allowed file
-// and overlap a real symbol body — the mechanical grounding guarantee.
-func validateRepairCitations(
-	citations []extract.Ref,
-	symbolsByPath map[string][]mapper.SymbolContext,
-) []extract.Ref {
-	var valid []extract.Ref
-	seen := make(map[string]bool)
-	for _, c := range citations {
-		symbols, ok := symbolsByPath[c.Path]
-		if !ok {
-			continue // a file the rule did not originally cite
-		}
-		a, b, err := extract.ParseLines(c.Lines)
-		if err != nil {
-			continue
-		}
-		grounded := false
-		for _, s := range symbols {
-			if a <= s.EndLine && b >= s.StartLine {
-				grounded = true
-				break
-			}
-		}
-		if !grounded {
-			continue
-		}
-		key := c.Path + "|" + c.Lines
-		if !seen[key] {
-			seen[key] = true
-			valid = append(valid, c)
-		}
-	}
-	return valid
+// symbolCatalog is the numbered list of symbols a repair may cite. The
+// model answers with labels, never ranges: a label stands for one symbol's
+// exact span, so a repair cannot widen a citation to a whole file (a range
+// merely overlapping a symbol, as "1-9999" does, would pass any overlap
+// check) nor cite lines no symbol holds.
+type symbolCatalog []catalogEntry
+
+// catalogEntry is one labeled symbol of a file.
+type catalogEntry struct {
+	label  string // "S1"
+	path   string
+	symbol mapper.SymbolContext
 }
 
-// formatSymbolCatalog renders the symbols available per file as citation
-// targets for the repair prompt.
-func formatSymbolCatalog(symbolsByPath map[string][]mapper.SymbolContext) string {
-	paths := make([]string, 0, len(symbolsByPath))
-	for path, syms := range symbolsByPath {
-		if len(syms) > 0 {
-			paths = append(paths, path)
-		}
-	}
-	sort.Strings(paths)
-	var b strings.Builder
-	for _, path := range paths {
-		syms := append([]mapper.SymbolContext(nil), symbolsByPath[path]...)
-		sort.SliceStable(syms, func(i, j int) bool { return syms[i].StartLine < syms[j].StartLine })
-		fmt.Fprintf(&b, "%s:\n", path)
+// newSymbolCatalog labels the symbols S1…Sn, by path then start line.
+//
+// Ensures: empty when no file has a symbol; labels are unique.
+func newSymbolCatalog(symbolsByPath map[string][]mapper.SymbolContext) symbolCatalog {
+	var catalog symbolCatalog
+	for _, path := range slices.Sorted(maps.Keys(symbolsByPath)) {
+		syms := slices.Clone(symbolsByPath[path])
+		slices.SortStableFunc(syms, func(a, b mapper.SymbolContext) int {
+			return cmp.Compare(a.StartLine, b.StartLine)
+		})
 		for _, s := range syms {
-			kind := s.Kind
-			if kind == "" {
-				kind = "symbol"
-			}
-			fmt.Fprintf(&b, "  - %s (%s) lines %d-%d", s.Name, kind, s.StartLine, s.EndLine)
-			if s.Signature != "" {
-				fmt.Fprintf(&b, ": %s", s.Signature)
-			}
-			b.WriteByte('\n')
+			catalog = append(catalog, catalogEntry{
+				label: "S" + strconv.Itoa(len(catalog)+1), path: path, symbol: s,
+			})
 		}
+	}
+	return catalog
+}
+
+// String renders the catalog for the repair prompt, grouped by file.
+func (catalog symbolCatalog) String() string {
+	var b strings.Builder
+	for i, e := range catalog {
+		if i == 0 || catalog[i-1].path != e.path {
+			fmt.Fprintf(&b, "%s:\n", e.path)
+		}
+		kind := cmp.Or(e.symbol.Kind, "symbol")
+		fmt.Fprintf(&b, "  %s. %s (%s) lines %d-%d",
+			e.label, e.symbol.Name, kind, e.symbol.StartLine, e.symbol.EndLine)
+		if e.symbol.Signature != "" {
+			fmt.Fprintf(&b, ": %s", e.symbol.Signature)
+		}
+		b.WriteByte('\n')
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// citations maps labels to the exact spans of their symbols, in the order
+// given, without duplicates.
+//
+// Ensures: an error naming the first unknown label, for correction; nil
+// citations (no repair) for no label.
+func (catalog symbolCatalog) citations(labels []string) ([]extract.Ref, error) {
+	var refs []extract.Ref
+	for _, label := range labels {
+		i := slices.IndexFunc(catalog, func(e catalogEntry) bool { return e.label == label })
+		if i < 0 {
+			return nil, fmt.Errorf("symbol %q is not a label of AVAILABLE_SYMBOLS", label)
+		}
+		e := catalog[i]
+		ref := extract.Ref{
+			Path:  e.path,
+			Lines: fmt.Sprintf("%d-%d", e.symbol.StartLine, e.symbol.EndLine),
+		}
+		if !slices.Contains(refs, ref) {
+			refs = append(refs, ref)
+		}
+	}
+	return refs, nil
 }
 
 // citedExcerpt reads the cited lines from the source tree, with 1-based line

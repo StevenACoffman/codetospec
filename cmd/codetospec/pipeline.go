@@ -21,7 +21,6 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/consistency"
 	"github.com/StevenACoffman/codetospec/internal/crosscheck"
 	"github.com/StevenACoffman/codetospec/internal/domainmodel"
-	"github.com/StevenACoffman/codetospec/internal/drift"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/grounding"
@@ -103,6 +102,15 @@ func (p *pipeline) run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// The graph the previous run rendered: a rule restating one of its
+	// rules keeps that rule's id, and the rules a person owns are kept.
+	// Read before any LLM call, so a node file that no longer parses, or a
+	// kept rule whose citation no longer resolves, stops the run before it
+	// spends anything.
+	prior, err := p.loadPrior()
+	if err != nil {
+		return err
+	}
 
 	// A domain fact from an extractor wins; otherwise the configured
 	// strategy (namespace or path) decides.
@@ -144,12 +152,15 @@ func (p *pipeline) run(ctx context.Context) error {
 		return err
 	}
 	gaps := coverageGaps(generated, mapOutputs, reduced)
-	nodes := graph.AnnotateCoverage(graph.Build(ext.facts, reduced, resolver, cfg.Lang), gaps)
-	nodes, tally, err := p.crosscheck(ctx, nodes, idx.symbols)
+	nodes := graph.AnnotateCoverage(
+		graph.Build(ext.facts, reduced, resolver, cfg.Lang, prior.Nodes),
+		gaps,
+	)
+	result, err := p.judge(ctx, nodes, ext.facts, &idx, groundingOpts, &prior)
 	if err != nil {
 		return err
 	}
-	nodes = stamp(cfg.Roots(), nodes, ext.facts, groundingOpts)
+	nodes, tally, reviewedFiles := result.nodes, result.tally, result.reviewedFiles
 	if err = p.verify(ctx, nodes); err != nil {
 		return err
 	}
@@ -164,6 +175,7 @@ func (p *pipeline) run(ctx context.Context) error {
 		snapshot: &snapshot,
 		models:   models,
 	})
+	meta.Reviewed = reviewedFiles
 	written, err := p.domainModel(models, nodes, tablesOf(ext.facts, domainOf))
 	if err != nil {
 		return err
@@ -256,7 +268,7 @@ func (p *pipeline) extract(ctx context.Context) (extraction, error) {
 
 	merged := extract.Merge(sitterFacts, extractorFacts, fileFacts)
 	ext.facts, ext.rejected = graph.ValidateRuleFacts(
-		extract.Merge(merged, inheritedRules(specs, merged)),
+		extract.Merge(merged, inheritedRules(specs, merged, p.cfg.Roots())),
 	)
 	if err = p.cfg.Roots().CheckRoots(ext.facts); err != nil {
 		return extraction{}, err
@@ -362,11 +374,16 @@ func loadSpecs(dirs map[string]string) (map[string][]graph.Node, error) {
 }
 
 // inheritedRules are the rules of each inherited spec that the reach facts
-// among facts cover.
-func inheritedRules(specs map[string][]graph.Node, facts []extract.Fact) []extract.Fact {
+// among facts cover, their verdicts checked against the shared code roots
+// holds now.
+func inheritedRules(
+	specs map[string][]graph.Node,
+	facts []extract.Fact,
+	roots extract.Roots,
+) []extract.Fact {
 	var rules []extract.Fact
 	for _, name := range slices.Sorted(maps.Keys(specs)) {
-		rules = append(rules, inherit.Rules(specs[name], name, facts)...)
+		rules = append(rules, inherit.Rules(specs[name], name, facts, roots.Extra[name])...)
 	}
 	return rules
 }
@@ -582,95 +599,6 @@ func (p *pipeline) reduce(
 		},
 	}
 	return r.Run(ctx, candidates)
-}
-
-// crosscheck runs the adversarial review when --crosscheck is set, and
-// returns the nodes annotated with their verdicts and the tally; without
-// it, the nodes unchanged and an empty tally.
-func (p *pipeline) crosscheck(
-	ctx context.Context,
-	nodes []graph.Node,
-	symbols map[string][]mapper.SymbolContext,
-) ([]graph.Node, crosscheck.Tally, error) {
-	if !p.cfg.Crosscheck {
-		return nodes, crosscheck.Tally{}, nil
-	}
-	if err := p.enter("crosscheck", nil); err != nil {
-		return nil, crosscheck.Tally{}, err
-	}
-	ruleCount := 0
-	for i := range nodes {
-		if nodes[i].Type == graph.TypeRule {
-			ruleCount++
-		}
-	}
-	checkDone := 0
-	checker := &crosscheck.Checker{
-		Log:        p.logger,
-		LLM:        p.client,
-		Model:      p.cfg.Model,
-		Lang:       p.cfg.Lang,
-		Workers:    p.cfg.Workers,
-		OutDir:     filepath.Join(p.cfg.Out, ".codetospec", "crosscheck"),
-		SrcRoot:    p.cfg.Src,
-		Repair:     p.cfg.Repair,
-		SymbolsFor: func(path string) []mapper.SymbolContext { return symbols[path] },
-		OnUnit: func(v crosscheck.Verdict, usage llm.Usage) {
-			p.record(ctx, func(s *state.State) {
-				s.AddTokens("crosscheck", usage.PromptTokens, usage.CompletionTokens)
-			})
-			checkDone++
-			p.sink.Emit(ui.CrosscheckUnit{
-				RuleID:  v.RuleID,
-				Verdict: v.Verdict,
-				Done:    checkDone,
-				Total:   ruleCount,
-				Usage:   usage,
-			})
-		},
-	}
-	verdicts, err := checker.Run(ctx, nodes)
-	if err != nil {
-		return nil, crosscheck.Tally{}, err
-	}
-	nodes = crosscheck.Annotate(nodes, verdicts)
-	return nodes, crosscheck.Count(nodes), nil
-}
-
-// stamp checks, without an LLM, that each rule's stated values occur in
-// the code it cites (after crosscheck, whose repair may re-cite), and
-// stamps each rule with a digest of that code, and of the code it calls
-// (from facts' call facts), for later drift checks.
-func stamp(
-	roots extract.Roots,
-	nodes []graph.Node,
-	facts []extract.Fact,
-	opts grounding.Options,
-) []graph.Node {
-	nodes = grounding.Annotate(roots, nodes, opts)
-	for i := range nodes {
-		if nodes[i].Type != graph.TypeRule {
-			continue
-		}
-		digest, err := drift.Digest(roots, nodes[i].Sources)
-		if err != nil {
-			continue // a broken citation is caught by verify
-		}
-		if nodes[i].Extra == nil {
-			nodes[i].Extra = map[string]string{}
-		}
-		nodes[i].Extra["digest"] = digest
-		callees := drift.Callees(nodes[i].Sources, facts)
-		if calleesDigest, calleeErr := drift.Digest(
-			roots,
-			callees,
-		); calleeErr == nil &&
-			len(callees) > 0 {
-			nodes[i].Callees = callees
-			nodes[i].Extra[graph.ExtraCalleesDigest] = calleesDigest
-		}
-	}
-	return nodes
 }
 
 // errVerification means the built graph failed its checks: nothing is

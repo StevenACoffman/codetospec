@@ -78,10 +78,16 @@ the LLM inside a loop it does not control:
   merging, graph building and cross-domain edges are computed
   deterministically. The LLM never invents structure.
 - **Every LLM output is mechanically validated** before it enters the graph:
-  JSON schema, EARS pattern, citations that must resolve to real files and
-  line ranges, references that must exist. Invalid output is sent back for
-  correction (twice max), then the unit is marked failed and the run
+  JSON schema, a known EARS kind, citations that must resolve to real files
+  and line ranges, references that must exist. Invalid output is sent back
+  for correction (twice max), then the unit is marked failed and the run
   continues — one bad chunk never kills a run.
+- **The EARS form is checked, not assumed**: a rule whose sentence lacks its
+  kind's form (no "shall", two of them — two behaviors —, an `event` rule
+  not opening with WHEN, an `unwanted` one without IF … THEN) is kept and
+  flagged `ears_issue` in its frontmatter, counted in the output README. An
+  extractor's rule with a bad form is dropped: the extractor is
+  deterministic, so it is its bug.
 - **Mechanically extracted facts are the anchors.** Symbols, routes, tables
   and imports are extracted by parsers, not by the model. The LLM consumes
   facts; it never produces them.
@@ -111,8 +117,10 @@ the LLM inside a loop it does not control:
   never counted as a pass.
 - **Flagged rules are repaired, not just flagged** (`--repair`, needs a SCIP
   index): a rule the reviewer rejected gets one chance to re-cite the exact
-  span of a precise symbol that implements it. The new citation must
-  overlap a real symbol body, so it is grounded by construction. It is then
+  span of a precise symbol that implements it. The model picks symbols by
+  label from a numbered list and never writes a range: each label maps to
+  that symbol's exact span, so the citation is grounded by construction. It
+  is then
   reviewed again, blind: the reviewer never sees the first verdict or why the
   rule was rejected. The repair is adopted only if that review says
   `supported`; otherwise the rule keeps its first verdict and citation, and
@@ -183,6 +191,14 @@ prompt templates, so editing a prompt or switching models re-runs only what
 it affects. Token usage is tracked per phase
 and shown live.
 
+Rule ids are **stable across runs**. The model names each rule's slug, so a
+re-reduced domain could rename every rule in it. Instead, a new rule that
+restates a rule of the previous output (same domain, and the same
+requirement, or overlapping citations with a similar requirement or the same
+id) keeps that rule's id. Extractor rules take their ids first, so theirs
+depend on the extractor alone, and an id the previous output held is never
+given to a different rule in the next one.
+
 ## Quick start
 
 Requirements: Go ≥ 1.27, a C toolchain (CGo for tree-sitter), an
@@ -210,7 +226,33 @@ Other commands:
 bin/codetospec verify --src <repo> --out <graph>   # re-check citations, exit 1 on violation
 bin/codetospec drift  --src <repo> --out <graph>   # flag rules whose cited code changed, exit 1 on drift
 bin/codetospec stats  --out <graph>                # phase counters; tokens of the last run and all runs
+bin/codetospec diff   --old <graph> --new <graph>  # rules added, removed, renamed or changed between two runs
+bin/codetospec export --out <graph> --to <dir>     # the rules as ISO 29148 FRs in the Quire format (quoin)
 ```
+
+`export` writes each rule as a functional requirement in the Quire format
+of [quoin](https://github.com/agent-ix/quoin) (module spec-artifacts-iso
+0.3.0): `<dir>/functional/FR-001-<domain>-<slug>.md`… numbered in rule id
+order, plus `functional/index.md`. Each FR states the EARS requirement
+(`## Description`), the acceptance criteria as a `FR-001-AC-1` table, and
+the domain, cited code and nearest tests (`## Dependencies`); the
+frontmatter carries `quality_attribute` (from `--quality`) and the source
+rule (`codetospec_rule`, `codetospec_crosscheck`). A rule with no criteria
+(`--reduce-mode merge` keeps such rules) has its requirement as its one
+criterion, marked `codetospec_criteria: requirement`; a rule the crosscheck
+refuted is left out. It bootstraps a spec a team then edits in quoin, so
+`<dir>` must be new or empty: a second export would overwrite their work.
+Not exported: NFRs (they need a measured target and threshold the code does
+not state) and enumerations (another module's object types).
+
+`diff` compares two outputs of one code base rule by rule, without an LLM:
+rules added and removed, rules renamed (a rule restating an old one under
+another id, matched as for stable ids), and rules kept under their id that
+changed, with why: `reworded` (the requirement reads otherwise), `code`
+(the cited code changed), `moved` (same code, other lines), `verdict` (the
+crosscheck changed). After a prompt or model change it shows how much of
+the spec was merely reworded; `--format json` for scripts. It always exits
+0.
 
 Each rule stores a digest of its cited code, so `drift` reports which rules
 went stale as the source evolves — the spec stays honest about what it still
@@ -218,8 +260,32 @@ matches. When call facts are available (the Go extractor), a rule also
 stores the code its cited lines call, one hop (`callees`, `callees_digest`):
 a rule whose citation is unchanged but whose helper changed is reported
 **affected**, without failing the run, since a callee edit is often
-unrelated to the rule. `drift --format json` emits a machine-readable summary and exits 1
-on drift, so it drops straight into CI (see `examples/spec-drift.yml`). The
+unrelated to the rule. A rule also stores a hash of each cited span's text
+alone (`source_hashes`): when lines are added or removed above it, `drift`
+finds the same text elsewhere in the file and reports the rule **moved**,
+with its new lines, instead of stale; moving fails nothing either.
+`drift --format json` emits the counts and each rule's status and exits 1
+on drift, so it drops straight into CI (see `examples/spec-drift.yml`).
+
+**Which rules a test reaches.** The Go extractor also emits `test` facts:
+what each `TestXxx`/`FuzzXxx` function, or testify-style suite method
+`TestXxx()`, uses, itself or through helpers of its `_test.go` files. Following the call facts from there, at most 3
+definitions deep (1 = the test uses the cited function itself; an
+end-to-end test reaches everything and asserts little), each rule citing
+the analyzed code records `tests` (how many reach it, 0 included),
+`test_depth` (the nearest) and `tested_by` (the nearest three,
+`path#TestName`); the output README counts them. Without test facts (other
+languages) the fields are absent: unknown, not untested. Mechanical, no LLM.
+
+**Edits to rule files survive re-runs.** `graph.json` records a hash of
+every node file it wrote; a rule file whose bytes no longer match (or that
+says `status: reviewed`) belongs to a person, and the next run writes it
+back as it is, marked `status: reviewed`, for as long as the run still
+produces that rule's id. It keeps its own digest, so `drift` flags it stale
+once its cited code changes, and the run warns too. Delete the file to have
+it regenerated. A reviewed rule whose citation no longer resolves stops the
+run before any LLM call; an edited domain, entity or endpoint file is
+overwritten, with a warning. The
 output README also lists near-duplicate rule candidates (a deterministic
 consistency check, split into intra- and cross-domain) for a reviewer to
 reconcile; two extractor rules are never paired, since they come from one
@@ -238,7 +304,12 @@ near-duplicate (similar requirement or overlapping citation) go to the LLM;
 the others are kept as mapped, without rationale or acceptance criteria.
 
 Useful flags: `--crosscheck` (adversarial review pass), `--repair` (fix
-flagged citations, needs a SCIP index), `--domain-depth N` (split a repo that
+flagged citations, needs a SCIP index), `--quality` (classify each
+technical rule by the ISO 25010 quality characteristic it serves —
+`security`, `reliability`, `performance_efficiency`… as the frontmatter
+`quality_attribute`, the field an ISO 29148 NFR carries; one LLM call per
+40 rules, the rules' text alone, cached by text in
+`.codetospec/quality.json`; no map or reduce cache is invalidated), `--domain-depth N` (split a repo that
 lives under one root namespace into `core-controller`, `core-server`… instead
 of one mega-domain; a namespace declared in several directories, such as
 Go's `main` for every `cmd/<tool>`, is never one domain: each file takes its
@@ -394,7 +465,10 @@ includes the rules of the shared code the module uses:
 - run codetospec on the module with `--inherit pkg=<shared spec>` and
   `--ref-root pkg=<dir>`. Each rule of the shared spec with one citation in
   reached code is inherited (`inherited_from: pkg`, domain
-  `shared-<domain>`, cited `@pkg/…`), keeping its verdict.
+  `shared-<domain>`, cited `@pkg/…`), keeping its verdict — while that
+  verdict still describes the code: when the shared code no longer has the
+  digest the shared spec stored, the rule is `unchecked` and the old verdict
+  is kept as `stale_verdict`, until the shared spec is regenerated.
 
 `scandistricts.sh pkg`, then `scandistricts.sh <module>` (or `all`), does
 this for districts-jobs, into `~/spec-graphs/districts-jobs/<module>`
@@ -430,6 +504,22 @@ ids collide (`/login` and `/login/`) share one endpoint node citing both.
   `service` node listing the calls, and calling domains get `depends_on`
   edges to it. Optional `as` (`service-admin` | `user`): the authority the
   call is made with; service-admin calls are marked on the service node.
+- `test` — attrs `name` (`TestClose`, or `accountSuite.TestClose` for a
+  testify-style suite method), `callee_path`, `callee_lines`: the test at
+  `source` uses that definition. See "Which rules a test reaches".
+- `enum`, `enum_value`, `transition` — an enumeration (attr `name`, e.g.
+  `shop.Status`, citing the type), each of its values (attrs `enum` = the
+  enum fact id, `name`, `value`, citing the constant), and each change of
+  state the code guards (attrs `enum`, `from`, `to`: code that, while the
+  value is `from`, sets it to `to`). Each enumeration becomes an `enum`
+  node (`nodes/enums/`) listing its values and a transitions table
+  (`transitions:` counts them). The Go extractor emits them: a named
+  string or integer type with at least two constants, outside generated
+  files; a transition is `x = B` inside `if x == A` (alone or in an `&&`
+  chain), `case A:` of `switch x`, or `case x == A:`. An unguarded
+  assignment says where a state is entered, not from where, so it is no
+  transition; most real code changes state elsewhere (SQL, constructors),
+  so expect few.
 
 A `route` fact may carry `handler_path` (the handler's file): its chunks may
 then cite the endpoint, without matching handler names to symbols.

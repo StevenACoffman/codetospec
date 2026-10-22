@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/ears"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/locale"
 	"github.com/StevenACoffman/codetospec/internal/mapper"
@@ -16,6 +17,14 @@ const ExtraExtractedBy = "extracted_by"
 // ExtraInheritedFrom is the Extra key naming the spec an inherited rule
 // comes from (see extract.AttrInheritedFrom); absent on other rules.
 const ExtraInheritedFrom = "inherited_from"
+
+// ExtraStaleVerdict is the Extra key of an inherited rule's verdict given
+// on shared code that changed since (see extract.AttrStaleVerdict).
+const ExtraStaleVerdict = "stale_verdict"
+
+// ExtraEARSIssue is the Extra key holding why a rule's requirement does not
+// have the EARS form its kind names (ears.Check); absent when it does.
+const ExtraEARSIssue = "ears_issue"
 
 // Reviewable reports whether a node is a rule of this spec's LLM output,
 // which the cross-check reviewer may judge: not an extractor's mechanical
@@ -33,6 +42,29 @@ const ExtraGroundingWidened = "grounding_widened"
 // ExtraCalleesDigest is the frontmatter key of the digest of a rule's
 // callees (Node.Callees), which drift re-hashes.
 const ExtraCalleesDigest = "callees_digest"
+
+// ExtraDigest is the frontmatter key of the digest of a rule's cited code
+// (drift.Digest), which drift re-hashes.
+const ExtraDigest = "digest"
+
+// ExtraSourceHashes is the frontmatter key of the hashes of each cited
+// span's text alone, comma-separated in Sources order: drift finds code
+// that moved by them (see drift.Check).
+const ExtraSourceHashes = "source_hashes"
+
+// ExtraQualityAttribute is the frontmatter key of the ISO 25010 quality
+// characteristic a technical rule serves (see package quality).
+const ExtraQualityAttribute = "quality_attribute"
+
+// Frontmatter keys of the tests reaching a rule's cited code (see
+// testreach.Annotate): how many, the depth of the nearest (1 when it uses
+// the cited definition itself) and the nearest few, as "path#TestName".
+// Absent when the run had no test facts: unknown, not untested.
+const (
+	ExtraTests     = "tests"
+	ExtraTestDepth = "test_depth"
+	ExtraTestedBy  = "tested_by"
+)
 
 // ValidateRuleFacts drops extract.KindRule facts that do not satisfy the rule
 // fact contract, so an extractor bug cannot put a malformed rule in the
@@ -78,7 +110,7 @@ func invalidRuleFact(f *extract.Fact) string {
 		return fmt.Sprintf("slug %q is not a slug", a[extract.AttrSlug])
 	case a[extract.AttrDomain] == "" || extract.Slugify(a[extract.AttrDomain]) != a[extract.AttrDomain]:
 		return fmt.Sprintf("domain %q is not a slug", a[extract.AttrDomain])
-	case !mapper.IsEARSKind(a[extract.AttrEARS]):
+	case !ears.IsKind(a[extract.AttrEARS]):
 		return fmt.Sprintf("unknown EARS kind %q", a[extract.AttrEARS])
 	case !mapper.IsNature(a[extract.AttrNature]):
 		return fmt.Sprintf("unknown nature %q", a[extract.AttrNature])
@@ -87,6 +119,14 @@ func invalidRuleFact(f *extract.Fact) string {
 	}
 	if _, _, err := extract.ParseLines(f.Source.Lines); err != nil {
 		return err.Error()
+	}
+	// An extractor derives its rules deterministically: a malformed one is
+	// its bug to fix. An inherited rule was written by another spec's model
+	// and keeps its form, flagged like that spec's own rules.
+	if a[extract.AttrInheritedFrom] == "" {
+		if issue := ears.Check(a[extract.AttrEARS], a[extract.AttrRequirement]); issue != "" {
+			return "requirement: " + issue
+		}
 	}
 	return ""
 }
@@ -123,8 +163,18 @@ func mechanicalRuleNode(
 		Edges:   edges,
 		Title:   f.Attrs[extract.AttrTitle],
 		Body:    text.Requirement + f.Attrs[extract.AttrRequirement],
-		Extra:   ruleFactExtra(f),
+		Extra:   withEARSIssue(ruleFactExtra(f), f.Attrs[extract.AttrRequirement]),
 	}
+}
+
+// withEARSIssue sets ExtraEARSIssue on extra, a map its caller has just
+// built, when requirement does not have the form of the EARS kind extra
+// declares, and returns it.
+func withEARSIssue(extra map[string]string, requirement string) map[string]string {
+	if issue := ears.Check(extra["ears"], requirement); issue != "" {
+		extra[ExtraEARSIssue] = issue
+	}
+	return extra
 }
 
 // ruleFactExtra is the frontmatter of a rule fact's node: a mechanical
@@ -145,6 +195,9 @@ func ruleFactExtra(f *extract.Fact) map[string]string {
 	extra["crosscheck"] = f.Attrs[extract.AttrCrosscheck]
 	if extra["crosscheck"] == "" {
 		extra["crosscheck"] = "unchecked"
+	}
+	if stale := f.Attrs[extract.AttrStaleVerdict]; stale != "" {
+		extra[ExtraStaleVerdict] = stale
 	}
 	if origin := f.Attrs[extract.AttrOrigin]; origin != "" {
 		extra["origin"] = origin

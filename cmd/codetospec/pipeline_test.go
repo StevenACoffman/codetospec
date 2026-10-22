@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/StevenACoffman/codetospec/internal/drift"
@@ -63,10 +64,6 @@ func TestCoverageGaps(t *testing.T) {
 	}
 }
 
-// TestEndToEndCallerDomain: call facts reach the pipeline, and a caller in
-// another directory leaves a package's domain alone — the prorata
-// calculator (services), used only by the activation controller (http),
-// keeps its rule in services. Same-directory callers: internal/callers.
 // TestEndToEndCallees: a rule citing a caller records its callee and the
 // callee's digest, which survive the frontmatter round trip and keep a
 // fresh graph drift-free.
@@ -111,5 +108,58 @@ func TestEndToEndCallees(t *testing.T) {
 	}
 	if report := drift.Check(nodes, cfg.Roots()); report.Affected != 0 || report.Drifted() {
 		t.Errorf("fresh graph drifted: %+v", report)
+	}
+}
+
+// TestEndToEndKeepsReviewedRule: a rule file a person edited survives the
+// next run as edited, marked reviewed; once its citation no longer
+// resolves, the run stops before any LLM call.
+func TestEndToEndKeepsReviewedRule(t *testing.T) {
+	server := mockLLM(t)
+	defer server.Close()
+	outDir := t.TempDir()
+	cfg := e2eConfig(t, server.URL, outDir)
+	logger := slog.New(slog.NewTextHandler(t.Output(), nil))
+	if err := runPipeline(context.Background(), cfg, ui.Discard{}, logger); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	paths, err := filepath.Glob(filepath.Join(outDir, "nodes", "rules", "*.md"))
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("no rule file: %v", err)
+	}
+	out, err := os.OpenRoot(outDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = out.Close() })
+	rulePath := "nodes/rules/" + filepath.Base(paths[0])
+	data, err := out.ReadFile(rulePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const note = "\nA reviewer's note.\n"
+	if err = out.WriteFile(rulePath, append(data, note...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err = runPipeline(context.Background(), cfg, ui.Discard{}, logger); err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	kept, err := out.ReadFile(rulePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(string(kept), note) ||
+		!strings.Contains(string(kept), "\nstatus: reviewed\n") {
+		t.Fatalf("the edited rule was not kept:\n%s", kept)
+	}
+
+	broken := strings.Replace(string(kept), "lines: \"", "lines: \"9000-", 1)
+	if err = out.WriteFile(rulePath, []byte(broken), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err = runPipeline(context.Background(), cfg, ui.Discard{}, logger)
+	if err == nil || !strings.Contains(err.Error(), "no longer cites existing code") {
+		t.Fatalf("third run: err = %v, want the broken reviewed rule named", err)
 	}
 }

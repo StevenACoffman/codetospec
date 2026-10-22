@@ -3,6 +3,7 @@ package crosscheck_test
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 
@@ -214,11 +215,10 @@ func repairChat(t *testing.T, firstReason, reReview string) chatFunc {
 		case 1:
 			return `{"verdict": "unsupported", "reason": "` + firstReason + `"}`, llm.Usage{}, nil
 		case 2:
-			if !strings.Contains(user, "calculate (method) lines 12-24") {
+			if !strings.Contains(user, "S1. calculate (method) lines 12-24") {
 				t.Errorf("repair prompt missing symbol catalog:\n%s", user)
 			}
-			return `{"citations": [{"path": "` + prorataFile + `", "lines": "12-24"}],` +
-				` "reason": "corps de calculate"}`, llm.Usage{}, nil
+			return `{"symbols": ["S1"], "reason": "corps de calculate"}`, llm.Usage{}, nil
 		default:
 			if strings.Contains(user, firstReason) || !strings.Contains(user, "12 >") {
 				t.Errorf("re-review prompt shows the first reason or lacks the repair:\n%s", user)
@@ -278,34 +278,74 @@ func TestRepairIsReviewedAgain(t *testing.T) {
 	}
 }
 
-func TestRepairRejectsUngroundedCitation(t *testing.T) {
-	call := 0
-	c := newChecker(
-		t,
-		chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
-			call++
-			if call == 1 {
-				return `{"verdict": "unsupported", "reason": "rien"}`, llm.Usage{}, nil
-			}
-			// The model cites lines outside any symbol body -> must be rejected.
-			return `{"citations": [{"path": "app/Services/Billing/ProrataCalculator.php", "lines": "1-3"}], "reason": "x"}`, llm.Usage{}, nil
-		}),
-	)
-	c.Repair = true
-	c.SymbolsFor = func(string) []mapper.SymbolContext {
-		return []mapper.SymbolContext{{Name: "calculate", StartLine: 12, EndLine: 24}}
-	}
+// unknownLabel is a repair reply naming a label the catalog does not hold.
+const unknownLabel = `{"symbols": ["S9"], "reason": "x"}`
 
-	verdicts, err := c.Run(context.Background(), []graph.Node{ruleNode()})
-	if err != nil {
-		t.Fatalf("Run: %v", err)
+// TestRepairCitesOnlyLabeledSymbols: a repair names symbols by label, and
+// cites exactly their spans; an unknown label, after its one correction,
+// or a raw range (the old form, which "1-9999" passed) repairs nothing.
+func TestRepairCitesOnlyLabeledSymbols(t *testing.T) {
+	cases := map[string]struct {
+		replies       []string // repair replies, in order
+		wantCitations []extract.Ref
+	}{
+		"label": {
+			replies:       []string{`{"symbols": ["S2", "S2"], "reason": "x"}`},
+			wantCitations: []extract.Ref{{Path: prorataFile, Lines: "26-30"}},
+		},
+		"unknown label corrected": {
+			replies: []string{
+				unknownLabel,
+				`{"symbols": ["S1"], "reason": "x"}`,
+			},
+			wantCitations: []extract.Ref{{Path: prorataFile, Lines: "12-24"}},
+		},
+		"unknown label twice": {
+			replies: []string{
+				unknownLabel,
+				unknownLabel,
+			},
+		},
+		"raw range": {
+			replies: []string{
+				`{"citations": [{"path": "` + prorataFile + `", "lines": "1-9999"}], "reason": "x"}`,
+			},
+		},
 	}
-	v := verdicts["rule.services.prorata-activation"]
-	if v.Verdict != crosscheck.VerdictUnsupported {
-		t.Fatalf("ungrounded citation must not repair; verdict = %q", v.Verdict)
-	}
-	if len(v.NewCitations) != 0 {
-		t.Errorf("no citations should be adopted, got %+v", v.NewCitations)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			repairs := 0
+			c := newChecker(t, chatFunc(
+				func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+					switch {
+					case strings.Contains(msgs[0].Content, "fixing a business rule"):
+						repairs++
+						return tc.replies[min(repairs, len(tc.replies))-1], llm.Usage{}, nil
+					case strings.Contains(msgs[1].Content, "   11 >"): // the rule's own 11-24
+						return `{"verdict": "unsupported", "reason": "rien"}`, llm.Usage{}, nil
+					default: // a re-review of the repaired citation
+						return `{"verdict": "supported", "reason": "ok"}`, llm.Usage{}, nil
+					}
+				},
+			))
+			c.Repair = true
+			c.SymbolsFor = func(string) []mapper.SymbolContext {
+				return []mapper.SymbolContext{
+					{Name: "validate", StartLine: 26, EndLine: 30},
+					{Name: "calculate", StartLine: 12, EndLine: 24},
+				}
+			}
+
+			verdicts, err := c.Run(context.Background(), []graph.Node{ruleNode()})
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			v := verdicts["rule.services.prorata-activation"]
+			if !slices.Equal(v.NewCitations, tc.wantCitations) {
+				t.Errorf("new citations = %+v, want %+v (verdict %s)",
+					v.NewCitations, tc.wantCitations, v.Verdict)
+			}
+		})
 	}
 }
 

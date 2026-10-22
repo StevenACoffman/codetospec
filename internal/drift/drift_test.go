@@ -29,6 +29,7 @@ const (
 	sharedRoot = "webapp"
 	calcFile   = "calc.go"
 	sharedFile = "x.go"
+	ruleID     = "rule.x.r"
 )
 
 // srcRoots reads citations from dir.
@@ -41,7 +42,7 @@ func ruleWithDigest(t *testing.T, root string, src extract.Ref) graph.Node {
 		t.Fatalf("Digest: %v", err)
 	}
 	return graph.Node{
-		ID:      "rule.x.r",
+		ID:      ruleID,
 		Type:    "rule",
 		Sources: []extract.Ref{src},
 		Extra:   map[string]string{"digest": digest},

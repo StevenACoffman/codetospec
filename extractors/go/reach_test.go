@@ -75,14 +75,14 @@ func TestReachFacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkgs, fset, ok := loadPackages(filepath.Join(ws, "app"), func(format string, a ...any) {
+	m, ok := loadPackages(filepath.Join(ws, "app"), func(format string, a ...any) {
 		t.Logf(format, a...)
 	})
 	if !ok {
 		t.Fatal("workspace did not load")
 	}
 	got := map[string]Fact{}
-	for _, f := range ReachFacts(pkgs, fset, &shared[0]) {
+	for _, f := range ReachFacts(m.pkgs, m.fset, &shared[0]) {
 		got[f.Attrs["symbol"]] = f
 	}
 

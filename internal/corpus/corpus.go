@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 
 	"github.com/StevenACoffman/codetospec/internal/drift"
+	"github.com/StevenACoffman/codetospec/internal/ears"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 )
 
@@ -52,6 +53,10 @@ type Measures struct {
 	PartialDomains int `json:"partial_domains"`
 	Violations     int `json:"violations"` // verify findings
 	Drifted        int `json:"drifted"`    // stale or broken rules
+	// EARSIssues counts rules whose requirement does not have the form of
+	// their EARS kind, by the current ears.Check (old graphs carry no
+	// ears_issue, so it is recomputed).
+	EARSIssues int `json:"ears_issues"`
 }
 
 // LoadManifest reads a manifest file.
@@ -81,6 +86,9 @@ func Measure(nodes []graph.Node, violations int, report drift.Report) Measures {
 			}
 		case graph.TypeRule:
 			m.Rules++
+			if ears.Check(n.Extra["ears"], graph.RuleRequirement(n.Body)) != "" {
+				m.EARSIssues++
+			}
 			switch n.Extra["grounding"] {
 			case "grounded":
 				m.Grounded++
@@ -130,5 +138,6 @@ func Compare(baseline, got Measures) []string {
 	more("partial domains", baseline.PartialDomains, got.PartialDomains)
 	more("verify violations", baseline.Violations, got.Violations)
 	more("drifted rules", baseline.Drifted, got.Drifted)
+	more("EARS form issues", baseline.EARSIssues, got.EARSIssues)
 	return worse
 }

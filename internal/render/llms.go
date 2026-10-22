@@ -16,7 +16,7 @@ func llmsTxt(nodes []graph.Node, text *locale.Text) string {
 	var b strings.Builder
 	b.WriteString("# codetospec knowledge graph\n\n")
 	b.WriteString(text.LLMsPreamble + "\n")
-	for _, nodeType := range []string{graph.TypeDomain, graph.TypeEntity, "endpoint", graph.TypeService} {
+	for _, nodeType := range []string{graph.TypeDomain, graph.TypeEntity, "endpoint", graph.TypeEnum, graph.TypeService} {
 		var lines []string
 		for i := range nodes {
 			if n := &nodes[i]; n.Type == nodeType {

@@ -33,7 +33,7 @@ func TestEntityDescription(t *testing.T) {
 				Kind: extract.KindTable, ID: "table.invoices", Attrs: attrs,
 				Source: extract.Ref{Path: "db/schema.sql", Lines: "1-3"},
 			}
-			for _, n := range graph.Build([]extract.Fact{fact}, nil, extract.DomainResolver{}, "en") {
+			for _, n := range graph.Build([]extract.Fact{fact}, nil, extract.DomainResolver{}, "en", nil) {
 				if n.Type != graph.TypeEntity {
 					continue
 				}

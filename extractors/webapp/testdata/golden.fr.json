@@ -1244,7 +1244,7 @@
       "domain": "federation",
       "ears": "ubiquitous",
       "nature": "business",
-      "requirement": "Le systeme ne vérifie pas encore l'accès à Entity.findAIProfileByID (`acl.TODO()` : contrôle de permission manquant).",
+      "requirement": "Le systeme doit laisser tout appelant appeler Entity.findAIProfileByID sans contrôle de permission (`acl.TODO()` : le contrôle manque encore).",
       "route": "route.graphql.entity.findAIProfileByID",
       "slug": "unchecked-entity-findaiprofilebyid",
       "title": "Accès non vérifié : Entity.findAIProfileByID"
@@ -1930,7 +1930,7 @@
       "domain": "user",
       "ears": "ubiquitous",
       "nature": "business",
-      "requirement": "Le systeme ne vérifie pas encore l'accès à User.legacy (`acl.TODO()` : contrôle de permission manquant).",
+      "requirement": "Le systeme doit laisser tout appelant appeler User.legacy sans contrôle de permission (`acl.TODO()` : le contrôle manque encore).",
       "slug": "unchecked-user-legacy",
       "title": "Accès non vérifié : User.legacy"
     },

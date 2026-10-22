@@ -10,4 +10,11 @@ const (
 	servicesDomain = "domain.services"
 	firstLine      = "1-1"
 	billingDomain  = "billing"
+	sharedRoot     = "pkg"
+	prorataRule    = "rule.services.prorata-activation"
+	notEARS        = "The system does not check Mutation.x yet."
+	webappOrigin   = "webapp"
+	mechRule       = "rule.role.authz-mutation-addcoachrole"
+	roundRule      = "rule.billing.round"
+	centsRule      = "rule.billing.cents"
 )

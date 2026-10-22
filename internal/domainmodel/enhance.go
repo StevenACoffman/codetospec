@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/StevenACoffman/codetospec/internal/ears"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/locale"
@@ -137,7 +138,7 @@ func newBuilder(in *EnhanceInput) *builder {
 	for i := range in.Nodes {
 		n := &in.Nodes[i]
 		touches := touched(n)
-		if n.Type != graph.TypeRule || n.Extra["ears"] != "ubiquitous" || len(touches) != 1 {
+		if n.Type != graph.TypeRule || n.Extra["ears"] != ears.Ubiquitous || len(touches) != 1 {
 			continue
 		}
 		statement := strings.ReplaceAll(graph.RuleRequirement(n.Body), "`", "")

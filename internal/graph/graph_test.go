@@ -98,7 +98,7 @@ func fixtureReduced() []reducer.Output {
 }
 
 func TestBuildProducesAllNodeTypes(t *testing.T) {
-	nodes := graph.Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr")
+	nodes := graph.Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr", nil)
 	byID := make(map[string]graph.Node, len(nodes))
 	for _, n := range nodes {
 		byID[n.ID] = n
@@ -109,7 +109,7 @@ func TestBuildProducesAllNodeTypes(t *testing.T) {
 		activateRoute,
 		servicesDomain,
 		"domain.http",
-		"rule.services.prorata-activation",
+		prorataRule,
 		"rule.http.activation-endpoint",
 	} {
 		if _, ok := byID[id]; !ok {
@@ -120,7 +120,7 @@ func TestBuildProducesAllNodeTypes(t *testing.T) {
 		t.Error("failed domain must not produce a node")
 	}
 
-	rule := byID["rule.services.prorata-activation"]
+	rule := byID[prorataRule]
 	if rule.Extra["ears"] != earsEvent || rule.Extra["acceptance"] != "3" {
 		t.Errorf("rule extra = %v", rule.Extra)
 	}
@@ -184,6 +184,7 @@ func TestBuildDomainDependsOnGoStyleImports(t *testing.T) {
 		[]reducer.Output{rule("billing"), rule("invoice")},
 		extract.DomainResolver{},
 		"fr",
+		nil,
 	)
 	for _, n := range nodes {
 		if n.ID != "domain.invoice" {
@@ -203,7 +204,7 @@ func TestBuildDomainDependsOnGoStyleImports(t *testing.T) {
 }
 
 func TestBuildDomainDependsOnFromImports(t *testing.T) {
-	nodes := graph.Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr")
+	nodes := graph.Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr", nil)
 	for _, n := range nodes {
 		if n.ID != "domain.http" {
 			continue
@@ -219,8 +220,8 @@ func TestBuildDomainDependsOnFromImports(t *testing.T) {
 }
 
 func TestBuildIsDeterministic(t *testing.T) {
-	a := graph.Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr")
-	b := graph.Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr")
+	a := graph.Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr", nil)
+	b := graph.Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr", nil)
 	if len(a) != len(b) {
 		t.Fatalf("node counts differ: %d vs %d", len(a), len(b))
 	}
@@ -232,7 +233,7 @@ func TestBuildIsDeterministic(t *testing.T) {
 }
 
 func TestComputeCoverage(t *testing.T) {
-	nodes := graph.Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr")
+	nodes := graph.Build(fixtureFacts(), fixtureReduced(), extract.DomainResolver{}, "fr", nil)
 	cov := graph.ComputeCoverage(nodes)
 	if cov.EndpointsTotal != 1 || cov.EndpointsReferenced != 1 {
 		t.Errorf(
@@ -278,7 +279,7 @@ func TestRuleRequirement(t *testing.T) {
 func TestRuleBodyRoundTripsInEveryLanguage(t *testing.T) {
 	for _, text := range locale.All() {
 		t.Run(text.Lang, func(t *testing.T) {
-			nodes := graph.Build(nil, fixtureReduced(), extract.DomainResolver{}, text.Lang)
+			nodes := graph.Build(nil, fixtureReduced(), extract.DomainResolver{}, text.Lang, nil)
 			var rule graph.Node
 			for _, n := range nodes {
 				if n.Type == graph.TypeRule {
@@ -328,9 +329,9 @@ func TestBuildLinksRulesToTheirHandlersEndpoint(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			facts := append(fixtureFacts(), route("/pubsub/x", tc.handlerLines))
-			nodes := graph.Build(facts, fixtureReduced(), extract.DomainResolver{}, "fr")
+			nodes := graph.Build(facts, fixtureReduced(), extract.DomainResolver{}, "fr", nil)
 			for _, n := range nodes {
-				if n.ID != "rule.services.prorata-activation" { // cites lines 11-24
+				if n.ID != prorataRule { // cites lines 11-24
 					continue
 				}
 				edge := graph.Edge{Type: graph.EdgeExposedBy, To: "endpoint.pubsub-x"}
@@ -381,7 +382,7 @@ func TestBuildMergesCollidingEndpoints(t *testing.T) {
 	}
 	facts := []extract.Fact{route("/login/", "412-412"), route("/login", "411-411")}
 	var endpoints []graph.Node
-	for _, n := range graph.Build(facts, nil, extract.DomainResolver{}, "en") {
+	for _, n := range graph.Build(facts, nil, extract.DomainResolver{}, "en", nil) {
 		if n.Type == "endpoint" {
 			endpoints = append(endpoints, n)
 		}

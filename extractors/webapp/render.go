@@ -183,8 +183,8 @@ func addRuleTexts(w *wording, tr translate) {
 		"The system shall grant the `%s` role%s no capability.",
 	)
 	w.uncheckedFmt = tr(
-		"Le systeme ne vérifie pas encore l'accès à %s (`acl.TODO()` : contrôle de permission manquant).",
-		"The system does not check access to %s yet (`acl.TODO()`: a missing permission check).",
+		"Le systeme doit laisser tout appelant appeler %s sans contrôle de permission (`acl.TODO()` : le contrôle manque encore).",
+		"The system shall let any caller call %s without a permission check (`acl.TODO()`: the check is still missing).",
 	)
 	w.checkedFmt = tr(
 		"Le systeme doit vérifier l'accès à %s avec `%s`.",

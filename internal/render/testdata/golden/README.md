@@ -6,6 +6,7 @@ Graphe de connaissances des règles métier, extrait du code source par codetosp
 - Entités : 1
 - Endpoints : 1
 - Règles : 1
+- Énumérations : 1 (dont 1 avec transitions)
   - métier : 1 · présentation : 0 · technique : 0
   - explicites : 1 · implicites : 0
 
@@ -18,6 +19,8 @@ Graphe de connaissances des règles métier, extrait du code source par codetosp
 - Fichiers sans grammaire (fallback lignes) : routes/web.php
 - Contre-vérification adversariale : 1 supported, 0 partial, 0 unsupported, 1 non vérifiées
 - Ancrage mécanique (valeurs citées présentes dans le code) : 0 ancrées, 1 non ancrées, 0 sans valeur vérifiable
+- Forme EARS : 1 règles n'ont pas la forme de leur type (`ears_issue`)
+- Tests : 1 règles sur 1 ont leur code cité atteint par un test, en 3 appels au plus (`tests`, `tested_by`)
 
 ## Règles non ancrées
 

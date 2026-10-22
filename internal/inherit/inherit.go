@@ -6,9 +6,11 @@
 package inherit
 
 import (
+	"io/fs"
 	"slices"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/drift"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 )
@@ -23,11 +25,21 @@ const sharedDomainPrefix = "shared-"
 // rule is its extractor's to derive again; one inherited from yet another
 // spec stays there; a fact holds one citation.
 //
+// A verdict holds for the code it was given on: when the cited code in
+// shared, the tree of root name, no longer has the digest the spec stored,
+// the fact is unchecked and keeps the old verdict as stale_verdict.
+//
 // Requires: spec holds the nodes of a rendered spec, its citations relative
-// to the shared root; reach facts cite that root as name.
-// Ensures:  facts sorted by id; each keeps the rule's verdict, origin and
-// confidence and is labeled inherited_from name.
-func Rules(spec []graph.Node, name string, reach []extract.Fact) []extract.Fact {
+// to the shared root; reach facts cite that root as name; shared is that
+// root's tree.
+// Ensures:  facts sorted by id; each keeps the rule's verdict (unless
+// stale), origin and confidence and is labeled inherited_from name.
+func Rules(
+	spec []graph.Node,
+	name string,
+	reach []extract.Fact,
+	shared fs.FS,
+) []extract.Fact {
 	spans := reachedSpans(name, reach)
 	var facts []extract.Fact
 	for i := range spec {
@@ -40,7 +52,12 @@ func Rules(spec []graph.Node, name string, reach []extract.Fact) []extract.Fact 
 		if err != nil || !spans.overlap(src.Path, start, end) {
 			continue
 		}
-		facts = append(facts, ruleFact(n, name))
+		fact := ruleFact(n, name)
+		if verdictStale(n, shared) {
+			fact.Attrs[extract.AttrStaleVerdict] = fact.Attrs[extract.AttrCrosscheck]
+			fact.Attrs[extract.AttrCrosscheck] = "unchecked"
+		}
+		facts = append(facts, fact)
 	}
 	slices.SortFunc(facts, func(a, b extract.Fact) int { return strings.Compare(a.ID, b.ID) })
 	return facts
@@ -81,6 +98,20 @@ func ruleFact(n *graph.Node, name string) extract.Fact {
 		Origin:    "inherit",
 		Certainty: "static",
 	}
+}
+
+// verdictStale reports whether n has a verdict given on code that changed:
+// its digest, computed by the shared spec's own run (citations relative to
+// shared), differs from the digest of the code shared holds now. A rule
+// with no digest or no verdict, or whose citation no longer resolves (the
+// inherited rule then fails verification), is not stale.
+func verdictStale(n *graph.Node, shared fs.FS) bool {
+	stored, verdict := n.Extra[graph.ExtraDigest], n.Extra["crosscheck"]
+	if stored == "" || verdict == "" || verdict == "unchecked" {
+		return false
+	}
+	current, err := drift.Digest(extract.Roots{Src: shared}, n.Sources)
+	return err == nil && current != stored
 }
 
 // spans are the reached line ranges of the shared root, by file.

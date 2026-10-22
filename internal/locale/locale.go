@@ -53,6 +53,9 @@ type Labels struct {
 	DomainTitleFmt          string // %s: domain slug
 	ServiceTitleFmt         string // %s: external service slug
 	OperationsCalled        string // heading over a service's called operations
+	EnumValues              string // label over an enumeration's values
+	EnumTransitions         string // label over its transitions
+	EnumTransitionHeader    string // their table's header and separator rows
 	AsServiceAdminNote      string // after a call made as a service-admin query
 	RulesHeading            string // markdown heading over a domain's rule list
 	SourcesLabel, LinksLead string // node file footer
@@ -71,8 +74,10 @@ type ReadmeCounts struct {
 	Title, Intro            string
 	DomainsFmt, EntitiesFmt string // %d
 	ServicesFmt             string // %d external services called
+	EnumsFmt                string // %d enumerations, %d with transitions
 	EndpointsFmt, RulesFmt  string // %d
 	NatureFmt               string // %d business, presentation, technical
+	QualityFmt              string // %s "attribute count" list, %d technical rules without one
 	OriginFmt               string // %d explicit, implicit
 }
 
@@ -88,6 +93,8 @@ type ReadmeCoverage struct {
 	MechanicalFmt                           string // %d, appended to CrosscheckFmt
 	RejectedRulesFmt                        string // %d malformed extractor rule facts
 	GroundingFmt                            string // %d grounded, ungrounded, unchecked
+	EARSIssuesFmt                           string // %d rules whose EARS form is off
+	TestedFmt                               string // %d rules a test reaches, of %d known, within %d calls
 }
 
 // ReadmeReview lists rules for review and the domain graph heading.
@@ -219,6 +226,15 @@ func newLabels(tr translate) Labels {
 		),
 		ServiceTitleFmt:  tr("Service %s", "Service %s"),
 		OperationsCalled: tr("## Opérations appelées", "## Operations called"),
+		EnumValues:       tr("**Valeurs** :", "**Values**:"),
+		EnumTransitions: tr(
+			"**Transitions** (le code, tant que la valeur est « De », la passe à « Vers ») :",
+			"**Transitions** (code that, while the value is From, sets it to To):",
+		),
+		EnumTransitionHeader: tr(
+			"| De | Vers | Code |\n|----|------|------|",
+			"| From | To | Code |\n|------|----|------|",
+		),
 		AsServiceAdminNote: tr(
 			" (requête service-admin)",
 			" (service-admin query)",
@@ -338,6 +354,10 @@ func newReadmeCounts(tr translate) ReadmeCounts {
 			"Knowledge graph of business rules, extracted from the source code by codetospec.",
 		),
 		ServicesFmt: tr("- Services externes appelés : %d", "- External services called: %d"),
+		EnumsFmt: tr(
+			"- Énumérations : %d (dont %d avec transitions)",
+			"- Enumerations: %d (%d with transitions)",
+		),
 		DomainsFmt: tr(
 			"- Domaines : %d",
 			"- Domains: %d",
@@ -357,6 +377,10 @@ func newReadmeCounts(tr translate) ReadmeCounts {
 		NatureFmt: tr(
 			"  - métier : %d · présentation : %d · technique : %d",
 			"  - business: %d · presentation: %d · technical: %d",
+		),
+		QualityFmt: tr(
+			"  - qualité ISO 25010 (règles techniques) : %s ; %d sans attribut",
+			"  - ISO 25010 quality (technical rules): %s; %d without one",
 		),
 		OriginFmt: tr(
 			"  - explicites : %d · implicites : %d",
@@ -422,6 +446,14 @@ func newReadmeCoverage(tr translate) ReadmeCoverage {
 		GroundingFmt: tr(
 			"- Ancrage mécanique (valeurs citées présentes dans le code) : %d ancrées, %d non ancrées, %d sans valeur vérifiable",
 			"- Mechanical grounding (stated values present in the cited code): %d grounded, %d ungrounded, %d with no checkable value",
+		),
+		EARSIssuesFmt: tr(
+			"- Forme EARS : %d règles n'ont pas la forme de leur type (`ears_issue`)",
+			"- EARS form: %d rules do not have the form their kind names (`ears_issue`)",
+		),
+		TestedFmt: tr(
+			"- Tests : %d règles sur %d ont leur code cité atteint par un test, en %d appels au plus (`tests`, `tested_by`)",
+			"- Tests: %d of %d rules have their cited code reached by a test, within %d calls (`tests`, `tested_by`)",
 		),
 	}
 }

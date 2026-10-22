@@ -12,11 +12,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/StevenACoffman/codetospec/internal/config"
 	"github.com/StevenACoffman/codetospec/internal/drift"
 	"github.com/StevenACoffman/codetospec/internal/render"
+	"github.com/StevenACoffman/codetospec/internal/specdiff"
 	"github.com/StevenACoffman/codetospec/internal/state"
 	"github.com/StevenACoffman/codetospec/internal/ui"
 	"github.com/StevenACoffman/codetospec/internal/verify"
@@ -42,6 +44,8 @@ const usageText = `usage:
   codetospec run --src <repo-dir> --out <graph-dir> [flags]
   codetospec verify --src <repo-dir> --out <graph-dir>
   codetospec drift --src <repo-dir> --out <graph-dir>
+  codetospec diff --old <graph-dir> --new <graph-dir>
+  codetospec export --out <graph-dir> --to <new-dir>
   codetospec stats --out <graph-dir>`
 
 // run parses the command line and dispatches the command; it returns the
@@ -55,6 +59,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		"run":    config.ParseRun,
 		"verify": config.ParseVerify,
 		"drift":  config.ParseDrift,
+		"diff":   config.ParseDiff,
+		"export": config.ParseExport,
 		"stats":  config.ParseStats,
 	}[args[0]]
 	if parse == nil {
@@ -77,6 +83,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return c.verify(cfg)
 	case "drift":
 		return c.drift(cfg)
+	case "diff":
+		return c.diff(cfg)
+	case "export":
+		return c.export(cfg)
 	default: // stats
 		return c.stats(cfg)
 	}
@@ -192,8 +202,8 @@ func (c cli) verify(cfg *config.Config) int {
 }
 
 // drift reports the rules whose cited code changed since they were
-// rendered, and fails when any did; rules whose callees alone changed are
-// reported as affected without failing.
+// rendered, and fails when any did; rules whose code only moved, or whose
+// callees alone changed, are reported without failing.
 func (c cli) drift(cfg *config.Config) int {
 	nodes, err := render.LoadDir(cfg.Out)
 	if err != nil {
@@ -203,11 +213,7 @@ func (c cli) drift(cfg *config.Config) int {
 	report := drift.Check(nodes, cfg.Roots())
 
 	if cfg.Format == "json" {
-		payload := map[string]int{
-			"ok": report.OK, "stale": report.Stale, "broken": report.Broken,
-			"unknown": report.Unknown, "affected": report.Affected, "total": len(report.Rules),
-		}
-		data, encodeErr := json.MarshalIndent(payload, "", "  ")
+		data, encodeErr := json.MarshalIndent(newDriftJSON(&report), "", "  ")
 		if encodeErr != nil {
 			c.logger.Error("encode drift report", "err", encodeErr)
 			return exitFailure
@@ -221,10 +227,11 @@ func (c cli) drift(cfg *config.Config) int {
 		}
 		_, _ = fmt.Fprintf(
 			c.stdout,
-			"drift: %d ok, %d stale, %d broken, %d affected, %d unknown (of %d rules)\n",
+			"drift: %d ok, %d stale, %d broken, %d moved, %d affected, %d unknown (of %d rules)\n",
 			report.OK,
 			report.Stale,
 			report.Broken,
+			report.Moved,
 			report.Affected,
 			report.Unknown,
 			len(report.Rules),
@@ -233,6 +240,80 @@ func (c cli) drift(cfg *config.Config) int {
 	if report.Drifted() {
 		return exitFailure
 	}
+	return exitOK
+}
+
+// driftJSON is the drift report as `drift --format json` prints it: the
+// counts, then every rule's status, by id.
+type driftJSON struct {
+	OK       int                `json:"ok"`
+	Stale    int                `json:"stale"`
+	Broken   int                `json:"broken"`
+	Moved    int                `json:"moved"`
+	Affected int                `json:"affected"`
+	Unknown  int                `json:"unknown"`
+	Total    int                `json:"total"`
+	Rules    []drift.RuleStatus `json:"rules"`
+}
+
+func newDriftJSON(r *drift.Report) driftJSON {
+	rules := r.Rules
+	if rules == nil {
+		rules = []drift.RuleStatus{} // [], not null, for a graph without rules
+	}
+	return driftJSON{
+		OK: r.OK, Stale: r.Stale, Broken: r.Broken, Moved: r.Moved,
+		Affected: r.Affected, Unknown: r.Unknown, Total: len(r.Rules), Rules: rules,
+	}
+}
+
+// diff prints how the rules of the graph at cfg.Out differ from those of
+// the graph at cfg.Old. It exits 0 whatever differs: a difference is what
+// the reviewer asked to see, not a failure.
+func (c cli) diff(cfg *config.Config) int {
+	old, err := render.LoadDir(cfg.Old)
+	if err != nil {
+		c.logger.Error("cannot load the old graph", "err", err)
+		return exitFailure
+	}
+	current, err := render.LoadDir(cfg.Out)
+	if err != nil {
+		c.logger.Error("cannot load the new graph", "err", err)
+		return exitFailure
+	}
+	report := specdiff.Diff(old, current)
+
+	if cfg.Format == "json" {
+		if report.Changes == nil {
+			report.Changes = []specdiff.Change{} // [], not null
+		}
+		data, encodeErr := json.MarshalIndent(report, "", "  ")
+		if encodeErr != nil {
+			c.logger.Error("encode diff report", "err", encodeErr)
+			return exitFailure
+		}
+		_, _ = fmt.Fprintln(c.stdout, string(data))
+		return exitOK
+	}
+	for _, ch := range report.Changes {
+		line := ch.Kind + ": " + ch.ID
+		if ch.OldID != "" {
+			line = ch.Kind + ": " + ch.OldID + " → " + ch.ID
+		}
+		if len(ch.Reasons) > 0 {
+			line += " (" + strings.Join(ch.Reasons, ", ") + ")"
+		}
+		_, _ = fmt.Fprintln(c.stdout, line)
+	}
+	_, _ = fmt.Fprintf(
+		c.stdout,
+		"diff: %d added, %d removed, %d renamed, %d changed, %d unchanged\n",
+		report.Count(specdiff.Added),
+		report.Count(specdiff.Removed),
+		report.Count(specdiff.Renamed),
+		report.Count(specdiff.Changed),
+		report.Unchanged,
+	)
 	return exitOK
 }
 

@@ -13,16 +13,23 @@ import (
 // name; only grounded rules with a trusted verdict are proven.
 func TestMeasure(t *testing.T) {
 	rule := func(grounding, crosscheck string) graph.Node {
-		return graph.Node{Type: graph.TypeRule, Extra: map[string]string{
-			"grounding": grounding, "crosscheck": crosscheck,
-		}}
+		return graph.Node{
+			Type: graph.TypeRule,
+			Body: "**Requirement (EARS)**: The system shall round amounts.",
+			Extra: map[string]string{
+				"ears": "ubiquitous", "grounding": grounding, "crosscheck": crosscheck,
+			},
+		}
 	}
+	malformed := rule("unchecked", "unchecked")
+	malformed.Body = "**Requirement (EARS)**: The system does not check access yet."
 	nodes := []graph.Node{
 		rule("grounded", "supported"),
 		rule("grounded", "mechanical"),
 		rule("grounded", "unchecked"),
 		rule("ungrounded", "supported"),
 		rule("unchecked", "repaired"),
+		malformed,
 		{
 			Type:  graph.TypeDomain,
 			Extra: map[string]string{graph.ExtraCoverage: graph.CoveragePartial},
@@ -36,8 +43,8 @@ func TestMeasure(t *testing.T) {
 	got := corpus.Measure(nodes, 2, drift.Report{Stale: 1, Broken: 1, Affected: 4})
 
 	want := corpus.Measures{
-		Rules: 5, Grounded: 3, Ungrounded: 1, Proven: 2,
-		PartialDomains: 1, Violations: 2, Drifted: 2,
+		Rules: 6, Grounded: 3, Ungrounded: 1, Proven: 2,
+		PartialDomains: 1, Violations: 2, Drifted: 2, EARSIssues: 1,
 	}
 	if got != want {
 		t.Errorf("Measure = %+v, want %+v", got, want)

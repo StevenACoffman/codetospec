@@ -17,6 +17,10 @@ confidence: 0.90
 crosscheck: supported
 grounding: ungrounded
 grounding_missing: "30 @app/Services/Billing/ProrataCalculator.php:9"
+ears_issue: "event requirement does not open with WHEN"
+tests: 2
+test_depth: 1
+tested_by: "tests/ProrataTest.php#testActivation, tests/ProrataTest.php#testRefund"
 ---
 
 # Prorata à l'activation

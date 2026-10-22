@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/StevenACoffman/codetospec/internal/extract"
@@ -28,25 +27,10 @@ type frontmatterDoc struct {
 		Type string `yaml:"type"`
 		To   string `yaml:"to"`
 	} `yaml:"edges"`
-	Ears       string   `yaml:"ears"`
-	Acceptance *int     `yaml:"acceptance"`
-	Nature     string   `yaml:"nature"`
-	Origin     string   `yaml:"origin"`
-	Confidence *float64 `yaml:"confidence"`
-	Crosscheck string   `yaml:"crosscheck"`
-	Extracted  string   `yaml:"extracted_by"`
-	Inherited  string   `yaml:"inherited_from"`
-	Grounding  string   `yaml:"grounding"`
-	Missing    string   `yaml:"grounding_missing"`
-	Widened    string   `yaml:"grounding_widened"`
-	Digest     string   `yaml:"digest"`
-	Callees    []struct {
+	Callees []struct {
 		Path  string `yaml:"path"`
 		Lines string `yaml:"lines"`
 	} `yaml:"callees"`
-	CalleesDigest string `yaml:"callees_digest"`
-	Coverage      string `yaml:"coverage"`
-	CoverageGaps  string `yaml:"coverage_gaps"`
 }
 
 // ParseNode parses one rendered node file back into a Node (frontmatter
@@ -66,6 +50,10 @@ func ParseNode(content string) (graph.Node, error) {
 	if err := yaml.Unmarshal([]byte(front), &doc); err != nil {
 		return n, fmt.Errorf("parse frontmatter: %w", err)
 	}
+	var scalars map[string]yaml.Node
+	if err := yaml.Unmarshal([]byte(front), &scalars); err != nil {
+		return n, fmt.Errorf("parse frontmatter: %w", err)
+	}
 	n.ID = doc.ID
 	n.Type = doc.Type
 	n.Status = doc.Status
@@ -78,7 +66,7 @@ func ParseNode(content string) (graph.Node, error) {
 	for _, e := range doc.Edges {
 		n.Edges = append(n.Edges, graph.Edge{Type: e.Type, To: e.To})
 	}
-	n.Extra = doc.extra()
+	n.Extra = extraOf(scalars)
 	for line := range strings.SplitSeq(body, "\n") {
 		if title, isTitle := strings.CutPrefix(line, "# "); isTitle {
 			n.Title = title
@@ -89,37 +77,30 @@ func ParseNode(content string) (graph.Node, error) {
 	return n, nil
 }
 
-// extra is the node's Extra map from its frontmatter; nil when empty.
-func (doc *frontmatterDoc) extra() map[string]string {
+// extraOf is the node's Extra map from its frontmatter's scalar values,
+// read as written (a confidence of 0.90 stays "0.90"); nil when empty.
+// The keys are those the writer emits, so a new one is declared once.
+func extraOf(scalars map[string]yaml.Node) map[string]string {
 	extra := map[string]string{}
-	set := func(key, value string) {
-		if value != "" {
-			extra[key] = value
+	for _, key := range FrontmatterKeys() {
+		if v, ok := scalars[key]; ok && v.Kind == yaml.ScalarNode && v.Value != "" {
+			extra[key] = v.Value
 		}
 	}
-	set("ears", doc.Ears)
-	if doc.Acceptance != nil {
-		extra["acceptance"] = strconv.Itoa(*doc.Acceptance)
-	}
-	set("nature", doc.Nature)
-	set("origin", doc.Origin)
-	if doc.Confidence != nil {
-		extra["confidence"] = strconv.FormatFloat(*doc.Confidence, 'f', 2, 64)
-	}
-	set("crosscheck", doc.Crosscheck)
-	set(graph.ExtraExtractedBy, doc.Extracted)
-	set(graph.ExtraInheritedFrom, doc.Inherited)
-	set("grounding", doc.Grounding)
-	set("grounding_missing", doc.Missing)
-	set(graph.ExtraGroundingWidened, doc.Widened)
-	set("digest", doc.Digest)
-	set(graph.ExtraCalleesDigest, doc.CalleesDigest)
-	set(graph.ExtraCoverage, doc.Coverage)
-	set(graph.ExtraCoverageGaps, doc.CoverageGaps)
 	if len(extra) == 0 {
 		return nil
 	}
 	return extra
+}
+
+// FrontmatterKeys lists the Extra keys a node's frontmatter carries: what
+// a node keeps when written and read back.
+func FrontmatterKeys() []string {
+	keys := []string{graph.ExtraCalleesDigest}
+	for _, field := range frontmatterExtras() {
+		keys = append(keys, field.key)
+	}
+	return keys
 }
 
 // LoadDir reads every node file under outDir/nodes for re-verification.

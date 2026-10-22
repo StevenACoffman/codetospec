@@ -1244,7 +1244,7 @@
       "domain": "federation",
       "ears": "ubiquitous",
       "nature": "business",
-      "requirement": "The system does not check access to Entity.findAIProfileByID yet (`acl.TODO()`: a missing permission check).",
+      "requirement": "The system shall let any caller call Entity.findAIProfileByID without a permission check (`acl.TODO()`: the check is still missing).",
       "route": "route.graphql.entity.findAIProfileByID",
       "slug": "unchecked-entity-findaiprofilebyid",
       "title": "Unchecked access: Entity.findAIProfileByID"
@@ -1930,7 +1930,7 @@
       "domain": "user",
       "ears": "ubiquitous",
       "nature": "business",
-      "requirement": "The system does not check access to User.legacy yet (`acl.TODO()`: a missing permission check).",
+      "requirement": "The system shall let any caller call User.legacy without a permission check (`acl.TODO()`: the check is still missing).",
       "slug": "unchecked-user-legacy",
       "title": "Unchecked access: User.legacy"
     },

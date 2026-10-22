@@ -36,6 +36,20 @@ func testNodes() []graph.Node {
 			Body:   "Gestion des abonnés.",
 		},
 		{
+			ID:     "enum.models-invoicestatus",
+			Type:   graph.TypeEnum,
+			Status: graph.StatusGenerated,
+			Title:  "models.InvoiceStatus",
+			Body: "**Valeurs** :\n\n- `Draft` = `draft`\n- `Paid` = `paid`\n\n" +
+				"**Transitions** (le code, tant que la valeur est « De », la passe à « Vers ») :\n\n" +
+				"| De | Vers | Code |\n|----|------|------|\n| `Draft` | `Paid` | `app/Models/Invoice.php:20-24` |",
+			Sources: []extract.Ref{
+				{Path: "app/Models/Invoice.php", Lines: "5-5"},
+				{Path: "app/Models/Invoice.php", Lines: "20-24"},
+			},
+			Extra: map[string]string{graph.ExtraTransitions: "1"},
+		},
+		{
 			ID:      "entity.invoices",
 			Type:    "entity",
 			Status:  graph.StatusGenerated,
@@ -77,6 +91,12 @@ func testNodes() []graph.Node {
 				// Planted: the stated value sits outside the cited lines.
 				"grounding":         "ungrounded",
 				"grounding_missing": `30 @app/Services/Billing/ProrataCalculator.php:9`,
+				// Planted: a form problem, free text that must stay quoted.
+				graph.ExtraEARSIssue: `event requirement does not open with WHEN`,
+				graph.ExtraTests:     "2",
+				graph.ExtraTestDepth: "1",
+				graph.ExtraTestedBy: "tests/ProrataTest.php#testActivation, " +
+					"tests/ProrataTest.php#testRefund",
 			},
 		},
 	}
@@ -123,6 +143,7 @@ func TestWriteGolden(t *testing.T) {
 		"nodes/domains/billing.md",
 		"nodes/entities/invoices.md",
 		"nodes/endpoints/post-api-activate.md",
+		"nodes/enums/models-invoicestatus.md",
 		"graph.json",
 		"README.md",
 		llmsFile,

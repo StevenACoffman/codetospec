@@ -4,11 +4,14 @@
 package render
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,6 +23,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/locale"
+	"github.com/StevenACoffman/codetospec/internal/testreach"
 )
 
 // Meta is run-level information rendered into README.md.
@@ -66,6 +70,9 @@ type Meta struct {
 	DomainModel *domainmodel.Report
 	// Lang is the --lang code selecting the output text (see locale).
 	Lang string
+	// Reviewed are the files of the rules a person owns, by node id, written
+	// as they are instead of rendered (see KeepReviewed).
+	Reviewed map[string][]byte
 }
 
 // Write renders the whole graph into outDir: nodes/, graph.json, README.md
@@ -74,13 +81,14 @@ type Meta struct {
 // output readable, never half of it; .codetospec/ is never touched.
 func Write(outDir string, nodes []graph.Node, meta *Meta) error {
 	text := locale.For(meta.Lang)
+	files := nodeFiles(nodes, meta.Reviewed, text)
 	err := atomicfs.ReplaceDir(filepath.Join(outDir, "nodes"), func(staging string) error {
-		return writeNodes(staging, nodes, text)
+		return writeNodes(staging, nodes, files)
 	})
 	if err != nil {
 		return err
 	}
-	if err = writeGraphJSON(outDir, nodes); err != nil {
+	if err = writeGraphJSON(outDir, nodes, files); err != nil {
 		return err
 	}
 	if err = atomicfs.WriteFile(
@@ -98,10 +106,29 @@ func Write(outDir string, nodes []graph.Node, meta *Meta) error {
 	return nil
 }
 
+// nodeFiles is the content of each node's file, by id: a reviewed rule's
+// own bytes, otherwise the node rendered in text's language.
+func nodeFiles(
+	nodes []graph.Node,
+	reviewed map[string][]byte,
+	text *locale.Text,
+) map[string][]byte {
+	files := make(map[string][]byte, len(nodes))
+	for i := range nodes {
+		n := &nodes[i]
+		if data, ok := reviewed[n.ID]; ok {
+			files[n.ID] = data
+			continue
+		}
+		files[n.ID] = []byte(NodeMarkdown(n, text))
+	}
+	return files
+}
+
 // writeNodes writes one markdown file per node under nodesDir, the
-// directory NodeFile's "nodes/" prefix names.
-func writeNodes(nodesDir string, nodes []graph.Node, text *locale.Text) error {
-	for _, sub := range []string{"domains", "entities", "endpoints", "rules", "services"} {
+// directory NodeFile's "nodes/" prefix names, with its content in files.
+func writeNodes(nodesDir string, nodes []graph.Node, files map[string][]byte) error {
+	for _, sub := range []string{"domains", "entities", "endpoints", "enums", "rules", "services"} {
 		if err := os.MkdirAll(filepath.Join(nodesDir, sub), 0o750); err != nil {
 			return fmt.Errorf("create nodes dir: %w", err)
 		}
@@ -110,7 +137,7 @@ func writeNodes(nodesDir string, nodes []graph.Node, text *locale.Text) error {
 		n := &nodes[i]
 		rel := strings.TrimPrefix(NodeFile(n), "nodes/")
 		path := filepath.Join(nodesDir, filepath.FromSlash(rel))
-		if err := os.WriteFile(path, []byte(NodeMarkdown(n, text)), 0o600); err != nil {
+		if err := os.WriteFile(path, files[n.ID], 0o600); err != nil {
 			return fmt.Errorf("write node %s: %w", n.ID, err)
 		}
 	}
@@ -128,6 +155,8 @@ func NodeFile(n *graph.Node) string {
 		return "nodes/endpoints/" + strings.TrimPrefix(n.ID, "endpoint.") + ".md"
 	case graph.TypeService:
 		return "nodes/services/" + strings.TrimPrefix(n.ID, graph.TypeService+".") + ".md"
+	case graph.TypeEnum:
+		return "nodes/enums/" + strings.TrimPrefix(n.ID, graph.TypeEnum+".") + ".md"
 	default:
 		return "nodes/rules/" + strings.TrimPrefix(n.ID, "rule.") + ".md"
 	}
@@ -148,15 +177,23 @@ func frontmatterExtras() []extraField {
 		{key: "ears"},
 		{key: "acceptance"},
 		{key: "nature"},
+		{key: graph.ExtraQualityAttribute},
 		{key: "origin"},
 		{key: "confidence"},
 		{key: "crosscheck"},
 		{key: graph.ExtraExtractedBy},
 		{key: graph.ExtraInheritedFrom},
+		{key: graph.ExtraStaleVerdict},
 		{key: "grounding"},
 		{key: "grounding_missing", quoted: true},
 		{key: graph.ExtraGroundingWidened, quoted: true},
-		{key: "digest"},
+		{key: graph.ExtraEARSIssue, quoted: true},
+		{key: graph.ExtraDigest},
+		{key: graph.ExtraSourceHashes},
+		{key: graph.ExtraTests},
+		{key: graph.ExtraTestDepth},
+		{key: graph.ExtraTestedBy, quoted: true},
+		{key: graph.ExtraTransitions},
 		{key: graph.ExtraCoverage},
 		{key: graph.ExtraCoverageGaps, quoted: true},
 	}
@@ -269,13 +306,16 @@ func edgeLink(e graph.Edge, text *locale.Text) string {
 
 // graphJSONNode is one entry of graph.json.
 type graphJSONNode struct {
-	Type     string       `json:"type"`
-	File     string       `json:"file"`
+	Type string `json:"type"`
+	File string `json:"file"`
+	// Hash is the hash of the file as written: the next run tells a file a
+	// person edited by it (see LoadPrior).
+	Hash     string       `json:"hash"`
 	Coverage string       `json:"coverage,omitempty"` // domains only
 	Edges    []graph.Edge `json:"edges"`
 }
 
-func writeGraphJSON(outDir string, nodes []graph.Node) error {
+func writeGraphJSON(outDir string, nodes []graph.Node, files map[string][]byte) error {
 	entries := make(map[string]graphJSONNode, len(nodes))
 	for _, n := range nodes {
 		edges := n.Edges
@@ -285,6 +325,7 @@ func writeGraphJSON(outDir string, nodes []graph.Node) error {
 		entries[n.ID] = graphJSONNode{
 			Type:     n.Type,
 			File:     NodeFile(&n),
+			Hash:     fileHash(files[n.ID]),
 			Coverage: n.Extra[graph.ExtraCoverage],
 			Edges:    edges,
 		}
@@ -321,6 +362,31 @@ func countByExtra(nodes []graph.Node, key string) map[string]int {
 	return counts
 }
 
+// qualityLine counts the rules by quality attribute, most common first,
+// and the technical rules without one; empty when no rule has one (the
+// pass did not run).
+func qualityLine(nodes []graph.Node, technical int, text *locale.Text) string {
+	byAttribute := countByExtra(nodes, graph.ExtraQualityAttribute)
+	if len(byAttribute) == 0 {
+		return ""
+	}
+	attributes := slices.Collect(maps.Keys(byAttribute))
+	slices.SortFunc(attributes, func(a, b string) int {
+		return cmp.Or(cmp.Compare(byAttribute[b], byAttribute[a]), cmp.Compare(a, b))
+	})
+	parts := make([]string, 0, len(attributes))
+	classified := 0
+	for _, a := range attributes {
+		parts = append(parts, fmt.Sprintf("`%s` %d", a, byAttribute[a]))
+		classified += byAttribute[a]
+	}
+	return fmt.Sprintf(
+		text.QualityFmt+"\n",
+		strings.Join(parts, " · "),
+		max(technical-classified, 0),
+	)
+}
+
 // percentScale turns a ratio in [0,1] into a percentage.
 const percentScale = 100
 
@@ -343,11 +409,20 @@ func readmeCounts(nodes []graph.Node, text *locale.Text) string {
 	if n := counts[graph.TypeService]; n > 0 {
 		fmt.Fprintf(&b, text.ServicesFmt+"\n", n)
 	}
+	if n := counts[graph.TypeEnum]; n > 0 {
+		fmt.Fprintf(
+			&b,
+			text.EnumsFmt+"\n",
+			n,
+			countSet(nodes, graph.TypeEnum, graph.ExtraTransitions),
+		)
+	}
 	byNature := countByExtra(nodes, "nature")
 	if total := byNature["business"] + byNature["presentation"] + byNature["technical"]; total > 0 {
 		fmt.Fprintf(&b, text.NatureFmt+"\n",
 			byNature["business"], byNature["presentation"], byNature["technical"])
 	}
+	b.WriteString(qualityLine(nodes, byNature["technical"], text))
 	byOrigin := countByExtra(nodes, "origin")
 	if byOrigin["explicit"]+byOrigin["implicit"] > 0 {
 		fmt.Fprintf(&b, text.OriginFmt+"\n", byOrigin["explicit"], byOrigin["implicit"])
@@ -417,6 +492,10 @@ func readme(nodes []graph.Node, meta *Meta, text *locale.Text) string {
 	b.WriteString(readmeCounts(nodes, text))
 	b.WriteString(readmeCoverage(meta, text))
 	b.WriteString(groundingSummary(nodes, text))
+	if issues := countSet(nodes, graph.TypeRule, graph.ExtraEARSIssue); issues > 0 {
+		fmt.Fprintf(&b, text.EARSIssuesFmt+"\n", issues)
+	}
+	b.WriteString(testedLine(nodes, text))
 	b.WriteString(ungroundedSection(nodes, text))
 	b.WriteString(gapsSection(meta.CoverageGaps, text))
 	b.WriteString(splitSection(meta.DomainSplits, text))
@@ -567,6 +646,37 @@ func groundingSummary(nodes []graph.Node, text *locale.Text) string {
 		byStatus["ungrounded"],
 		byStatus["unchecked"],
 	)
+}
+
+// countSet counts the nodes of type nodeType whose Extra sets key.
+func countSet(nodes []graph.Node, nodeType, key string) int {
+	n := 0
+	for i := range nodes {
+		if nodes[i].Type == nodeType && nodes[i].Extra[key] != "" {
+			n++
+		}
+	}
+	return n
+}
+
+// testedLine counts the rules a test reaches among those whose test reach
+// is known; empty when none is (the run had no test facts).
+func testedLine(nodes []graph.Node, text *locale.Text) string {
+	known, reached := 0, 0
+	for i := range nodes {
+		tests := nodes[i].Extra[graph.ExtraTests]
+		if nodes[i].Type != graph.TypeRule || tests == "" {
+			continue
+		}
+		known++
+		if tests != "0" {
+			reached++
+		}
+	}
+	if known == 0 {
+		return ""
+	}
+	return fmt.Sprintf(text.TestedFmt+"\n", reached, known, testreach.MaxDepth)
 }
 
 // ungroundedSection lists the rules whose stated values are missing from

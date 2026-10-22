@@ -25,6 +25,10 @@ qui n'a produit aucune règle : l'absence d'une règle n'y prouve rien.
 
 - nodes/endpoints/post-api-activate.md : POST /api/activate
 
+## enum
+
+- nodes/enums/models-invoicestatus.md : models.InvoiceStatus
+
 ## rule
 
 ### billing

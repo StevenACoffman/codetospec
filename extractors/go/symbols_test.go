@@ -13,13 +13,13 @@ const kindFunction = "function"
 // as a module of its own.
 func TestSymbolAndCallFacts(t *testing.T) {
 	root := filepath.Join(writeWorkspace(t), "shared")
-	pkgs, fset, ok := loadPackages(root, func(format string, a ...any) { t.Logf(format, a...) })
+	m, ok := loadPackages(root, func(format string, a ...any) { t.Logf(format, a...) })
 	if !ok {
 		t.Fatal("module did not load")
 	}
 
 	kinds := map[string]string{}
-	for _, f := range SymbolFacts(pkgs, fset, root) {
+	for _, f := range SymbolFacts(m.pkgs, m.fset, root) {
 		start, _, _ := strings.Cut(f.Source.Lines, "-")
 		if f.Attrs["precise"] != "true" ||
 			f.ID != "symbol."+f.Source.Path+"#"+f.Attrs["name"]+":"+start {
@@ -41,7 +41,7 @@ func TestSymbolAndCallFacts(t *testing.T) {
 	}
 
 	calls := map[string]bool{}
-	for _, f := range CallFacts(pkgs, fset, root) {
+	for _, f := range CallFacts(m.pkgs, m.fset, root) {
 		calls[f.Source.Lines+">"+f.Attrs["callee_lines"]] = true
 	}
 	cases := map[string]struct {

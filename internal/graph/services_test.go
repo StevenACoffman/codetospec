@@ -36,7 +36,7 @@ func TestBuildServiceNodes(t *testing.T) {
 	}
 	facts[5].Attrs[extract.AttrDomain] = "tasks"
 	facts[3].Attrs[extract.AttrAs] = extract.AsServiceAdmin
-	nodes := graph.Build(facts, nil, extract.DomainResolver{Strategy: "namespace"}, "en")
+	nodes := graph.Build(facts, nil, extract.DomainResolver{Strategy: "namespace"}, "en", nil)
 
 	byID := make(map[string]graph.Node)
 	for _, n := range nodes {

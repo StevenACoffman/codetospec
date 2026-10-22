@@ -6,8 +6,10 @@
 // It emits what tree-sitter cannot: `route` facts (gin/echo/chi/net-http,
 // with group prefixes and handlers resolved via go/packages type info),
 // `constant` facts (numeric constants the code refers to, for grounding),
-// precise `symbol` facts and `call` facts (who uses whom, for domains)
-// and `table` facts (SQL CREATE TABLE from schema files, e.g. sqlc).
+// precise `symbol` facts and `call` facts (who uses whom, for domains),
+// `test` facts (what each test function uses, for the rules tests reach),
+// `enum`, `enum_value` and `transition` facts (enumerations and the state
+// changes the code guards) and `table` facts (SQL CREATE TABLE from schema files, e.g. sqlc).
 //
 // Usage: extract --root <src> [--sql-glob "sql/schema/*.sql"]
 package main
@@ -95,7 +97,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	var facts []Fact
-	if pkgs, fset, ok := loadPackages(absRoot, log); ok {
+	if m, ok := loadPackages(absRoot, log); ok {
+		pkgs, fset := m.pkgs, m.fset
 		facts = append(facts, routeFacts(pkgs, fset, absRoot, dirSet(*skipDirs), log)...)
 		constants := ConstantFacts(pkgs, fset, absRoot)
 		log("%d constant(s)", len(constants))
@@ -104,6 +107,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		log("%d symbol(s), %d call(s)", len(symbols), len(calls))
 		facts = append(facts, symbols...)
 		facts = append(facts, calls...)
+		enums := EnumFacts(pkgs, fset, absRoot)
+		log("%d enumeration fact(s)", len(enums))
+		facts = append(facts, enums...)
+		tests := TestFacts(&m, absRoot)
+		log("%d test fact(s)", len(tests))
+		facts = append(facts, tests...)
 		for i := range shared {
 			reach := ReachFacts(pkgs, fset, &shared[i])
 			log("%d declaration(s) of %s reached", len(reach), shared[i].Name)
@@ -183,21 +192,33 @@ func sharedRoots(specs []string) ([]SharedRoot, error) {
 	return roots, nil
 }
 
-// loadPackages loads the module under root with syntax and type
-// information, for routes and constants. A load error skips both (false);
-// package errors only leave type information partial.
-func loadPackages(root string, log logf) ([]*packages.Package, *token.FileSet, bool) {
+// loadedModule is the module under analysis, type-checked.
+type loadedModule struct {
+	// pkgs are the module's packages without their tests: every fact but
+	// the test facts reads these, so loading tests changes none of them.
+	pkgs []*packages.Package
+	// tests are the test variants ("p [p.test]", "p_test [p.test]"),
+	// which hold the _test.go files.
+	tests []*packages.Package
+	fset  *token.FileSet
+}
+
+// loadPackages loads the module under root, its tests included, with
+// syntax and type information. A load error skips every fact that needs
+// types (false); package errors only leave type information partial.
+func loadPackages(root string, log logf) (loadedModule, bool) {
 	fset := token.NewFileSet()
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax |
 			packages.NeedTypes | packages.NeedTypesInfo | packages.NeedImports | packages.NeedDeps,
-		Dir:  root,
-		Fset: fset,
+		Dir:   root,
+		Fset:  fset,
+		Tests: true,
 	}
 	pkgs, err := packages.Load(cfg, "./...")
 	if err != nil {
 		log("load packages: %v (routes and constants skipped)", err)
-		return nil, nil, false
+		return loadedModule{}, false
 	}
 	var loadErrors int
 	packages.Visit(pkgs, nil, func(p *packages.Package) {
@@ -206,7 +227,16 @@ func loadPackages(root string, log logf) ([]*packages.Package, *token.FileSet, b
 	if loadErrors > 0 {
 		log("%d package load error(s), continuing with partial type info", loadErrors)
 	}
-	return pkgs, fset, true
+	m := loadedModule{fset: fset}
+	for _, p := range pkgs {
+		switch {
+		case strings.Contains(p.ID, " ["):
+			m.tests = append(m.tests, p)
+		case !strings.HasSuffix(p.ID, ".test"): // not a generated test main
+			m.pkgs = append(m.pkgs, p)
+		}
+	}
+	return m, true
 }
 
 // routeFacts turns the routes registered in pkgs into route facts.

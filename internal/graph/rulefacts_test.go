@@ -22,7 +22,7 @@ func ruleFact(id string) extract.Fact {
 			extract.AttrDomain:      "role",
 		},
 		Source: extract.Ref{Path: "resolvers/add_coach_role.go", Lines: "37-39"},
-		Origin: "webapp",
+		Origin: webappOrigin,
 	}
 }
 
@@ -64,6 +64,18 @@ func TestValidateRuleFacts(t *testing.T) {
 			mutate:     func(f *extract.Fact) { f.Source.Lines = "37" },
 			wantReason: "line range",
 		},
+		"not EARS": {
+			mutate: func(f *extract.Fact) {
+				f.Attrs[extract.AttrRequirement] = notEARS
+			},
+			wantReason: "requirement: no \"shall\"",
+		},
+		"inherited, not EARS": { // another spec's LLM wrote it: kept, flagged by Build
+			mutate: func(f *extract.Fact) {
+				f.Attrs[extract.AttrRequirement] = notEARS
+				f.Attrs[extract.AttrInheritedFrom] = sharedRoot
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -94,20 +106,22 @@ func TestBuildMechanicalRules(t *testing.T) {
 		nil,
 		extract.DomainResolver{},
 		"en",
+		nil,
 	)
 
 	byID := make(map[string]graph.Node)
 	for _, n := range nodes {
 		byID[n.ID] = n
 	}
-	first, ok := byID["rule.role.authz-mutation-addcoachrole"]
+	first, ok := byID[mechRule]
 	if !ok {
 		t.Fatalf("no mechanical rule node; got %v", nodeIDs(nodes))
 	}
 	if _, renumbered := byID["rule.role.authz-mutation-addcoachrole-2"]; !renumbered {
 		t.Fatalf("colliding slug not renumbered; got %v", nodeIDs(nodes))
 	}
-	if first.Extra[graph.ExtraExtractedBy] != "webapp" || first.Extra["origin"] != originExplicit {
+	if first.Extra[graph.ExtraExtractedBy] != webappOrigin ||
+		first.Extra["origin"] != originExplicit {
 		t.Errorf("extra = %v, want extracted_by webapp and origin explicit", first.Extra)
 	}
 	if got := graph.RuleRequirement(first.Body); !strings.Contains(got, "Mutation.addCoachRole") {
@@ -151,7 +165,7 @@ func TestMechanicalRuleRoute(t *testing.T) {
 		t.Fatalf("rejected = %v, want the dangling route", rejected)
 	}
 	var rule, endpoint graph.Node
-	for _, n := range graph.Build(kept, nil, extract.DomainResolver{}, "en") {
+	for _, n := range graph.Build(kept, nil, extract.DomainResolver{}, "en", nil) {
 		switch n.Type {
 		case graph.TypeRule:
 			rule = n
@@ -172,22 +186,24 @@ func TestMechanicalRuleRoute(t *testing.T) {
 }
 
 // TestBuildInheritedRule: a rule fact inherited from another spec is
-// labeled with it — never as an extractor's — and keeps its verdict,
-// origin and confidence.
+// labeled with it — never as an extractor's — and keeps its verdict (here
+// unchecked, the shared code having changed under a stale one), origin and
+// confidence.
 func TestBuildInheritedRule(t *testing.T) {
 	f := ruleFact("rule.inherited")
-	f.Attrs[extract.AttrInheritedFrom] = "pkg"
-	f.Attrs[extract.AttrCrosscheck] = "supported"
+	f.Attrs[extract.AttrInheritedFrom] = sharedRoot
+	f.Attrs[extract.AttrCrosscheck] = "unchecked"
+	f.Attrs[extract.AttrStaleVerdict] = "supported"
 	f.Attrs[extract.AttrOrigin] = "implicit"
 	f.Attrs[extract.AttrConfidence] = "0.80"
-	nodes := graph.Build([]extract.Fact{f}, nil, extract.DomainResolver{}, "en")
+	nodes := graph.Build([]extract.Fact{f}, nil, extract.DomainResolver{}, "en", nil)
 	for _, n := range nodes {
 		if n.Type != graph.TypeRule {
 			continue
 		}
 		want := map[string]string{
-			graph.ExtraInheritedFrom: "pkg", "crosscheck": "supported",
-			"origin": "implicit", "confidence": "0.80",
+			graph.ExtraInheritedFrom: sharedRoot, "crosscheck": "unchecked",
+			graph.ExtraStaleVerdict: "supported", "origin": "implicit", "confidence": "0.80",
 		}
 		for k, v := range want {
 			if n.Extra[k] != v {

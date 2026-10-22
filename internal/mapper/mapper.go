@@ -15,21 +15,13 @@ import (
 	"strings"
 
 	"github.com/StevenACoffman/codetospec/internal/atomicfs"
+	"github.com/StevenACoffman/codetospec/internal/ears"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/llm"
 	"github.com/StevenACoffman/codetospec/internal/locale"
 	"github.com/StevenACoffman/codetospec/internal/sitter"
 	"github.com/StevenACoffman/codetospec/internal/workpool"
 )
-
-// IsEARSKind reports whether kind is an accepted EARS pattern kind.
-func IsEARSKind(kind string) bool {
-	switch kind {
-	case "ubiquitous", "event", "state", "unwanted", "optional":
-		return true
-	}
-	return false
-}
 
 const systemPrompt = `You are a senior software archaeologist. You read legacy source code in any language and extract candidate business rules.
 
@@ -535,7 +527,7 @@ type Labels struct {
 // with the rule's position ("rules[2]."); map and reduce replies share it.
 func CheckLabels(l *Labels, allowedEntities, allowedEndpoints []string) error {
 	switch {
-	case !IsEARSKind(l.EarsKind):
+	case !ears.IsKind(l.EarsKind):
 		return fmt.Errorf("ears_kind %q is not one of ubiquitous|event|state|unwanted|optional",
 			l.EarsKind)
 	case !IsNature(l.Nature):

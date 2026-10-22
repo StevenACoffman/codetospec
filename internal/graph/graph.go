@@ -19,8 +19,8 @@ import (
 // Node is one markdown file in the spec graph.
 type Node struct {
 	ID      string // "rule.billing.prorata-activation"
-	Type    string // "domain" | "entity" | "endpoint" | "rule"
-	Status  string // always "generated" in v0.1
+	Type    string // "domain" | "entity" | "endpoint" | "enum" | "service" | "rule"
+	Status  string // StatusGenerated, or StatusReviewed for a rule a person owns
 	Sources []extract.Ref
 	// Callees is the code the cited lines call, one hop (rules only; see
 	// drift.Callees): drift re-hashes it to flag a rule whose helper changed.
@@ -91,26 +91,35 @@ const TypeDomain = "domain"
 // TypeEntity is the node type of a data entity (a table fact).
 const TypeEntity = "entity"
 
-// StatusGenerated is the only node status in v0.1.
+// StatusGenerated is the status of every node a run writes.
 const StatusGenerated = "generated"
 
+// StatusReviewed is the status of a rule file a person owns: one they
+// edited, or marked reviewed. A run keeps it as it is (see
+// render.KeepReviewed).
+const StatusReviewed = "reviewed"
+
 // Build assembles the node set: entities from table facts, endpoints from
-// route facts, rules and domains from the reduce outputs and from rule facts
+// route facts, enumerations from enum facts, rules and domains from the reduce outputs and from rule facts
 // (which must have passed ValidateRuleFacts), and domain
 // depends_on edges computed from cross-domain import facts (never by the LLM).
-// Node bodies use the labels of the --lang code lang.
+// Node bodies use the labels of the --lang code lang. prior is the graph
+// the previous run rendered (nil for none): a rule restating one of its
+// rules keeps that rule's id (see MatchRules and assignRuleIDs).
 func Build(
 	facts []extract.Fact,
 	reduced []reducer.Output,
 	resolver extract.DomainResolver,
 	lang string,
+	prior []Node,
 ) []Node {
 	text := locale.For(lang)
 	var nodes []Node
 	nodes = append(nodes, entityNodes(facts, text)...)
 	nodes = append(nodes, endpointNodes(facts, text)...)
+	nodes = append(nodes, enumNodes(facts, text)...)
 
-	ruleNodes, domainNodes := ruleAndDomainNodes(reduced, facts, text)
+	ruleNodes, domainNodes := ruleAndDomainNodes(reduced, facts, prior, text)
 	linkHandlers(ruleNodes, facts)
 	domainDeps := domainDependencies(facts, resolver, domainNodes)
 	namespaces := namespaceByPath(facts)
@@ -285,6 +294,7 @@ type domainDraft struct {
 func ruleAndDomainNodes(
 	reduced []reducer.Output,
 	facts []extract.Fact,
+	prior []Node,
 	text *locale.Text,
 ) ([]Node, []Node) {
 	drafts := make(map[string]*domainDraft)
@@ -294,19 +304,16 @@ func ruleAndDomainNodes(
 		}
 		return drafts[domain]
 	}
-	taken := make(map[string]bool)
 	routes := routesByID(facts)
 
+	var llmRules, mechanical []Node
 	for _, out := range reduced {
 		if out.Failed || len(out.Rules) == 0 {
 			continue
 		}
-		d := draft(out.Domain)
-		d.summary = out.DomainSummary
+		draft(out.Domain).summary = out.DomainSummary
 		for i := range out.Rules {
-			n := reducedRuleNode(out.Domain, &out.Rules[i], text)
-			taken[n.ID] = true
-			d.rules = append(d.rules, n)
+			llmRules = append(llmRules, reducedRuleNode(out.Domain, &out.Rules[i], text))
 		}
 	}
 	for i := range facts {
@@ -314,10 +321,13 @@ func ruleAndDomainNodes(
 		if f.Kind != extract.KindRule {
 			continue
 		}
-		domain := f.Attrs[extract.AttrDomain]
-		id := uniqueID("rule."+domain+"."+f.Attrs[extract.AttrSlug], taken)
-		taken[id] = true
-		draft(domain).rules = append(draft(domain).rules, mechanicalRuleNode(f, id, routes, text))
+		id := "rule." + f.Attrs[extract.AttrDomain] + "." + f.Attrs[extract.AttrSlug]
+		mechanical = append(mechanical, mechanicalRuleNode(f, id, routes, text))
+	}
+	llmRules, mechanical = assignRuleIDs(llmRules, mechanical, prior)
+	for _, n := range slices.Concat(llmRules, mechanical) {
+		d := draft(ruleDomain(&n))
+		d.rules = append(d.rules, n)
 	}
 
 	var rules, domains []Node
@@ -388,13 +398,13 @@ func reducedRuleNode(domain string, rule *reducer.Rule, text *locale.Text) Node 
 		Edges:   edges,
 		Title:   rule.Title,
 		Body:    body.String(),
-		Extra: map[string]string{
+		Extra: withEARSIssue(map[string]string{
 			"ears":       rule.EarsKind,
 			"acceptance": strconv.Itoa(len(rule.AcceptanceCriteria)),
 			"nature":     rule.Nature,
 			"origin":     rule.Origin,
 			"confidence": strconv.FormatFloat(rule.Confidence, 'f', 2, 64),
-		},
+		}, rule.Requirement),
 	}
 }
 

@@ -29,14 +29,20 @@ make run-fixture                               # run mocké sur testdata/fixture
 - Mesure du crosscheck LLM sur des fautes plantées (opt-in, appelle le
   modèle) : `CODETOSPEC_EVAL=1 go test ./internal/crosscheck -run Eval -v`
   (avec `LLM_BASE_URL`, `LLM_MODEL`). À relancer avant d'adopter un nouveau
-  prompt ou modèle. `TestPlantedFaults` (grounding) est l'équivalent
-  mécanique, toujours actif, angles morts listés explicitement.
+  prompt ou modèle : `CODETOSPEC_EVAL_REPEAT=3`, `CODETOSPEC_EVAL_RECORD=f`
+  puis `CODETOSPEC_EVAL_BASELINE=f` pour comparer. Critère d'adoption :
+  exactitude équilibrée (moyenne du taux de fautes prises et du taux de
+  témoins acceptés ; « tout réfuter » = 0,5) pas plus basse, fausses
+  alertes pas plus nombreuses, pas plus de cas qui basculent ; un appel en
+  échec compte comme une erreur. `TestScoreEval` fige ce calcul.
+  `TestPlantedFaults` (grounding) est l'équivalent mécanique, toujours
+  actif, angles morts listés explicitement.
 - `go test ./...` tourne sans réseau ni PHP. Tests taggés `phplocal` pour
   l'extracteur PHP (skip si `php` absent).
 
 ## Architecture
 
-Pipeline : `extract → chunk → map → reduce → crosscheck(+repair) → build → digest → verify → render`.
+Pipeline : `extract → chunk → map → reduce → crosscheck(+repair) → quality → build → digest → test reach → verify → render`.
 - `internal/sitter` — tree-sitter, une grammaire + un `.scm` par langage.
   Le chunker regroupe les petites définitions adjacentes (même fichier,
   namespace et domaine) jusqu'à 150 lignes (`pack`) : le coût fixe d'un
@@ -54,8 +60,10 @@ Pipeline : `extract → chunk → map → reduce → crosscheck(+repair) → bui
   chaque ligne du code de son numéro absolu (`numberedContent`) : sinon le
   modèle *compte* les lignes et dérive (citations off-by-N sur gros chunks). Le crosscheck
   (`--crosscheck`) réfute chaque règle ; avec `--repair` (+ index SCIP), une
-  règle rejetée re-cite le span exact d'un symbole précis. La citation doit
-  chevaucher un vrai corps de symbole (grounding mécanique), puis elle est
+  règle rejetée re-cite le span exact d'un symbole précis, choisi par
+  étiquette (`S1`…, `symbolCatalog`) : le modèle n'écrit jamais de plage,
+  donc la citation est un vrai corps de symbole (grounding mécanique), puis
+  elle est
   re-revue à l'aveugle (`review` ne reçoit ni le premier verdict ni sa
   raison). Elle n'est adoptée que si cette revue dit `supported` ; sinon la
   règle garde son verdict (`repair_review` le trace).
@@ -65,7 +73,78 @@ Pipeline : `extract → chunk → map → reduce → crosscheck(+repair) → bui
   Avec des faits `call`, `stamp` écrit aussi les appelés directs du code
   cité (`callees:` + `callees_digest`, un seul saut : la fermeture couvrirait
   tout le module) ; un appelé modifié rend la règle `affected`, signalé mais
-  jamais en échec. Autonome : `drift` ne lit pas `.codetospec/`.
+  jamais en échec. `source_hashes` (hash du texte seul de chaque span, sans
+  chemin ni numéros) : un digest différent dont chaque texte se retrouve
+  ailleurs dans son fichier (fenêtre la plus proche) rend la règle `moved`,
+  jamais en échec. `drift.Stamp` pose ces quatre champs (le cœur ne connaît
+  pas leurs clés). `drift --format json` liste chaque règle. Autonome :
+  `drift` ne lit pas `.codetospec/`.
+- `internal/testreach` — règles atteintes par un test, sans LLM : les
+  faits `test` (extracteur Go : ce qu'utilise chaque `TestXxx`/`FuzzXxx`
+  ou méthode de suite `TestXxx()` — webapp n'a presque que celles-ci —,
+  elle-même ou via les helpers de ses `_test.go`) puis les faits `call`,
+  à `MaxDepth` = 3 définitions au plus. Frontmatter `tests` (0 compris),
+  `test_depth`, `tested_by` ; sans aucun fait `test`, rien (inconnu ≠
+  non testé), ni pour une règle qui ne cite qu'une autre racine. Piège :
+  l'extracteur charge les tests (`Tests: true`) mais tous les autres faits
+  lisent les paquets sans tests (`loadedModule.pkgs`), sinon les variantes
+  de test dupliqueraient symboles et appels ; un objet d'une variante de
+  test n'est pas celui du paquet : les déclarations sont indexées par
+  position.
+- `internal/quality` — `--quality` : classe chaque règle technique par
+  caractéristique ISO 25010 (liste de spec-artifacts-iso 0.3.0, Quire),
+  frontmatter `quality_attribute`. Lots de 40 étiquetés R1…Rn (le modèle
+  n'écrit que des étiquettes et des valeurs de la liste, sinon correction),
+  cache unique `.codetospec/quality.json` par hash (prompt key + titre +
+  exigence) : une règle renommée garde sa réponse. Un lot en échec laisse
+  ses règles sans attribut (redemandées au run suivant), jamais d'échec du
+  run. Hors map/reduce : aucun cache invalidé. Les passes après le build
+  (crosscheck, quality, stamps, test reach, règles revues) sont dans
+  `cmd/codetospec/judge.go`.
+- `graph/enums.go` — nœuds `enum` (`nodes/enums/`) depuis les faits `enum`,
+  `enum_value`, `transition` (extracteur Go, `enums.go`, `transitions.go`) :
+  valeurs dans l'ordre du code (trié par citation : les faits arrivent
+  triés par id), tableau des transitions, `transitions:` en frontmatter.
+  Une transition = affectation `x = B` sous une garde `x == A` (if, `&&`,
+  case) ; une affectation sans garde n'en est pas une. Fichiers générés
+  (`ast.IsGenerated`) ignorés : leurs énumérations miroitent un schéma
+  externe. Peu de transitions sur le code réel (4 dans districts) : l'état
+  change surtout en SQL.
+- `internal/quire` — commande `export --out --to` : règles → FR au format
+  Quire (spec-artifacts-iso 0.3.0, figé dans la doc du paquet : seul
+  endroit qui connaît le format). Pur (`Export` renvoie les fichiers) ;
+  la CLI refuse un `--to` non vide (amorçage unique, l'équipe édite
+  ensuite dans quoin). Sans critères (reduce `merge`), l'exigence EARS
+  devient l'unique critère (`codetospec_criteria: requirement`) ; règle
+  réfutée par le crosscheck : écartée. Vérifié contre les schémas
+  frontmatter téléchargés (jsonschema) sur roster et districts ; pas de
+  `quire validate` local (pas de binaire publié).
+- Clés de frontmatter : déclarées une fois dans `frontmatterExtras`
+  (render) ; la lecture (`extraOf`) et le contrôle aller-retour de verify
+  (`render.FrontmatterKeys`) en dérivent.
+- `internal/ears` — types EARS et `ears.Check` (FR et EN, accents et casse
+  ignorés) : un seul « shall/doit » de sujet « le système », ouverture du
+  type (QUAND, TANT QUE, LÀ OÙ, SI … ALORS après une clause éventuelle).
+  `Build` écrit `ears_issue` sur la règle fautive (comptée dans le README
+  de sortie et le corpus) ; une règle d'extracteur fautive est rejetée
+  (l'extracteur est déterministe), une règle héritée gardée et signalée.
+- `graph.MatchRules` — ids stables : avant le build, `render.LoadPrior` lit
+  la sortie précédente ; une règle LLM qui en reprend une (même domaine, et
+  même exigence, ou citations chevauchantes avec Jaccard ≥ 0,6 ou même id)
+  garde son id. Les règles d'extracteur prennent leur id d'abord ; un id
+  de la sortie précédente n'est jamais donné à une autre règle au run
+  suivant (`assignRuleIDs`). Le cache crosscheck (clé = id) en profite.
+  Même appariement pour les renommages de `internal/specdiff` (commande
+  `diff --old --new` : ajoutée, retirée, renommée, `reworded`, `code`,
+  `moved`, `verdict` ; sort toujours 0).
+- Règles revues à la main (`render.LoadPrior`, `render.KeepReviewed`) :
+  `graph.json` enregistre le hash de chaque fichier nœud ; un fichier de
+  règle modifié depuis (ou marqué `status: reviewed`) appartient à une
+  personne et est réécrit tel quel, `status: reviewed`, tant que le run
+  produit son id. Il garde son propre digest : `drift` le signale quand son
+  code change. Pour le régénérer : supprimer le fichier. Une règle revue
+  dont la citation ne se résout plus arrête le run avant tout appel LLM ;
+  un autre type de nœud modifié est écrasé (avertissement).
 - `graph.AnnotateCoverage` — `coverage: complete | partial` par domaine, avec
   `coverage_gaps` (fichier généré, chunk map en échec, reduce en échec),
   calculé par `coverageGaps` dans `pipeline.go` ; section « Code sans règle »
@@ -118,7 +197,9 @@ Pipeline : `extract → chunk → map → reduce → crosscheck(+repair) → bui
   nom=graphe`, exige `--ref-root nom=dir`) : chaque règle LLM à une seule
   citation tombant dans du code atteint (faits `reach`, émis par un
   extracteur, ex. `extractors/go -shared pkg=…`) devient une règle héritée
-  du domaine `shared-<domaine>`. Le cœur lit son propre format de spec ;
+  du domaine `shared-<domaine>`. Son verdict ne vaut que pour le code jugé :
+  si le code partagé n'a plus le `digest` de la spec partagée, la règle est
+  `unchecked` et garde l'ancien verdict en `stale_verdict`. Le cœur lit son propre format de spec ;
   l'extracteur ne dit que ce qui est atteint. `scandistricts.sh` l'applique
   à districts-jobs, `scanwebapp.sh` à webapp (faits `reach` de l'extracteur
   webapp).
@@ -187,8 +268,10 @@ spécifique à un dépôt dans le cœur : tout le savoir webapp vit dans
 - `map/<chunkID>.json` — nom = hash du contenu du chunk ; réutilisé si son `prompt_key` correspond. Le domaine d'une sortie en cache est repris du chunk courant (changer la stratégie de domaine regroupe sans re-mapper).
 - `reduce/<domain>.json` — réutilisé si le hash des candidates (`candidates_hash`) correspond.
 - `crosscheck/<ruleID>.json` — clé = hash (prompt key + règle + lignes citées).
+- `quality.json` — un seul fichier, réponse par hash (prompt key + titre +
+  exigence) ; ne garde que les règles du run.
 
-Les trois clés incluent `llm.PromptKey` : modèle, langue et **texte des
+Les quatre clés incluent `llm.PromptKey` : modèle, langue (si le prompt en dépend) et **texte des
 templates de prompt** (+ `--repair` pour le crosscheck). Éditer un prompt ou
 changer de modèle invalide donc le cache tout seul — aucune constante de
 version à bumper. Un cache sans clé (version antérieure) est considéré

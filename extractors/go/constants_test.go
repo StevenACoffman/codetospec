@@ -60,12 +60,12 @@ func Handle() (int, int, float64, string) {
 
 func TestConstantFacts(t *testing.T) {
 	dir := constantsModule(t)
-	pkgs, fset, ok := loadPackages(dir, func(format string, a ...any) { t.Logf(format, a...) })
+	m, ok := loadPackages(dir, func(format string, a ...any) { t.Logf(format, a...) })
 	if !ok {
 		t.Fatal("module did not load")
 	}
 	got := map[string]Fact{}
-	for _, f := range ConstantFacts(pkgs, fset, dir) {
+	for _, f := range ConstantFacts(m.pkgs, m.fset, dir) {
 		got[f.Attrs["name"]] = f
 	}
 

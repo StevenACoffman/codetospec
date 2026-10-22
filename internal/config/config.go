@@ -70,6 +70,8 @@ type Config struct {
 	// root name (--ref-root name=dir): webapp's shared pkg/ for a service.
 	RefRoots       map[string]string
 	Out            string
+	Old            string // diff: the graph Out is compared with (--old)
+	To             string // export: the directory the Quire spec is written to (--to)
 	BaseURL        string
 	APIKey         string
 	Model          string
@@ -84,11 +86,12 @@ type Config struct {
 	DomainDepth    int
 	NoTUI          bool
 	Crosscheck     bool
+	Quality        bool
 	Repair         bool
 	Reground       bool
 	ReduceBatch    int
 	ReduceMode     string // "full" or "merge" (see reducer.ModeMerge)
-	Format         string // drift output format: "text" | "json"
+	Format         string // drift and diff output format: "text" | "json"
 	// DomainModels are human modelith models (*.modelith.yaml) the graph is
 	// compared with (--domain-model, then domain_models resolved against
 	// --src); DomainModelEntities maps a model entity to the code entity it
@@ -335,6 +338,48 @@ func ParseDrift(args []string) (*Config, error) {
 	return cfg, nil
 }
 
+// ParseDiff resolves the diff command configuration: two graph
+// directories (the new one is Out) and an output format.
+func ParseDiff(args []string) (*Config, error) {
+	flags := flag.NewFlagSet("diff", flag.ContinueOnError)
+	cfg := &Config{}
+	flags.StringVar(&cfg.Old, "old", "", "graph directory of the earlier run (required)")
+	flags.StringVar(&cfg.Out, "new", "", "graph directory of the later run (required)")
+	flags.StringVar(&cfg.Format, "format", "text", "output format: text or json")
+	flags.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
+	if err := flags.Parse(args); err != nil {
+		return nil, err
+	}
+	if cfg.Old == "" || cfg.Out == "" {
+		return nil, errors.New("diff requires --old and --new")
+	}
+	if cfg.Format != "text" && cfg.Format != "json" {
+		return nil, fmt.Errorf("--format %q must be text or json", cfg.Format)
+	}
+	return cfg, nil
+}
+
+// ParseExport resolves the export command configuration.
+func ParseExport(args []string) (*Config, error) {
+	flags := flag.NewFlagSet("export", flag.ContinueOnError)
+	cfg := &Config{}
+	flags.StringVar(&cfg.Out, "out", "", "graph directory to export (required)")
+	flags.StringVar(
+		&cfg.To,
+		"to",
+		"",
+		"new or empty directory to write the Quire spec to (required)",
+	)
+	flags.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
+	if err := flags.Parse(args); err != nil {
+		return nil, err
+	}
+	if cfg.Out == "" || cfg.To == "" {
+		return nil, errors.New("export requires --out and --to")
+	}
+	return cfg, nil
+}
+
 // ParseStats resolves the stats command configuration.
 func ParseStats(args []string) (*Config, error) {
 	flags := flag.NewFlagSet("stats", flag.ContinueOnError)
@@ -450,6 +495,12 @@ func registerPassFlags(flags *flag.FlagSet, cfg *Config) {
 		"repair",
 		false,
 		"repair pass (implies --crosscheck): a flagged rule re-cites the exact span of a precise symbol; needs a SCIP index",
+	)
+	flags.BoolVar(
+		&cfg.Quality,
+		"quality",
+		false,
+		"classify technical rules by ISO 25010 quality attribute (one LLM call per 40 uncached rules)",
 	)
 	flags.BoolVar(
 		&cfg.Reground,

@@ -69,6 +69,20 @@ const (
 	// both in --src. A definition the callers of one domain alone use is
 	// placed in that domain (see package callers).
 	KindCall = "call"
+	// KindTest records that the test function at Source (AttrName, e.g.
+	// TestClose) uses the definition at AttrCalleePath, AttrCalleeLines,
+	// itself or through helpers of its test files. With the call facts, it
+	// tells which rules' cited code tests reach (see package testreach).
+	KindTest = "test"
+	// KindEnum is an enumeration: the type at Source (AttrName, e.g.
+	// "shop.Status") and its values, one KindEnumValue fact each
+	// (AttrEnum = the enum fact's ID, AttrName, AttrValue, Source = the
+	// constant). A KindTransition fact (AttrEnum, AttrFrom, AttrTo: value
+	// names) is code at Source that, while a value of the enumeration is
+	// AttrFrom, sets it to AttrTo. The graph gets one enum node each.
+	KindEnum       = "enum"
+	KindEnumValue  = "enum_value"
+	KindTransition = "transition"
 )
 
 // Values of AttrAs.
@@ -107,8 +121,12 @@ const (
 	// reviewed again (its citation is outside --src).
 	AttrInheritedFrom = "inherited_from"
 	AttrCrosscheck    = "crosscheck"
-	AttrOrigin        = "origin"
-	AttrConfidence    = "confidence"
+	// AttrStaleVerdict, on an inherited rule fact, is the verdict the
+	// shared spec gave on code that has changed since: the fact's
+	// AttrCrosscheck is then unchecked.
+	AttrStaleVerdict = "stale_verdict"
+	AttrOrigin       = "origin"
+	AttrConfidence   = "confidence"
 	// AttrAs, on a dependency fact, is the authority the call is made
 	// with: AsServiceAdmin (webapp's service-admin queries, which bypass
 	// user permission checks that accept them) or AsUser (the caller's
@@ -122,9 +140,14 @@ const (
 	// code ("a-b"): a rule citing it is linked to the endpoint (exposed_by)
 	// without asking the LLM.
 	AttrHandlerLines = "handler_lines"
-	// AttrCalleePath and AttrCalleeLines, on a call fact, cite the callee.
+	// AttrCalleePath and AttrCalleeLines, on a call or test fact, cite the
+	// callee.
 	AttrCalleePath  = "callee_path"
 	AttrCalleeLines = "callee_lines"
+	// AttrEnum, AttrFrom and AttrTo, on enum_value and transition facts.
+	AttrEnum = "enum"
+	AttrFrom = "from"
+	AttrTo   = "to"
 )
 
 // Ref pins a fact to a file location.

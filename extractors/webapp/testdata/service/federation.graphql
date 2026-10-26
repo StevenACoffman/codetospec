@@ -1,0 +1,14 @@
+type AIProfile @key(fields: "id") {
+  id: ID!
+  summary: String
+}
+
+type RowByTeacher @key(fields: "teacherID kaLocale") {
+  teacherID: ID!
+  kaLocale: String!
+}
+
+extend type Mutation {
+  blockEmail(email: String!): Boolean
+  devadminAddAuthEmail(kaid: String!, authEmail: String!): Boolean
+}

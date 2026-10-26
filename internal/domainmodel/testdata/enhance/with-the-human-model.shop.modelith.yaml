@@ -1,0 +1,23 @@
+# The shop's own model, written by the team.
+kind: DomainModel
+version: v1
+title: Shop
+entities:
+  Order:
+    # Agreed with the product owner.
+    definition: A customer's request to buy items, from checkout to delivery.
+    attributes:
+      - name: id
+        type: string
+      - name: total
+        type: number
+      - name: placed_at
+        type: timestamp
+      - name: note
+        type: string
+        description: 'code type: []byte'
+    invariants:
+      - id: shop-order-total
+        statement: The system shall keep an order total equal to the sum of its lines.
+  Coupon:
+    definition: A discount code a customer applies at checkout.

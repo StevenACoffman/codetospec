@@ -7,121 +7,136 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
-	"maps"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sort"
 	"strings"
 	"syscall"
 
+	"github.com/StevenACoffman/codetospec/internal/config"
+	"github.com/StevenACoffman/codetospec/internal/drift"
+	"github.com/StevenACoffman/codetospec/internal/render"
+	"github.com/StevenACoffman/codetospec/internal/specdiff"
+	"github.com/StevenACoffman/codetospec/internal/state"
+	"github.com/StevenACoffman/codetospec/internal/ui"
+	"github.com/StevenACoffman/codetospec/internal/verify"
 	tea "github.com/charmbracelet/bubbletea"
+)
 
-	"codetospec/internal/config"
-	"codetospec/internal/consistency"
-	"codetospec/internal/crosscheck"
-	"codetospec/internal/drift"
-	"codetospec/internal/extract"
-	"codetospec/internal/graph"
-	"codetospec/internal/llm"
-	"codetospec/internal/mapper"
-	"codetospec/internal/reducer"
-	"codetospec/internal/render"
-	"codetospec/internal/sitter"
-	"codetospec/internal/source"
-	"codetospec/internal/state"
-	"codetospec/internal/ui"
-	"codetospec/internal/verify"
+// Exit codes of the command.
+const (
+	exitOK          = 0
+	exitFailure     = 1
+	exitUsage       = 2
+	exitInterrupted = 130 // 128 + SIGINT, the shell's convention
 )
 
 func main() {
-	os.Exit(run(os.Args[1:]))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	code := run(ctx, os.Args[1:], os.Stdout, os.Stderr)
+	stop()
+	os.Exit(code)
 }
 
 const usageText = `usage:
   codetospec run --src <repo-dir> --out <graph-dir> [flags]
   codetospec verify --src <repo-dir> --out <graph-dir>
   codetospec drift --src <repo-dir> --out <graph-dir>
+  codetospec diff --old <graph-dir> --new <graph-dir>
+  codetospec export --out <graph-dir> --to <new-dir>
   codetospec stats --out <graph-dir>`
 
-func run(args []string) int {
+// run parses the command line and dispatches the command; it returns the
+// exit code.
+func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, usageText)
-		return 2
+		_, _ = fmt.Fprintln(stderr, usageText)
+		return exitUsage
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
+	parse := map[string]func([]string) (*config.Config, error){
+		"run":    config.ParseRun,
+		"verify": config.ParseVerify,
+		"drift":  config.ParseDrift,
+		"diff":   config.ParseDiff,
+		"export": config.ParseExport,
+		"stats":  config.ParseStats,
+	}[args[0]]
+	if parse == nil {
+		_, _ = fmt.Fprintln(stderr, usageText)
+		return exitUsage
+	}
+	cfg, err := parse(args[1:])
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return exitUsage
+	}
+	c := cli{stdout: stdout, stderr: stderr, logger: newLogger(stderr, cfg.LogLevel)}
 	switch args[0] {
 	case "run":
-		cfg, err := config.ParseRun(args[1:])
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 2
+		if useTUI(cfg, stdout) {
+			return c.tui(ctx, cfg)
 		}
-		if useTUI(cfg) {
-			return runTUI(ctx, cfg)
-		}
-		setupLogging(cfg.LogLevel)
-		if err := runPipeline(ctx, cfg, ui.Plain{}); err != nil {
-			if errors.Is(err, context.Canceled) {
-				slog.Warn("interrupted, state saved; rerun to resume")
-				return 130
-			}
-			slog.Error("run failed", "err", err)
-			return 1
-		}
-		return 0
+		return c.pipeline(ctx, cfg)
 	case "verify":
-		cfg, err := config.ParseVerify(args[1:])
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 2
-		}
-		setupLogging(cfg.LogLevel)
-		return verifyCommand(cfg)
+		return c.verify(cfg)
 	case "drift":
-		cfg, err := config.ParseDrift(args[1:])
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 2
-		}
-		setupLogging(cfg.LogLevel)
-		return driftCommand(cfg)
-	case "stats":
-		cfg, err := config.ParseStats(args[1:])
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 2
-		}
-		setupLogging(cfg.LogLevel)
-		return statsCommand(cfg)
-	default:
-		fmt.Fprintln(os.Stderr, usageText)
-		return 2
+		return c.drift(cfg)
+	case "diff":
+		return c.diff(cfg)
+	case "export":
+		return c.export(cfg)
+	default: // stats
+		return c.stats(cfg)
 	}
 }
 
-func setupLogging(level string) {
+// cli is what every command writes to: results on stdout, diagnostics on
+// stderr through logger.
+type cli struct {
+	stdout, stderr io.Writer
+	logger         *slog.Logger
+}
+
+// newLogger returns the logger a command passes down to every phase: text
+// lines on w at level (--log-level; info when unparsable).
+func newLogger(w io.Writer, level string) *slog.Logger {
 	var l slog.Level
 	if err := l.UnmarshalText([]byte(level)); err != nil {
 		l = slog.LevelInfo
 	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: l})))
+	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: l}))
 }
 
-// useTUI enables the dashboard on an interactive terminal unless --no-tui.
-func useTUI(cfg *config.Config) bool {
-	if cfg.NoTUI {
+// useTUI enables the dashboard when stdout is an interactive terminal,
+// unless --no-tui.
+func useTUI(cfg *config.Config, stdout io.Writer) bool {
+	f, isFile := stdout.(*os.File)
+	if cfg.NoTUI || !isFile {
 		return false
 	}
-	info, err := os.Stdout.Stat()
+	info, err := f.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
-// runTUI runs the pipeline behind the full-screen Bubble Tea dashboard.
-func runTUI(ctx context.Context, cfg *config.Config) int {
+// pipeline runs the pipeline with plain log output.
+func (c cli) pipeline(ctx context.Context, cfg *config.Config) int {
+	err := runPipeline(ctx, cfg, ui.Plain{Log: c.logger, Out: c.stdout}, c.logger)
+	switch {
+	case err == nil:
+		return exitOK
+	case errors.Is(err, context.Canceled):
+		c.logger.WarnContext(ctx, "interrupted, state saved; rerun to resume")
+		return exitInterrupted
+	default:
+		c.logger.ErrorContext(ctx, "run failed", "err", err)
+		return exitFailure
+	}
+}
+
+// tui runs the pipeline behind the full-screen Bubble Tea dashboard.
+func (c cli) tui(ctx context.Context, cfg *config.Config) int {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -130,596 +145,201 @@ func runTUI(ctx context.Context, cfg *config.Config) int {
 		tea.WithAltScreen(),
 	)
 	sink := ui.TUISink{Program: program}
-	slog.SetDefault(slog.New(ui.LogHandler{Sink: sink, Min: slog.LevelWarn}))
+	// While the dashboard owns the terminal, warnings go to its log pane.
+	dashboardLog := slog.New(ui.LogHandler{Sink: sink, Min: slog.LevelWarn})
 
 	go func() {
 		// runPipeline emits RunFinished itself, which quits the program.
-		_ = runPipeline(runCtx, cfg, sink)
+		_ = runPipeline(runCtx, cfg, sink, dashboardLog)
 	}()
 
 	finalModel, err := program.Run()
-	setupLogging(cfg.LogLevel)
 	if err != nil {
-		slog.Error("tui failed", "err", err)
-		return 1
+		c.logger.ErrorContext(ctx, "tui failed", "err", err)
+		return exitFailure
 	}
-	model, ok := finalModel.(ui.Model)
+	model, ok := finalModel.(*ui.Model)
 	if !ok {
-		return 1
+		return exitFailure
 	}
 	result, finished := model.Result()
-	if !finished {
-		// User quit before the pipeline reported; state is saved.
-		fmt.Println("interrupted, state saved; rerun to resume")
-		return 130
-	}
 	switch {
-	case errors.Is(result.Err, context.Canceled):
-		fmt.Println("interrupted, state saved; rerun to resume")
-		return 130
+	case !finished, errors.Is(result.Err, context.Canceled):
+		// The user quit, or interrupted the run; state is saved.
+		_, _ = fmt.Fprintln(c.stdout, "interrupted, state saved; rerun to resume")
+		return exitInterrupted
 	case result.Err != nil:
-		fmt.Fprintln(os.Stderr, "run failed:", result.Err)
+		_, _ = fmt.Fprintln(c.stderr, "run failed:", result.Err)
 		for _, v := range result.Violations {
-			fmt.Fprintln(os.Stderr, " -", v)
+			_, _ = fmt.Fprintln(c.stderr, " -", v)
 		}
-		return 1
+		return exitFailure
 	default:
-		ui.PrintSummary(result)
-		return 0
+		ui.PrintSummary(c.stdout, &result)
+		return exitOK
 	}
 }
 
-// runPipeline is the full run sequence: extract, chunk, map, reduce, build,
-// verify, render. Progress is reported through the sink, which also receives
-// a final RunFinished event (consumed by the TUI and the plain summary).
-func runPipeline(ctx context.Context, cfg *config.Config, sink ui.Sink) (err error) {
-	final := ui.RunFinished{Extractors: map[string]string{}}
-	defer func() {
-		final.Err = err
-		sink.Emit(final)
-	}()
-	sink.Emit(ui.RunStarted{Src: cfg.Src, Out: cfg.Out, Model: cfg.Model, Workers: cfg.Workers})
-
-	resolver := extract.DomainResolver{Strategy: cfg.DomainStrategy, Depth: cfg.DomainDepth}
-
-	// Walk and extract layer A (tree-sitter).
-	files, err := source.Walk(cfg.Src, cfg.Exclude)
-	if err != nil {
-		return err
-	}
-	var sitterFacts []extract.Fact
-	fileData := make(map[string][]byte, len(files))
-	fileInfo := make(map[string]*sitter.FileInfo)
-	var noGrammar []string
-	for _, f := range files {
-		data, readErr := os.ReadFile(f.AbsPath)
-		if readErr != nil {
-			slog.Warn("unreadable file skipped", "path", f.Path, "err", readErr)
-			continue
-		}
-		fileData[f.Path] = data
-		if f.Language == "" {
-			noGrammar = append(noGrammar, f.Path)
-			sink.Emit(ui.FileExtracted{Path: f.Path})
-			continue
-		}
-		info, parseErr := sitter.Parse(f.Language, data)
-		if parseErr != nil {
-			slog.Warn("parse failed, falling back to line chunks", "path", f.Path, "err", parseErr)
-			noGrammar = append(noGrammar, f.Path)
-			sink.Emit(ui.FileExtracted{Path: f.Path, Language: f.Language})
-			continue
-		}
-		fileInfo[f.Path] = info
-		facts := extract.UniversalFacts(f.Path, info)
-		sitterFacts = append(sitterFacts, facts...)
-		sink.Emit(ui.FileExtracted{Path: f.Path, Language: f.Language, Facts: len(facts)})
-	}
-	slog.Info("extract: universal layer done", "files", len(files), "facts", len(sitterFacts))
-
-	// Layer B: external extractors (graceful degradation).
-	extractorStatus := map[string]string{}
-	var extractorFacts []extract.Fact
-	for _, e := range cfg.Extractors {
-		timeout, timeoutErr := e.TimeoutDuration()
-		if timeoutErr != nil {
-			return timeoutErr
-		}
-		facts, extErr := extract.RunExtractor(ctx, extract.ExtractorConfig{
-			Name:    e.Name,
-			Cmd:     e.Cmd,
-			Args:    e.Args,
-			Timeout: timeout,
-		}, cfg.Src)
-		if extErr != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			slog.Warn("extractor failed", "name", e.Name, "err", extErr)
-			extractorStatus[e.Name] = "failed"
-			sink.Emit(ui.ExtractorFinished{Name: e.Name, Status: "failed"})
-			continue
-		}
-		extractorStatus[e.Name] = "ok"
-		extractorFacts = append(extractorFacts, facts...)
-		sink.Emit(ui.ExtractorFinished{Name: e.Name, Status: "ok", Facts: len(facts)})
-	}
-	final.Extractors = extractorStatus
-
-	// Layer C: facts files.
-	var fileFacts []extract.Fact
-	for _, path := range cfg.FactsFiles {
-		facts, loadErr := extract.LoadFactsFile(path)
-		if loadErr != nil {
-			return loadErr
-		}
-		fileFacts = append(fileFacts, facts...)
-	}
-
-	facts := extract.Merge(sitterFacts, extractorFacts, fileFacts)
-	byKind := map[string]int{}
-	for _, f := range facts {
-		byKind[f.Kind]++
-	}
-	sink.Emit(ui.FactsMerged{Total: len(facts), ByKind: byKind})
-	if err := writeFactsFile(cfg.Out, facts); err != nil {
-		return err
-	}
-
-	// State store.
-	st, err := state.Open(filepath.Join(cfg.Out, ".codetospec", "state.json"), cfg.Src)
-	if err != nil {
-		return err
-	}
-	if err := st.Update(func(s *state.State) {
-		maps.Copy(s.Extractors, extractorStatus)
-	}); err != nil {
-		return err
-	}
-
-	// Chunk.
-	var chunks []sitter.Chunk
-	for _, f := range files {
-		data, ok := fileData[f.Path]
-		if !ok {
-			continue
-		}
-		chunks = append(chunks, sitter.ChunkFile(f.Path, f.Language, data, fileInfo[f.Path], resolver.Resolve)...)
-	}
-	sort.SliceStable(chunks, func(i, j int) bool {
-		if chunks[i].Path != chunks[j].Path {
-			return chunks[i].Path < chunks[j].Path
-		}
-		return chunks[i].StartLine < chunks[j].StartLine
-	})
-	sink.Emit(ui.Chunked{Chunks: len(chunks)})
-
-	entities, endpointsByPath := allowedLists(facts)
-	symbolsByPath := preciseSymbols(facts)
-	client := llm.NewClient(cfg.BaseURL, cfg.APIKey, cfg.Model, cfg.MaxTokens)
-
-	// MAP.
-	sink.Emit(ui.PhaseChanged{Phase: "map"})
-	if err := st.Update(func(s *state.State) {
-		s.Phase = "map"
-		s.ChunksTotal = len(chunks)
-		s.ChunksDone = 0
-		s.ChunksFailed = 0
-	}); err != nil {
-		return err
-	}
-	m := &mapper.Mapper{
-		LLM:      client,
-		Lang:     cfg.Lang,
-		Workers:  cfg.Workers,
-		OutDir:   filepath.Join(cfg.Out, ".codetospec", "map"),
-		Entities: entities,
-		EndpointsFor: func(path string) []string {
-			return endpointsByPath[path]
-		},
-		SymbolsFor: func(path string) []mapper.SymbolContext {
-			return symbolsByPath[path]
-		},
-		OnUnit: func(out mapper.Output, usage llm.Usage) {
-			var done int
-			if err := st.Update(func(s *state.State) {
-				s.ChunksDone++
-				if out.Failed {
-					s.ChunksFailed++
-				}
-				s.Tokens["map"].Prompt += usage.PromptTokens
-				s.Tokens["map"].Completion += usage.CompletionTokens
-				done = s.ChunksDone
-			}); err != nil {
-				slog.Warn("state save failed", "err", err)
-			}
-			sink.Emit(ui.MapUnit{
-				Path:   out.Path,
-				Lines:  fmt.Sprintf("%d-%d", out.StartLine, out.EndLine),
-				Domain: out.Domain,
-				Rules:  len(out.Rules),
-				Failed: out.Failed,
-				Done:   done,
-				Total:  len(chunks),
-				Usage:  usage,
-			})
-		},
-	}
-	mapOutputs, err := m.Run(ctx, chunks)
-	if err != nil {
-		return err
-	}
-
-	// REDUCE.
-	candidates := make(map[string][]mapper.Rule)
-	for _, out := range mapOutputs {
-		if !out.Failed && len(out.Rules) > 0 {
-			candidates[out.Domain] = append(candidates[out.Domain], out.Rules...)
-		}
-	}
-	allEndpoints := allEndpointIDs(facts)
-	sink.Emit(ui.PhaseChanged{Phase: "reduce"})
-	if err := st.Update(func(s *state.State) {
-		s.Phase = "reduce"
-		s.DomainsTotal = len(candidates)
-		s.DomainsDone = 0
-		s.DomainsFailed = 0
-	}); err != nil {
-		return err
-	}
-	r := &reducer.Reducer{
-		LLM:       client,
-		Lang:      cfg.Lang,
-		OutDir:    filepath.Join(cfg.Out, ".codetospec", "reduce"),
-		Entities:  entities,
-		Endpoints: allEndpoints,
-		BatchSize: cfg.ReduceBatch,
-		Workers:   cfg.Workers,
-		OnUnit: func(out reducer.Output, usage llm.Usage) {
-			var done int
-			if err := st.Update(func(s *state.State) {
-				s.DomainsDone++
-				if out.Failed {
-					s.DomainsFailed++
-				}
-				s.Tokens["reduce"].Prompt += usage.PromptTokens
-				s.Tokens["reduce"].Completion += usage.CompletionTokens
-				done = s.DomainsDone
-			}); err != nil {
-				slog.Warn("state save failed", "err", err)
-			}
-			sink.Emit(ui.ReduceUnit{
-				Domain: out.Domain,
-				Rules:  len(out.Rules),
-				Failed: out.Failed,
-				Done:   done,
-				Total:  len(candidates),
-				Usage:  usage,
-			})
-		},
-	}
-	reduced, err := r.Run(ctx, candidates)
-	if err != nil {
-		return err
-	}
-
-	// BUILD + CROSSCHECK + VERIFY + RENDER.
-	sink.Emit(ui.PhaseChanged{Phase: "build"})
-	if err := st.Update(func(s *state.State) { s.Phase = "build" }); err != nil {
-		return err
-	}
-	nodes := graph.Build(facts, reduced, resolver)
-
-	var checkTally crosscheck.Tally
-	if cfg.Crosscheck {
-		sink.Emit(ui.PhaseChanged{Phase: "crosscheck"})
-		if err := st.Update(func(s *state.State) { s.Phase = "crosscheck" }); err != nil {
-			return err
-		}
-		ruleCount := 0
-		for _, n := range nodes {
-			if n.Type == "rule" {
-				ruleCount++
-			}
-		}
-		checkDone := 0
-		checker := &crosscheck.Checker{
-			LLM:     client,
-			Lang:    cfg.Lang,
-			Workers: cfg.Workers,
-			OutDir:  filepath.Join(cfg.Out, ".codetospec", "crosscheck"),
-			SrcRoot: cfg.Src,
-			Repair:  cfg.Repair,
-			SymbolsFor: func(path string) []mapper.SymbolContext {
-				return symbolsByPath[path]
-			},
-			OnUnit: func(v crosscheck.Verdict, usage llm.Usage) {
-				if err := st.Update(func(s *state.State) {
-					s.Tokens["crosscheck"].Prompt += usage.PromptTokens
-					s.Tokens["crosscheck"].Completion += usage.CompletionTokens
-				}); err != nil {
-					slog.Warn("state save failed", "err", err)
-				}
-				checkDone++
-				sink.Emit(ui.CrosscheckUnit{
-					RuleID:  v.RuleID,
-					Verdict: v.Verdict,
-					Done:    checkDone,
-					Total:   ruleCount,
-					Usage:   usage,
-				})
-			},
-		}
-		verdictsByRule, checkErr := checker.Run(ctx, nodes)
-		if checkErr != nil {
-			return checkErr
-		}
-		nodes = crosscheck.Annotate(nodes, verdictsByRule)
-		checkTally = crosscheck.Count(verdictsByRule)
-	}
-
-	// Stamp each rule with a digest of its cited code, enabling later drift
-	// checks against an evolving source tree.
-	for i := range nodes {
-		if nodes[i].Type != "rule" {
-			continue
-		}
-		digest, digestErr := drift.Digest(cfg.Src, nodes[i].Sources)
-		if digestErr != nil {
-			continue // a broken citation is caught by verify below
-		}
-		if nodes[i].Extra == nil {
-			nodes[i].Extra = map[string]string{}
-		}
-		nodes[i].Extra["digest"] = digest
-	}
-
-	violations := verify.Run(nodes, cfg.Src)
-	if len(violations) > 0 {
-		for _, v := range violations {
-			final.Violations = append(final.Violations, v.String())
-			slog.Error("verification failed", "node", v.NodeID, "check", v.Check, "detail", v.Detail)
-		}
-		return fmt.Errorf("graph verification failed with %d violation(s), nothing rendered", len(violations))
-	}
-
-	snapshot := st.Snapshot()
-	meta := render.Meta{
-		Coverage:              graph.ComputeCoverage(nodes),
-		ChunksFailed:          snapshot.ChunksFailed,
-		ChunksTotal:           snapshot.ChunksTotal,
-		DomainsFailed:         snapshot.DomainsFailed,
-		DomainsTotal:          snapshot.DomainsTotal,
-		FilesNoGrammar:        noGrammar,
-		Crosschecked:          cfg.Crosscheck,
-		CrosscheckSupported:   checkTally.Supported,
-		CrosscheckPartial:     checkTally.Partial,
-		CrosscheckUnsupported: checkTally.Unsupported,
-		CrosscheckRepaired:    checkTally.Repaired,
-		CrosscheckFailed:      checkTally.Failed,
-		DuplicatePairs:        consistency.FindDuplicates(nodes, consistency.DefaultThreshold),
-	}
-	for name, status := range extractorStatus {
-		if status != "ok" {
-			meta.ExtractorsFailed = append(meta.ExtractorsFailed, name)
-		}
-	}
-	sink.Emit(ui.PhaseChanged{Phase: "render"})
-	if err := render.Write(cfg.Out, nodes, meta); err != nil {
-		return err
-	}
-	if err := st.Update(func(s *state.State) { s.Phase = "done" }); err != nil {
-		return err
-	}
-
-	nodesByType := map[string]int{}
-	for _, n := range nodes {
-		nodesByType[n.Type]++
-	}
-	final.NodesByType = nodesByType
-	final.Coverage = meta.Coverage
-	final.ChunksFailed = snapshot.ChunksFailed
-	final.ChunksTotal = snapshot.ChunksTotal
-	final.DomainsFailed = snapshot.DomainsFailed
-	final.DomainsTotal = snapshot.DomainsTotal
-	if t := snapshot.Tokens["map"]; t != nil {
-		final.TokensMap = llm.Usage{PromptTokens: t.Prompt, CompletionTokens: t.Completion}
-	}
-	if t := snapshot.Tokens["reduce"]; t != nil {
-		final.TokensReduce = llm.Usage{PromptTokens: t.Prompt, CompletionTokens: t.Completion}
-	}
-	return nil
-}
-
-// writeFactsFile persists the merged facts under <out>/.codetospec/facts.json.
-func writeFactsFile(outDir string, facts []extract.Fact) error {
-	data, err := json.MarshalIndent(extract.FactsEnvelope{Schema: extract.FactsSchema, Facts: facts}, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode facts.json: %w", err)
-	}
-	return state.WriteFileAtomic(filepath.Join(outDir, ".codetospec", "facts.json"), append(data, '\n'))
-}
-
-// allowedLists derives the allowed entity ids and, per source file, the
-// endpoint ids whose controller/handler references a symbol of that file.
-func allowedLists(facts []extract.Fact) (entities []string, endpointsByPath map[string][]string) {
-	for _, f := range facts {
-		if f.Kind == "table" {
-			entities = append(entities, graph.EntityID(f))
-		}
-	}
-	sort.Strings(entities)
-	entities = dedup(entities)
-
-	type symbol struct {
-		path string
-		fqn  string
-		name string
-	}
-	var symbols []symbol
-	for _, f := range facts {
-		if f.Kind != "symbol" {
-			continue
-		}
-		name := f.Attrs["name"]
-		fqn := name
-		if ns := f.Attrs["namespace"]; ns != "" {
-			fqn = ns + "\\" + name
-		}
-		symbols = append(symbols, symbol{path: f.Source.Path, fqn: fqn, name: name})
-	}
-
-	endpointsByPath = make(map[string][]string)
-	for _, f := range facts {
-		if f.Kind != "route" {
-			continue
-		}
-		target := f.Attrs["controller"]
-		if target == "" {
-			target = f.Attrs["handler"]
-		}
-		if target == "" {
-			continue
-		}
-		id := graph.EndpointID(f)
-		for _, s := range symbols {
-			if strings.Contains(target, s.fqn) {
-				endpointsByPath[s.path] = append(endpointsByPath[s.path], id)
-			}
-		}
-	}
-	for path := range endpointsByPath {
-		sort.Strings(endpointsByPath[path])
-		endpointsByPath[path] = dedup(endpointsByPath[path])
-	}
-	return entities, endpointsByPath
-}
-
-// preciseSymbols groups indexer-resolved symbol definitions (attr
-// precise=true, e.g. from the SCIP converter) by file, for injection into
-// the map prompt as citation anchors.
-func preciseSymbols(facts []extract.Fact) map[string][]mapper.SymbolContext {
-	byPath := make(map[string][]mapper.SymbolContext)
-	for _, f := range facts {
-		if f.Kind != "symbol" || f.Attrs["precise"] != "true" {
-			continue
-		}
-		start, end, err := extract.ParseLines(f.Source.Lines)
-		if err != nil {
-			continue
-		}
-		byPath[f.Source.Path] = append(byPath[f.Source.Path], mapper.SymbolContext{
-			Name:      f.Attrs["name"],
-			StartLine: start,
-			EndLine:   end,
-			Kind:      f.Attrs["kind"],
-			Signature: f.Attrs["signature"],
-		})
-	}
-	return byPath
-}
-
-func allEndpointIDs(facts []extract.Fact) []string {
-	var ids []string
-	for _, f := range facts {
-		if f.Kind == "route" {
-			ids = append(ids, graph.EndpointID(f))
-		}
-	}
-	sort.Strings(ids)
-	return dedup(ids)
-}
-
-func dedup(sorted []string) []string {
-	var out []string
-	for i, s := range sorted {
-		if i == 0 || s != sorted[i-1] {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
-func verifyCommand(cfg *config.Config) int {
+// verify checks a rendered graph against the source tree.
+func (c cli) verify(cfg *config.Config) int {
 	nodes, err := render.LoadDir(cfg.Out)
 	if err != nil {
-		slog.Error("cannot load graph", "err", err)
-		return 1
+		c.logger.Error("cannot load graph", "err", err)
+		return exitFailure
 	}
 	if len(nodes) == 0 {
-		slog.Error("no nodes found", "out", cfg.Out)
-		return 1
+		c.logger.Error("no nodes found", "out", cfg.Out)
+		return exitFailure
 	}
-	violations := verify.Run(nodes, cfg.Src)
-	if len(violations) > 0 {
+	if violations := verify.Run(nodes, cfg.Roots()); len(violations) > 0 {
 		for _, v := range violations {
-			fmt.Fprintln(os.Stderr, v.String())
+			_, _ = fmt.Fprintln(c.stderr, v.String())
 		}
-		return 1
+		return exitFailure
 	}
-	fmt.Printf("ok: %d nodes verified\n", len(nodes))
-	return 0
+	_, _ = fmt.Fprintf(c.stdout, "ok: %d nodes verified\n", len(nodes))
+	return exitOK
 }
 
-func driftCommand(cfg *config.Config) int {
+// drift reports the rules whose cited code changed since they were
+// rendered, and fails when any did; rules whose code only moved, or whose
+// callees alone changed, are reported without failing.
+func (c cli) drift(cfg *config.Config) int {
 	nodes, err := render.LoadDir(cfg.Out)
 	if err != nil {
-		slog.Error("cannot load graph", "err", err)
-		return 1
+		c.logger.Error("cannot load graph", "err", err)
+		return exitFailure
 	}
-	report := drift.Check(nodes, cfg.Src)
+	report := drift.Check(nodes, cfg.Roots())
 
 	if cfg.Format == "json" {
-		payload := map[string]int{
-			"ok": report.OK, "stale": report.Stale,
-			"broken": report.Broken, "unknown": report.Unknown, "total": len(report.Rules),
+		data, encodeErr := json.MarshalIndent(newDriftJSON(&report), "", "  ")
+		if encodeErr != nil {
+			c.logger.Error("encode drift report", "err", encodeErr)
+			return exitFailure
 		}
-		data, err := json.MarshalIndent(payload, "", "  ")
-		if err != nil {
-			slog.Error("encode drift report", "err", err)
-			return 1
-		}
-		fmt.Println(string(data))
+		_, _ = fmt.Fprintln(c.stdout, string(data))
 	} else {
 		for _, rs := range report.Rules {
-			if rs.Status == drift.StatusStale || rs.Status == drift.StatusBroken {
-				fmt.Printf("%s: %s — %s\n", rs.Status, rs.RuleID, rs.Detail)
+			if rs.Status != drift.StatusOK && rs.Status != drift.StatusUnknown {
+				_, _ = fmt.Fprintf(c.stdout, "%s: %s — %s\n", rs.Status, rs.RuleID, rs.Detail)
 			}
 		}
-		fmt.Printf("drift: %d ok, %d stale, %d broken, %d unknown (of %d rules)\n",
-			report.OK, report.Stale, report.Broken, report.Unknown, len(report.Rules))
+		_, _ = fmt.Fprintf(
+			c.stdout,
+			"drift: %d ok, %d stale, %d broken, %d moved, %d affected, %d unknown (of %d rules)\n",
+			report.OK,
+			report.Stale,
+			report.Broken,
+			report.Moved,
+			report.Affected,
+			report.Unknown,
+			len(report.Rules),
+		)
 	}
 	if report.Drifted() {
-		return 1
+		return exitFailure
 	}
-	return 0
+	return exitOK
 }
 
-func statsCommand(cfg *config.Config) int {
+// driftJSON is the drift report as `drift --format json` prints it: the
+// counts, then every rule's status, by id.
+type driftJSON struct {
+	OK       int                `json:"ok"`
+	Stale    int                `json:"stale"`
+	Broken   int                `json:"broken"`
+	Moved    int                `json:"moved"`
+	Affected int                `json:"affected"`
+	Unknown  int                `json:"unknown"`
+	Total    int                `json:"total"`
+	Rules    []drift.RuleStatus `json:"rules"`
+}
+
+func newDriftJSON(r *drift.Report) driftJSON {
+	rules := r.Rules
+	if rules == nil {
+		rules = []drift.RuleStatus{} // [], not null, for a graph without rules
+	}
+	return driftJSON{
+		OK: r.OK, Stale: r.Stale, Broken: r.Broken, Moved: r.Moved,
+		Affected: r.Affected, Unknown: r.Unknown, Total: len(r.Rules), Rules: rules,
+	}
+}
+
+// diff prints how the rules of the graph at cfg.Out differ from those of
+// the graph at cfg.Old. It exits 0 whatever differs: a difference is what
+// the reviewer asked to see, not a failure.
+func (c cli) diff(cfg *config.Config) int {
+	old, err := render.LoadDir(cfg.Old)
+	if err != nil {
+		c.logger.Error("cannot load the old graph", "err", err)
+		return exitFailure
+	}
+	current, err := render.LoadDir(cfg.Out)
+	if err != nil {
+		c.logger.Error("cannot load the new graph", "err", err)
+		return exitFailure
+	}
+	report := specdiff.Diff(old, current)
+
+	if cfg.Format == "json" {
+		if report.Changes == nil {
+			report.Changes = []specdiff.Change{} // [], not null
+		}
+		data, encodeErr := json.MarshalIndent(report, "", "  ")
+		if encodeErr != nil {
+			c.logger.Error("encode diff report", "err", encodeErr)
+			return exitFailure
+		}
+		_, _ = fmt.Fprintln(c.stdout, string(data))
+		return exitOK
+	}
+	for _, ch := range report.Changes {
+		line := ch.Kind + ": " + ch.ID
+		if ch.OldID != "" {
+			line = ch.Kind + ": " + ch.OldID + " → " + ch.ID
+		}
+		if len(ch.Reasons) > 0 {
+			line += " (" + strings.Join(ch.Reasons, ", ") + ")"
+		}
+		_, _ = fmt.Fprintln(c.stdout, line)
+	}
+	_, _ = fmt.Fprintf(
+		c.stdout,
+		"diff: %d added, %d removed, %d renamed, %d changed, %d unchanged\n",
+		report.Count(specdiff.Added),
+		report.Count(specdiff.Removed),
+		report.Count(specdiff.Renamed),
+		report.Count(specdiff.Changed),
+		report.Unchanged,
+	)
+	return exitOK
+}
+
+// stats prints the progress and token use recorded in the state file.
+func (c cli) stats(cfg *config.Config) int {
 	s, err := state.Load(filepath.Join(cfg.Out, ".codetospec", "state.json"))
 	if err != nil {
-		slog.Error("cannot load state", "err", err)
-		return 1
+		c.logger.Error("cannot load state", "err", err)
+		return exitFailure
 	}
-	fmt.Printf("phase: %s (started %s)\n", s.Phase, s.StartedAt)
-	fmt.Printf("chunks: %d done, %d failed, %d total\n", s.ChunksDone, s.ChunksFailed, s.ChunksTotal)
-	fmt.Printf("domains: %d done, %d failed, %d total\n", s.DomainsDone, s.DomainsFailed, s.DomainsTotal)
-	for _, phase := range []string{"map", "reduce", "crosscheck"} {
+	w := c.stdout
+	_, _ = fmt.Fprintf(w, "phase: %s (started %s)\n", s.Phase, s.StartedAt)
+	_, _ = fmt.Fprintf(w, "chunks: %d done, %d failed, %d total\n",
+		s.ChunksDone, s.ChunksFailed, s.ChunksTotal)
+	_, _ = fmt.Fprintf(w, "domains: %d done, %d failed, %d total\n",
+		s.DomainsDone, s.DomainsFailed, s.DomainsTotal)
+	for _, phase := range state.Phases() {
 		if t := s.Tokens[phase]; t != nil {
-			fmt.Printf("tokens %s: prompt %d, completion %d\n", phase, t.Prompt, t.Completion)
+			_, _ = fmt.Fprintf(w,
+				"tokens %s: last run prompt %d, completion %d; all runs prompt %d, completion %d\n",
+				phase, t.LastPrompt, t.LastCompletion, t.Prompt, t.Completion,
+			)
 		}
 	}
 	for _, name := range sortedKeys(s.Extractors) {
-		fmt.Printf("extractor %s: %s\n", name, s.Extractors[name])
+		_, _ = fmt.Fprintf(w, "extractor %s: %s\n", name, s.Extractors[name])
 	}
-	return 0
+	return exitOK
 }

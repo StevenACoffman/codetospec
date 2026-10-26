@@ -1,4 +1,4 @@
-module codetospec/extractors/scip
+module github.com/StevenACoffman/codetospec/extractors/scip
 
 go 1.26
 

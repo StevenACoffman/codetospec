@@ -1,0 +1,13 @@
+# The shop's own model, written by the team.
+kind: DomainModel
+version: v1
+title: Shop
+entities:
+  Order:
+    # Agreed with the product owner.
+    definition: A customer's request to buy items, from checkout to delivery.
+    attributes:
+      - name: id
+        type: string
+  Coupon:
+    definition: "Not yet defined. codetospec found it as the table coupons (db/schema.sql:9-12): say what it is, and what it is not."

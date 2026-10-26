@@ -21,7 +21,7 @@ const FactsSchema = "codetospec/facts/v1"
 type ExtractorConfig struct {
 	Name    string
 	Cmd     string
-	Args    []string // "{src}" is substituted with the analyzed root
+	Args    []string // "{src}" and "{lang}" are substituted (analyzed root, --lang)
 	Timeout time.Duration
 }
 
@@ -31,32 +31,47 @@ type FactsEnvelope struct {
 	Facts  []Fact `json:"facts"`
 }
 
-// RunExtractor executes one external extractor and parses its stdout.
+// RunExtractor executes one external extractor and parses its stdout; src
+// and lang replace "{src}" and "{lang}" in its arguments.
 // The command runs from the current working directory with the configured
 // timeout; stderr is forwarded to debug logs. Any failure (non-zero exit,
 // invalid JSON, wrong schema) is returned as an error so the caller can
 // degrade gracefully.
-func RunExtractor(ctx context.Context, cfg ExtractorConfig, src string) ([]Fact, error) {
+func RunExtractor(
+	ctx context.Context,
+	log *slog.Logger,
+	cfg ExtractorConfig,
+	src, lang string,
+) ([]Fact, error) {
 	timeout := cfg.Timeout
 	if timeout <= 0 {
-		timeout = 300 * time.Second
+		timeout = defaultTimeout
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	placeholders := strings.NewReplacer("{src}", src, "{lang}", lang)
 	args := make([]string, len(cfg.Args))
 	for i, a := range cfg.Args {
-		args[i] = strings.ReplaceAll(a, "{src}", src)
+		args[i] = placeholders.Replace(a)
 	}
 
-	cmd := exec.CommandContext(runCtx, cfg.Cmd, args...)
+	// Running the command the user configured is the point of an extractor.
+	cmd := exec.CommandContext(runCtx, cfg.Cmd, args...) //nolint:gosec // G204: see above.
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
 	if stderr.Len() > 0 {
-		slog.Debug("extractor stderr", "name", cfg.Name, "output", strings.TrimSpace(stderr.String()))
+		log.DebugContext(
+			ctx,
+			"extractor stderr",
+			"name",
+			cfg.Name,
+			"output",
+			strings.TrimSpace(stderr.String()),
+		)
 	}
 	if runCtx.Err() == context.DeadlineExceeded {
 		return nil, fmt.Errorf("extractor %s timed out after %s", cfg.Name, timeout)
@@ -75,10 +90,13 @@ func RunExtractor(ctx context.Context, cfg ExtractorConfig, src string) ([]Fact,
 	return facts, nil
 }
 
+// defaultTimeout bounds an extractor run when its config sets none.
+const defaultTimeout = 300 * time.Second
+
 // LoadFactsFile reads one facts JSON file (same schema as the extractor
 // protocol). Facts keep their origin when set, defaulting to the file name.
 func LoadFactsFile(path string) ([]Fact, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, fmt.Errorf("read facts file: %w", err)
 	}

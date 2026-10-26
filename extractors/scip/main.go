@@ -40,14 +40,15 @@ func main() {
 		os.Exit(1)
 	}
 	var index scip.Index
-	if err := proto.Unmarshal(data, &index); err != nil {
+	if err = proto.Unmarshal(data, &index); err != nil {
 		fmt.Fprintf(os.Stderr, "scip2facts: parse SCIP index: %v\n", err)
 		os.Exit(1)
 	}
 
 	facts := convert(&index, *root)
 	sort.Slice(facts, func(i, j int) bool { return facts[i].ID < facts[j].ID })
-	if err := json.NewEncoder(os.Stdout).Encode(Envelope{Schema: schemaID, Facts: facts}); err != nil {
+	if err = json.NewEncoder(os.Stdout).
+		Encode(Envelope{Schema: schemaID, Facts: facts}); err != nil {
 		fmt.Fprintf(os.Stderr, "scip2facts: encode: %v\n", err)
 		os.Exit(1)
 	}
@@ -73,6 +74,9 @@ func convert(index *scip.Index, root string) []Fact {
 			if occ.GetSymbolRoles()&int32(scip.SymbolRole_Definition) == 0 {
 				continue
 			}
+			if !citable(occ.GetSymbol()) {
+				continue
+			}
 			start, end, ok := definitionLines(occ)
 			if !ok {
 				continue
@@ -84,6 +88,38 @@ func convert(index *scip.Index, root string) []Fact {
 		}
 	}
 	return dedup(facts)
+}
+
+// citable reports whether a symbol is a definition a business rule can be
+// about: a function, method, type or package-level term. Locals,
+// parameters, type parameters, packages and fields (terms of a type) are
+// dropped: indexers emit tens of them per file, and listing them in every
+// map prompt would cost far more than they help.
+func citable(symbol string) bool {
+	if scip.IsLocalSymbol(symbol) {
+		return false
+	}
+	parsed, err := scip.ParseSymbol(symbol)
+	if err != nil || len(parsed.GetDescriptors()) == 0 {
+		return false
+	}
+	last := len(parsed.GetDescriptors()) - 1
+	switch parsed.GetDescriptors()[last].GetSuffix() {
+	case scip.Descriptor_Method, scip.Descriptor_Type, scip.Descriptor_Macro:
+		return true
+	case scip.Descriptor_Term:
+		for _, d := range parsed.GetDescriptors()[:last] {
+			if d.GetSuffix() == scip.Descriptor_Type {
+				return false // a field
+			}
+		}
+		return true
+	case scip.Descriptor_UnspecifiedSuffix, scip.Descriptor_Namespace, // Package is an alias
+		scip.Descriptor_TypeParameter, scip.Descriptor_Parameter,
+		scip.Descriptor_Meta, scip.Descriptor_Local:
+		return false
+	}
+	return false
 }
 
 // definitionLines returns the 1-based inclusive line span of a definition,
@@ -103,7 +139,12 @@ func definitionLines(occ *scip.Occurrence) (int, int, bool) {
 
 // symbolFact builds a symbol fact from a definition, resolving the name,
 // kind, namespace and signature from SCIP metadata when available.
-func symbolFact(symbol string, si *scip.SymbolInformation, path, language string, start, end int) *Fact {
+func symbolFact(
+	symbol string,
+	si *scip.SymbolInformation,
+	path, language string,
+	start, end int,
+) *Fact {
 	name := ""
 	kind := ""
 	namespace := ""
@@ -116,11 +157,11 @@ func symbolFact(symbol string, si *scip.SymbolInformation, path, language string
 		}
 	}
 	if parsed, err := scip.ParseSymbol(symbol); err == nil {
-		if name == "" && len(parsed.Descriptors) > 0 {
-			name = parsed.Descriptors[len(parsed.Descriptors)-1].Name
+		if name == "" && len(parsed.GetDescriptors()) > 0 {
+			name = parsed.GetDescriptors()[len(parsed.GetDescriptors())-1].GetName()
 		}
 		namespace = qualifier(parsed)
-		if language == "" && parsed.Package != nil {
+		if language == "" && parsed.GetPackage() != nil {
 			language = ""
 		}
 	}
@@ -139,7 +180,7 @@ func symbolFact(symbol string, si *scip.SymbolInformation, path, language string
 		attrs["namespace"] = namespace
 	}
 	if signature != "" {
-		attrs["signature"] = truncate(signature, 400)
+		attrs["signature"] = truncate(signature, signatureMaxLen)
 	}
 	return &Fact{
 		Kind:      "symbol",
@@ -151,38 +192,49 @@ func symbolFact(symbol string, si *scip.SymbolInformation, path, language string
 	}
 }
 
+// signatureMaxLen caps a signature carried in a fact.
+const signatureMaxLen = 400
+
+// qualifiedDescriptors is the fewest descriptors a qualified symbol has:
+// its own and at least one enclosing.
+const qualifiedDescriptors = 2
+
 // qualifier joins the enclosing descriptors (namespace/type path) of a
 // symbol, excluding its own final descriptor.
 func qualifier(sym *scip.Symbol) string {
-	if len(sym.Descriptors) < 2 {
+	if len(sym.GetDescriptors()) < qualifiedDescriptors {
 		return ""
 	}
-	parts := make([]string, 0, len(sym.Descriptors)-1)
-	for _, d := range sym.Descriptors[:len(sym.Descriptors)-1] {
-		if d.Name != "" {
-			parts = append(parts, d.Name)
+	parts := make([]string, 0, len(sym.GetDescriptors())-1)
+	for _, d := range sym.GetDescriptors()[:len(sym.GetDescriptors())-1] {
+		if d.GetName() != "" {
+			parts = append(parts, d.GetName())
 		}
 	}
 	return strings.Join(parts, ".")
 }
 
+// symbolKind maps the SCIP kinds codetospec distinguishes; every other kind
+// (of the dozens SCIP defines) has none.
 func symbolKind(k scip.SymbolInformation_Kind) string {
-	switch k {
-	case scip.SymbolInformation_Class, scip.SymbolInformation_Struct:
-		return "class"
-	case scip.SymbolInformation_Interface:
-		return "interface"
-	case scip.SymbolInformation_Method:
-		return "method"
-	case scip.SymbolInformation_Function:
-		return "function"
-	case scip.SymbolInformation_Enum:
-		return "enum"
-	case scip.SymbolInformation_Trait:
-		return "trait"
-	default:
-		return ""
+	kinds := []struct {
+		kind scip.SymbolInformation_Kind
+		name string
+	}{
+		{scip.SymbolInformation_Class, "class"},
+		{scip.SymbolInformation_Struct, "class"},
+		{scip.SymbolInformation_Interface, "interface"},
+		{scip.SymbolInformation_Method, "method"},
+		{scip.SymbolInformation_Function, "function"},
+		{scip.SymbolInformation_Enum, "enum"},
+		{scip.SymbolInformation_Trait, "trait"},
 	}
+	for _, entry := range kinds {
+		if entry.kind == k {
+			return entry.name
+		}
+	}
+	return ""
 }
 
 func normalizePath(path, root string) string {

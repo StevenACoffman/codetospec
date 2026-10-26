@@ -49,9 +49,9 @@ No LLM output enters the graph unchecked:
   the rule and the lines it cites and tries to *refute* it. The model that
   wrote a claim never certifies it. This is the semantic gate.
 - **Repair, not just reject** — a rule the reviewer rejects gets one chance to
-  re-cite the exact span of a precise symbol; the new citation is accepted
-  only if it mechanically overlaps a real symbol body. Grounded by
-  construction.
+  re-cite the exact span of a precise symbol, chosen by label from a
+  numbered list: the model never writes a range, so the citation is a real
+  symbol body. Grounded by construction.
 
 ## The properties that make it operational
 
@@ -66,9 +66,9 @@ No LLM output enters the graph unchecked:
 ## The pipeline
 
 ```
-extract  ──▶ chunk ──▶ map ──▶ reduce ──▶ crosscheck(+repair)
+extract  ──▶ chunk ──▶ map ──▶ reduce ──▶ crosscheck(+repair), quality
    [deterministic]      [LLM, gated]          [LLM, gated]
-  ──▶ build ──▶ digest ──▶ verify ──▶ render
+  ──▶ build ──▶ digest ──▶ test reach ──▶ verify ──▶ render
         [all deterministic; nothing is written unless verify passes]
 ```
 

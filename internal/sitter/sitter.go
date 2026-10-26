@@ -5,6 +5,7 @@
 package sitter
 
 import (
+	"cmp"
 	"embed"
 	"fmt"
 	"path/filepath"
@@ -66,43 +67,89 @@ type grammar struct {
 	err   error
 }
 
-var grammars = map[string]*grammar{
-	"php": {name: "php", queryFile: "queries/php.scm", language: func() *tree_sitter.Language {
-		return tree_sitter.NewLanguage(tree_sitter_php.LanguagePHP())
-	}},
-	"go": {name: "go", queryFile: "queries/go.scm", language: func() *tree_sitter.Language {
-		return tree_sitter.NewLanguage(tree_sitter_go.Language())
-	}},
-	"javascript": {name: "javascript", queryFile: "queries/javascript.scm", language: func() *tree_sitter.Language {
-		return tree_sitter.NewLanguage(tree_sitter_javascript.Language())
-	}},
-	"typescript": {name: "typescript", queryFile: "queries/typescript.scm", language: func() *tree_sitter.Language {
-		return tree_sitter.NewLanguage(tree_sitter_typescript.LanguageTypescript())
-	}},
-	"tsx": {name: "tsx", queryFile: "queries/tsx.scm", language: func() *tree_sitter.Language {
-		return tree_sitter.NewLanguage(tree_sitter_typescript.LanguageTSX())
-	}},
-	"rust": {name: "rust", queryFile: "queries/rust.scm", language: func() *tree_sitter.Language {
-		return tree_sitter.NewLanguage(tree_sitter_rust.Language())
-	}},
-}
+// Registered languages.
+const (
+	langPHP        = "php"
+	langGo         = "go"
+	langJavaScript = "javascript"
+	langTypeScript = "typescript"
+	langTSX        = "tsx"
+	langRust       = "rust"
+)
 
-var extensions = map[string]string{
-	".php": "php",
-	".go":  "go",
-	".js":  "javascript",
-	".jsx": "javascript",
-	".mjs": "javascript",
-	".cjs": "javascript",
-	".ts":  "typescript",
-	".tsx": "tsx",
-	".rs":  "rust",
+// newGrammars returns one uncompiled grammar per registered language.
+func newGrammars() map[string]*grammar {
+	return map[string]*grammar{
+		langPHP: {
+			name:      langPHP,
+			queryFile: "queries/php.scm",
+			language: func() *tree_sitter.Language {
+				return tree_sitter.NewLanguage(tree_sitter_php.LanguagePHP())
+			},
+		},
+		langGo: {name: langGo, queryFile: "queries/go.scm", language: func() *tree_sitter.Language {
+			return tree_sitter.NewLanguage(tree_sitter_go.Language())
+		}},
+		langJavaScript: {
+			name: langJavaScript, queryFile: "queries/javascript.scm",
+			language: func() *tree_sitter.Language {
+				return tree_sitter.NewLanguage(tree_sitter_javascript.Language())
+			},
+		},
+		langTypeScript: {
+			name: langTypeScript, queryFile: "queries/typescript.scm",
+			language: func() *tree_sitter.Language {
+				return tree_sitter.NewLanguage(tree_sitter_typescript.LanguageTypescript())
+			},
+		},
+		langTSX: {
+			name:      langTSX,
+			queryFile: "queries/tsx.scm",
+			language: func() *tree_sitter.Language {
+				return tree_sitter.NewLanguage(tree_sitter_typescript.LanguageTSX())
+			},
+		},
+		langRust: {
+			name:      langRust,
+			queryFile: "queries/rust.scm",
+			language: func() *tree_sitter.Language {
+				return tree_sitter.NewLanguage(tree_sitter_rust.Language())
+			},
+		},
+	}
 }
 
 // LanguageForPath returns the registered language for a file path, or ""
 // when no grammar matches its extension.
 func LanguageForPath(path string) string {
-	return extensions[strings.ToLower(filepath.Ext(path))]
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".php":
+		return langPHP
+	case ".go":
+		return langGo
+	case ".js", ".jsx", ".mjs", ".cjs":
+		return langJavaScript
+	case ".ts":
+		return langTypeScript
+	case ".tsx":
+		return langTSX
+	case ".rs":
+		return langRust
+	default:
+		return ""
+	}
+}
+
+// Parser parses source files with the registered grammars, compiling each
+// grammar's query once, on first use. It is safe for concurrent use; one
+// run shares one Parser.
+type Parser struct {
+	grammars map[string]*grammar
+}
+
+// NewParser returns a Parser for every registered language.
+func NewParser() *Parser {
+	return &Parser{grammars: newGrammars()}
 }
 
 func (g *grammar) compile() (*tree_sitter.Language, *tree_sitter.Query, error) {
@@ -115,7 +162,7 @@ func (g *grammar) compile() (*tree_sitter.Language, *tree_sitter.Query, error) {
 		g.lang = g.language()
 		query, queryErr := tree_sitter.NewQuery(g.lang, string(src))
 		if queryErr != nil {
-			g.err = fmt.Errorf("compile query %s: %w", g.queryFile, queryErr)
+			g.err = fmt.Errorf("compile query %s: %w", g.queryFile, *queryErr)
 			return
 		}
 		g.query = query
@@ -124,8 +171,8 @@ func (g *grammar) compile() (*tree_sitter.Language, *tree_sitter.Query, error) {
 }
 
 // Parse extracts definitions, imports and modules from one source file.
-func Parse(language string, content []byte) (*FileInfo, error) {
-	g, ok := grammars[language]
+func (p *Parser) Parse(language string, content []byte) (*FileInfo, error) {
+	g, ok := p.grammars[language]
 	if !ok {
 		return nil, fmt.Errorf("no grammar registered for language %q", language)
 	}
@@ -136,8 +183,8 @@ func Parse(language string, content []byte) (*FileInfo, error) {
 
 	parser := tree_sitter.NewParser()
 	defer parser.Close()
-	if err := parser.SetLanguage(lang); err != nil {
-		return nil, fmt.Errorf("set language %s: %w", language, err)
+	if setErr := parser.SetLanguage(lang); setErr != nil {
+		return nil, fmt.Errorf("set language %s: %w", language, setErr)
 	}
 	tree := parser.Parse(content, nil)
 	if tree == nil {
@@ -152,63 +199,78 @@ func Parse(language string, content []byte) (*FileInfo, error) {
 
 	info := &FileInfo{Language: language}
 	for m := matches.Next(); m != nil; m = matches.Next() {
-		var def, name, visibility, module, moduleName, imp, impTarget *tree_sitter.Node
-		defKind := ""
-		for i := range m.Captures {
-			c := &m.Captures[i]
-			switch captureName := names[c.Index]; {
-			case strings.HasPrefix(captureName, "def."):
-				def, defKind = &c.Node, strings.TrimPrefix(captureName, "def.")
-			case captureName == "name":
-				name = &c.Node
-			case captureName == "visibility":
-				visibility = &c.Node
-			case captureName == "module":
-				module = &c.Node
-			case captureName == "module.name":
-				moduleName = &c.Node
-			case captureName == "import":
-				imp = &c.Node
-			case captureName == "import.target":
-				impTarget = &c.Node
-			}
-		}
-		switch {
-		case def != nil && name != nil:
-			d := Definition{
-				Kind:      defKind,
-				Name:      name.Utf8Text(content),
-				StartLine: startLine(def),
-				EndLine:   endLine(def),
-			}
-			if visibility != nil {
-				d.Visibility = visibility.Utf8Text(content)
-			}
-			info.Definitions = append(info.Definitions, d)
-		case module != nil && moduleName != nil:
-			info.Modules = append(info.Modules, Module{
-				Name:      moduleName.Utf8Text(content),
-				StartLine: startLine(module),
-				EndLine:   endLine(module),
-			})
-		case imp != nil || impTarget != nil:
-			span := imp
-			if span == nil {
-				span = impTarget
-			}
-			target := span.Utf8Text(content)
-			if impTarget != nil {
-				target = impTarget.Utf8Text(content)
-			}
-			info.Imports = append(info.Imports, Import{
-				Target:    cleanImportTarget(target),
-				StartLine: startLine(span),
-				EndLine:   endLine(span),
-			})
-		}
+		info.add(capturesOf(m, names), content)
 	}
 	dedupInfo(info)
 	return info, nil
+}
+
+// captures are the nodes one query match names.
+type captures struct {
+	def, name, visibility *tree_sitter.Node
+	module, moduleName    *tree_sitter.Node
+	imp, impTarget        *tree_sitter.Node
+	defKind               string // the "def.<kind>" capture's kind
+}
+
+// capturesOf sorts a match's captures by the name the query gives them.
+func capturesOf(m *tree_sitter.QueryMatch, names []string) captures {
+	var c captures
+	for i := range m.Captures {
+		node := &m.Captures[i].Node
+		switch captureName := names[m.Captures[i].Index]; {
+		case strings.HasPrefix(captureName, "def."):
+			c.def, c.defKind = node, strings.TrimPrefix(captureName, "def.")
+		case captureName == "name":
+			c.name = node
+		case captureName == "visibility":
+			c.visibility = node
+		case captureName == "module":
+			c.module = node
+		case captureName == "module.name":
+			c.moduleName = node
+		case captureName == "import":
+			c.imp = node
+		case captureName == "import.target":
+			c.impTarget = node
+		}
+	}
+	return c
+}
+
+// add records what one match describes: a definition, a module or an
+// import.
+func (info *FileInfo) add(c captures, content []byte) {
+	switch {
+	case c.def != nil && c.name != nil:
+		d := Definition{
+			Kind:      c.defKind,
+			Name:      c.name.Utf8Text(content),
+			StartLine: startLine(c.def),
+			EndLine:   endLine(c.def),
+		}
+		if c.visibility != nil {
+			d.Visibility = c.visibility.Utf8Text(content)
+		}
+		info.Definitions = append(info.Definitions, d)
+	case c.module != nil && c.moduleName != nil:
+		info.Modules = append(info.Modules, Module{
+			Name:      c.moduleName.Utf8Text(content),
+			StartLine: startLine(c.module),
+			EndLine:   endLine(c.module),
+		})
+	case c.imp != nil || c.impTarget != nil:
+		span := cmp.Or(c.imp, c.impTarget)
+		target := span.Utf8Text(content)
+		if c.impTarget != nil {
+			target = c.impTarget.Utf8Text(content)
+		}
+		info.Imports = append(info.Imports, Import{
+			Target:    cleanImportTarget(target),
+			StartLine: startLine(span),
+			EndLine:   endLine(span),
+		})
+	}
 }
 
 func startLine(n *tree_sitter.Node) int {

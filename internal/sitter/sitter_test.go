@@ -1,14 +1,18 @@
-package sitter
+package sitter_test
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/StevenACoffman/codetospec/internal/sitter"
 )
 
 func readFixture(t *testing.T, rel string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "fixture", filepath.FromSlash(rel)))
+	data, err := os.ReadFile(
+		filepath.Join("..", "..", "testdata", "fixture", filepath.FromSlash(rel)),
+	)
 	if err != nil {
 		t.Fatalf("read fixture %s: %v", rel, err)
 	}
@@ -17,12 +21,12 @@ func readFixture(t *testing.T, rel string) []byte {
 
 func TestParsePHPFixtureDefinitions(t *testing.T) {
 	content := readFixture(t, "app/Services/Billing/ProrataCalculator.php")
-	info, err := Parse("php", content)
+	info, err := sitter.NewParser().Parse("php", content)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
 
-	var class, method *Definition
+	var class, method *sitter.Definition
 	for i := range info.Definitions {
 		d := &info.Definitions[i]
 		switch {
@@ -51,7 +55,7 @@ func TestParsePHPFixtureDefinitions(t *testing.T) {
 
 func TestParsePHPFixtureNamespaceAndImports(t *testing.T) {
 	content := readFixture(t, "app/Http/Controllers/ActivationController.php")
-	info, err := Parse("php", content)
+	info, err := sitter.NewParser().Parse("php", content)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -81,8 +85,8 @@ func TestLanguageForPath(t *testing.T) {
 		"Makefile": "",
 	}
 	for path, want := range cases {
-		if got := LanguageForPath(path); got != want {
-			t.Errorf("LanguageForPath(%q) = %q, want %q", path, got, want)
+		if got := sitter.LanguageForPath(path); got != want {
+			t.Errorf("sitter.LanguageForPath(%q) = %q, want %q", path, got, want)
 		}
 	}
 }
@@ -99,22 +103,22 @@ func TestAllGrammarQueriesCompile(t *testing.T) {
 		"rust":       "use std::fmt;\nmod m {}\nstruct S;\nenum E { A }\ntrait T {}\nimpl S {}\nfn f() {}\n",
 	}
 	for language, snippet := range snippets {
-		info, err := Parse(language, []byte(snippet))
+		info, err := sitter.NewParser().Parse(language, []byte(snippet))
 		if err != nil {
-			t.Errorf("Parse(%s): %v", language, err)
+			t.Errorf("sitter.NewParser().Parse(%s): %v", language, err)
 			continue
 		}
 		if len(info.Definitions) == 0 {
-			t.Errorf("Parse(%s): no definitions found", language)
+			t.Errorf("sitter.NewParser().Parse(%s): no definitions found", language)
 		}
 		if len(info.Imports) == 0 {
-			t.Errorf("Parse(%s): no imports found", language)
+			t.Errorf("sitter.NewParser().Parse(%s): no imports found", language)
 		}
 	}
 }
 
 func TestParseUnknownLanguage(t *testing.T) {
-	if _, err := Parse("cobol", []byte("x")); err == nil {
-		t.Fatal("Parse(cobol) should fail")
+	if _, err := sitter.NewParser().Parse("cobol", []byte("x")); err == nil {
+		t.Fatal("sitter.NewParser().Parse(cobol) should fail")
 	}
 }

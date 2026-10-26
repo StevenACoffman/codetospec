@@ -3,7 +3,7 @@ package extract
 import (
 	"fmt"
 
-	"codetospec/internal/sitter"
+	"github.com/StevenACoffman/codetospec/internal/sitter"
 )
 
 // UniversalFacts converts tree-sitter file information into facts:

@@ -1,0 +1,18 @@
+kind: DomainModel
+version: v1
+title: Garage
+entities:
+  Visit:
+    definition: One stay of a vehicle in the garage, from entry to exit.
+    invariants:
+      - id: exit-after-entry
+        statement: A visit exit time is never before its entry time.
+      - id: one-open-visit
+        statement: A vehicle has at most one open visit at a time.
+  ParkingSpot:
+    definition: A numbered place a vehicle can park in.
+  Ticket:
+    definition: The pay-on-exit receipt a visitor takes at entry.
+invariants:
+  - id: payment-before-exit
+    statement: A ticket is paid before the barrier opens for exit.

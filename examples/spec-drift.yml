@@ -15,14 +15,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # codetospec needs Go 1.27 and cgo (tree-sitter); ubuntu-latest ships gcc.
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version: "1.27"
 
-      - name: Build codetospec
-        run: go build -o bin/codetospec ./cmd/codetospec
+      # The analyzed repo does not contain codetospec: install it. Pin a tag or
+      # commit instead of @latest so the check does not change under you.
+      - name: Install codetospec
+        run: go install github.com/StevenACoffman/codetospec/cmd/codetospec@latest
 
       # Exits 1 (fails the PR) if any rule's cited code changed (stale) or a
       # citation no longer resolves (broken). Machine-readable summary:
       - name: Check spec drift
-        run: bin/codetospec drift --src . --out ./spec-graph --format json
+        run: codetospec drift --src . --out ./spec-graph --format json

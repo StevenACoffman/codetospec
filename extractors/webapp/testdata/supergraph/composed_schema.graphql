@@ -1,0 +1,19 @@
+enum join__Graph {
+  ASSIGNMENTS @join__graph(name: "assignments", url: "http://assignments")
+  AI_GUIDE @join__graph(name: "ai-guide", url: "http://ai-guide")
+  USERS @join__graph(name: "users", url: "http://users")
+}
+
+type Mutation
+  @join__type(graph: ASSIGNMENTS)
+  @join__type(graph: USERS)
+{
+  acceptInvitation(inviteId: String!): Boolean @join__field(graph: ASSIGNMENTS)
+  addAuthEmail(kaid: String!): Boolean @join__field(graph: USERS)
+}
+
+type Query
+  @join__type(graph: AI_GUIDE)
+{
+  guideStatus(kaid: String!): String
+}

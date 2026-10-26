@@ -1,43 +1,60 @@
-package extract
+package extract_test
 
 import (
 	"context"
-	"fmt"
-	"os"
+	"log/slog"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/StevenACoffman/codetospec/internal/extract"
 )
 
-// echoBin is the precompiled test extractor, built once in TestMain so the
-// timeout test is not polluted by `go run` compilation time.
-var echoBin string
+// The fake extractor's name and its behaviour flag.
+const (
+	echoName = "echo"
+	modeFlag = "--mode"
+)
 
-func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "echoextractor")
+// echoExtractor builds the fake extractor and returns its path. It is built
+// before the extractor runs, so the timeout tests time the run alone.
+func echoExtractor(t *testing.T) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "echoextractor")
+	// bin is a path under t.TempDir, not outside input.
+	build := exec.CommandContext( //nolint:gosec // G204: see above.
+		t.Context(), "go", "build", "-o", bin, "./testdata/echoextractor")
+	out, err := build.CombinedOutput()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		t.Fatalf("build echoextractor: %v\n%s", err, out)
 	}
-	echoBin = filepath.Join(dir, "echoextractor")
-	if out, buildErr := exec.Command("go", "build", "-o", echoBin, "./testdata/echoextractor").CombinedOutput(); buildErr != nil {
-		fmt.Fprintf(os.Stderr, "build echoextractor: %v\n%s", buildErr, out)
-		os.Exit(1)
-	}
-	code := m.Run()
-	os.RemoveAll(dir)
-	os.Exit(code)
+	return bin
 }
 
 func TestRunExtractorSuccess(t *testing.T) {
-	facts, err := RunExtractor(context.Background(), ExtractorConfig{
-		Name:    "echo",
-		Cmd:     "go",
-		Args:    []string{"run", "./testdata/echoextractor", "--mode", "ok", "--root", "{src}"},
-		Timeout: 120 * time.Second,
-	}, "/repo/src")
+	facts, err := extract.RunExtractor(
+		context.Background(),
+		slog.New(slog.NewTextHandler(t.Output(), nil)),
+		extract.ExtractorConfig{
+			Name: echoName,
+			Cmd:  "go",
+			Args: []string{
+				"run",
+				"./testdata/echoextractor",
+				modeFlag,
+				"ok",
+				"--root",
+				"{src}",
+				"--lang",
+				"{lang}",
+			},
+			Timeout: 120 * time.Second,
+		},
+		"/repo/src",
+		"fr",
+	)
 	if err != nil {
 		t.Fatalf("RunExtractor: %v", err)
 	}
@@ -45,53 +62,76 @@ func TestRunExtractorSuccess(t *testing.T) {
 		t.Fatalf("facts = %d, want 1", len(facts))
 	}
 	f := facts[0]
-	if f.Origin != "echo" {
+	if f.Origin != echoName {
 		t.Errorf("origin = %q, want echo (forced to extractor name)", f.Origin)
 	}
 	if f.Attrs["root"] != "/repo/src" {
 		t.Errorf("{src} not substituted, got %q", f.Attrs["root"])
 	}
-	if f.Certainty != CertaintyProved {
+	if f.Attrs["lang"] != "fr" {
+		t.Errorf("{lang} not substituted, got %q", f.Attrs["lang"])
+	}
+	if f.Certainty != extract.CertaintyProved {
 		t.Errorf("certainty = %q, want proved", f.Certainty)
 	}
 }
 
 func TestRunExtractorTimeout(t *testing.T) {
-	_, err := RunExtractor(context.Background(), ExtractorConfig{
-		Name:    "echo",
-		Cmd:     echoBin,
-		Args:    []string{"--mode", "hang"},
-		Timeout: 500 * time.Millisecond,
-	}, "/repo/src")
+	_, err := extract.RunExtractor(
+		context.Background(),
+		slog.New(slog.NewTextHandler(t.Output(), nil)),
+		extract.ExtractorConfig{
+			Name:    echoName,
+			Cmd:     echoExtractor(t),
+			Args:    []string{modeFlag, "hang"},
+			Timeout: 500 * time.Millisecond,
+		},
+		"/repo/src",
+		"fr",
+	)
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("want timeout error, got %v", err)
 	}
 }
 
 func TestRunExtractorNonZeroExit(t *testing.T) {
-	_, err := RunExtractor(context.Background(), ExtractorConfig{
-		Name: "echo",
-		Cmd:  echoBin,
-		Args: []string{"--mode", "fail"},
-	}, "/repo/src")
+	_, err := extract.RunExtractor(
+		context.Background(),
+		slog.New(slog.NewTextHandler(t.Output(), nil)),
+		extract.ExtractorConfig{
+			Name: echoName,
+			Cmd:  echoExtractor(t),
+			Args: []string{modeFlag, "fail"},
+		},
+		"/repo/src",
+		"fr",
+	)
 	if err == nil {
 		t.Fatal("want error on non-zero exit")
 	}
 }
 
 func TestRunExtractorInvalidJSON(t *testing.T) {
-	_, err := RunExtractor(context.Background(), ExtractorConfig{
-		Name: "echo",
-		Cmd:  echoBin,
-		Args: []string{"--mode", "garbage"},
-	}, "/repo/src")
+	_, err := extract.RunExtractor(
+		context.Background(),
+		slog.New(slog.NewTextHandler(t.Output(), nil)),
+		extract.ExtractorConfig{
+			Name: echoName,
+			Cmd:  echoExtractor(t),
+			Args: []string{modeFlag, "garbage"},
+		},
+		"/repo/src",
+		"fr",
+	)
 	if err == nil || !strings.Contains(err.Error(), "invalid facts JSON") {
 		t.Fatalf("want invalid JSON error, got %v", err)
 	}
 }
 
 func TestLoadFactsFile(t *testing.T) {
-	facts, err := LoadFactsFile(filepath.Join("..", "..", "testdata", "fixture", "fixture.facts.json"))
+	facts, err := extract.LoadFactsFile(
+		filepath.Join("..", "..", "testdata", "fixture", "fixture.facts.json"),
+	)
 	if err != nil {
 		t.Fatalf("LoadFactsFile: %v", err)
 	}

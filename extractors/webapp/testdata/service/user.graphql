@@ -1,0 +1,24 @@
+type User @key(fields: "kaid") {
+  kaid: String
+  pendingEmailVerifications: [String]
+  emails: [String]
+  nickname: String
+  bio: String
+  partner: String
+  notes: [String]
+  drafts: [String]
+  grants: [String]
+  badges: [String]
+  avatar: String
+  peek(kaids: [String!]!): [String]
+  coachees(kaids: [String!]!): [String]
+  legacy: String
+}
+
+extend type Query {
+  checkUsername(username: String!): Boolean
+  recoveryCodes(kaid: String!): [String]
+  deviceAuthRequestInfo: String
+  search(term: String!): [String]
+  tools: [String]
+}

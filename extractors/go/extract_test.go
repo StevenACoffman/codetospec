@@ -9,6 +9,12 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
+// Handler names the route test expects.
+const (
+	closureHandler = "closure"
+	reviewHandler  = "handleReview"
+)
+
 func TestParseTables(t *testing.T) {
 	sql := `
 CREATE TABLE IF NOT EXISTS shops (
@@ -67,10 +73,14 @@ func setup(r *gin.Engine, a Adapter) {
 }
 `
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module srv\n\ngo 1.26\n"), 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(dir, "go.mod"),
+		[]byte("module srv\n\ngo 1.26\n"),
+		0o600,
+	); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "server.go"), []byte(src), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "server.go"), []byte(src), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -91,10 +101,10 @@ func setup(r *gin.Engine, a Adapter) {
 		got[r.Method+" "+r.Path] = r.Handler
 	}
 	cases := map[string]string{
-		"GET /version":      "closure",
-		"GET /r/:token":     "handleReview",
-		"GET /api/v1/shops": "closure",
-		"PUT /things/:id":   "closure",
+		"GET /version":      closureHandler,
+		"GET /r/:token":     reviewHandler,
+		"GET /api/v1/shops": closureHandler,
+		"PUT /things/:id":   closureHandler,
 	}
 	for key, wantHandler := range cases {
 		h, ok := got[key]
@@ -102,12 +112,13 @@ func setup(r *gin.Engine, a Adapter) {
 			t.Errorf("route %q not detected (got %v)", key, keys(got))
 			continue
 		}
-		if wantHandler == "handleReview" && h != "server.handleReview" && h != "handleReview" {
+		if wantHandler == reviewHandler && h != "server.handleReview" && h != reviewHandler {
 			t.Errorf("route %q handler = %q, want handleReview", key, h)
 		}
 	}
 	// The method-value handler must resolve to the receiver type.
-	if h := got["POST /webhook/apple"]; h != "server.Adapter.WebHookApple" && h != "Adapter.WebHookApple" {
+	if h := got["POST /webhook/apple"]; h != "server.Adapter.WebHookApple" &&
+		h != "Adapter.WebHookApple" {
 		t.Errorf("POST /webhook/apple handler = %q, want ...Adapter.WebHookApple", h)
 	}
 }
@@ -118,4 +129,22 @@ func keys(m map[string]string) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// TestInDir: a route registered under a skipped directory, at any depth,
+// is not an entry point.
+func TestInDir(t *testing.T) {
+	skip := dirSet(" testutil , ")
+	cases := map[string]bool{
+		"testutil/hcaptcha.go":              true,
+		"translation/testutil/testsuite.go": true,
+		"handlers/pubsub_handler.go":        false,
+		"testutil.go":                       false,
+		"handlers/testutilities/x.go":       false,
+	}
+	for file, want := range cases {
+		if got := inDir(file, skip); got != want {
+			t.Errorf("inDir(%q) = %v, want %v", file, got, want)
+		}
+	}
 }

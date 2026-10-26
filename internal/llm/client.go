@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -44,7 +45,23 @@ type Client struct {
 	model      string
 	maxTokens  int
 	httpClient *http.Client
+	// backoffs are the waits before each retry of a retryable failure.
+	backoffs []time.Duration
 }
+
+// Request settings and limits.
+const (
+	// requestTimeout bounds one completion: a long reduce answer takes
+	// minutes on a slow endpoint.
+	requestTimeout = 180 * time.Second
+	// temperature keeps answers close to deterministic, so cached runs
+	// rarely disagree with fresh ones.
+	temperature = 0.1
+	// maxResponseBytes caps a response read into memory.
+	maxResponseBytes = 32 << 20
+	// errorExcerptLen is how much of an error response an error quotes.
+	errorExcerptLen = 200
+)
 
 // NewClient builds a client for one endpoint/model pair.
 func NewClient(baseURL, apiKey, model string, maxTokens int) *Client {
@@ -53,7 +70,8 @@ func NewClient(baseURL, apiKey, model string, maxTokens int) *Client {
 		apiKey:     apiKey,
 		model:      model,
 		maxTokens:  maxTokens,
-		httpClient: &http.Client{Timeout: 180 * time.Second},
+		httpClient: &http.Client{Timeout: requestTimeout},
+		backoffs:   []time.Duration{2 * time.Second, 8 * time.Second, 20 * time.Second},
 	}
 }
 
@@ -71,8 +89,6 @@ type chatResponse struct {
 	Usage Usage `json:"usage"`
 }
 
-var retryBackoffs = []time.Duration{2 * time.Second, 8 * time.Second, 20 * time.Second}
-
 // Chat posts the messages and returns the assistant reply content and token
 // usage. Network errors, 5xx and 429 responses are retried three times with
 // increasing backoff.
@@ -80,7 +96,7 @@ func (c *Client) Chat(ctx context.Context, msgs []Message) (string, Usage, error
 	body, err := json.Marshal(chatRequest{
 		Model:       c.model,
 		Messages:    msgs,
-		Temperature: 0.1,
+		Temperature: temperature,
 		MaxTokens:   c.maxTokens,
 	})
 	if err != nil {
@@ -94,19 +110,24 @@ func (c *Client) Chat(ctx context.Context, msgs []Message) (string, Usage, error
 			return content, usage, nil
 		}
 		lastErr = callErr
-		if !retryable || attempt >= len(retryBackoffs) {
+		if !retryable || attempt >= len(c.backoffs) {
 			return "", Usage{}, lastErr
 		}
 		select {
 		case <-ctx.Done():
 			return "", Usage{}, ctx.Err()
-		case <-time.After(retryBackoffs[attempt]):
+		case <-time.After(c.backoffs[attempt]):
 		}
 	}
 }
 
 func (c *Client) call(ctx context.Context, body []byte) (string, Usage, bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		c.baseURL+"/chat/completions",
+		bytes.NewReader(body),
+	)
 	if err != nil {
 		return "", Usage{}, false, fmt.Errorf("build request: %w", err)
 	}
@@ -122,25 +143,37 @@ func (c *Client) call(ctx context.Context, body []byte) (string, Usage, bool, er
 		}
 		return "", Usage{}, true, fmt.Errorf("chat request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		// The body is read in full or abandoned with an error already
+		// returned: a failed close has nothing left to report.
+		_ = resp.Body.Close()
+	}()
 
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
 		return "", Usage{}, true, fmt.Errorf("read chat response: %w", err)
 	}
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
-		return "", Usage{}, true, fmt.Errorf("chat endpoint returned %s: %s", resp.Status, truncate(data, 200))
+		return "", Usage{}, true, fmt.Errorf(
+			"chat endpoint returned %s: %s",
+			resp.Status,
+			truncate(data, errorExcerptLen),
+		)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", Usage{}, false, fmt.Errorf("chat endpoint returned %s: %s", resp.Status, truncate(data, 200))
+		return "", Usage{}, false, fmt.Errorf(
+			"chat endpoint returned %s: %s",
+			resp.Status,
+			truncate(data, errorExcerptLen),
+		)
 	}
 
 	var parsed chatResponse
-	if err := json.Unmarshal(data, &parsed); err != nil {
+	if err = json.Unmarshal(data, &parsed); err != nil {
 		return "", Usage{}, false, fmt.Errorf("decode chat response: %w", err)
 	}
 	if len(parsed.Choices) == 0 {
-		return "", Usage{}, false, fmt.Errorf("chat response has no choices")
+		return "", Usage{}, false, errors.New("chat response has no choices")
 	}
 	return parsed.Choices[0].Message.Content, parsed.Usage, false, nil
 }
@@ -198,9 +231,16 @@ func ChatJSON[T any](
 			return result, nil
 		}
 		lastErr = validationErr
-		conversation = append(conversation,
+		conversation = append(
+			conversation,
 			Message{Role: "assistant", Content: reply},
-			Message{Role: "user", Content: fmt.Sprintf("output rejected: %v; resend the full corrected JSON only", validationErr)},
+			Message{
+				Role: "user",
+				Content: fmt.Sprintf(
+					"output rejected: %v; resend the full corrected JSON only",
+					validationErr,
+				),
+			},
 		)
 	}
 	return zero, fmt.Errorf("rejected after %d corrections: %w", maxRepairs, lastErr)

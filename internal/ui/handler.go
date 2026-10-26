@@ -19,6 +19,8 @@ func (h LogHandler) Enabled(_ context.Context, level slog.Level) bool {
 }
 
 // Handle implements slog.Handler.
+//
+//nolint:gocritic // hugeParam: slog.Handler fixes the by-value Record signature.
 func (h LogHandler) Handle(_ context.Context, r slog.Record) error {
 	msg := r.Message
 	r.Attrs(func(a slog.Attr) bool {

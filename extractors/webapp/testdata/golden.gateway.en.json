@@ -1,0 +1,474 @@
+[
+  {
+    "kind": "reach",
+    "id": "reach.pkg.gcloud/pubsub/protobuf.go#computeSignature",
+    "attrs": {
+      "symbol": "pubsub.computeSignature"
+    },
+    "source": {
+      "path": "gcloud/pubsub/protobuf.go",
+      "lines": "3-9",
+      "root": "pkg"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "reach",
+    "id": "reach.pkg.gcloud/pubsub/receiving.go#DecodeAndValidatePushMsg",
+    "attrs": {
+      "symbol": "pubsub.DecodeAndValidatePushMsg"
+    },
+    "source": {
+      "path": "gcloud/pubsub/receiving.go",
+      "lines": "5-15",
+      "root": "pkg"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "reach",
+    "id": "reach.pkg.gcloud/pubsub/receiving.go#Decode",
+    "attrs": {
+      "symbol": "pubsub.Decode"
+    },
+    "source": {
+      "path": "gcloud/pubsub/receiving.go",
+      "lines": "18-20",
+      "root": "pkg"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "reach",
+    "id": "reach.pkg.web/serve/task_handler_util.go#CreateTaskHandler",
+    "attrs": {
+      "symbol": "serve.CreateTaskHandler"
+    },
+    "source": {
+      "path": "web/serve/task_handler_util.go",
+      "lines": "4-13",
+      "root": "pkg"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "reach",
+    "id": "reach.pkg.web/serve/task_handler_util.go#WithLogging",
+    "attrs": {
+      "symbol": "serve.WithLogging"
+    },
+    "source": {
+      "path": "web/serve/task_handler_util.go",
+      "lines": "16-20",
+      "root": "pkg"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.table.gateway/csrf.go:4-9",
+    "attrs": {
+      "domain": "gateway",
+      "ears": "ubiquitous",
+      "nature": "business",
+      "requirement": "The system shall hold `AuthCookieMutation`, `userDeletionMutation` in _csrfExempt, which _isExempted reads.",
+      "slug": "table-csrfexempt",
+      "title": "Access table: _csrfExempt"
+    },
+    "source": {
+      "path": "gateway/csrf.go",
+      "lines": "4-9"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.policy.gateway/csrf.go:27-39",
+    "attrs": {
+      "domain": "gateway",
+      "ears": "ubiquitous",
+      "nature": "business",
+      "requirement": "The system shall accept a request checked by `ValidateCSRF` only when `_isApp(originHeaderValue)` holds OR `_validateCSRF(xKAFKeyHeaderValue)` succeeds OR `_isExempted(operationName)` holds, and reject it otherwise.",
+      "slug": "policy-validatecsrf",
+      "title": "Access policy: ValidateCSRF"
+    },
+    "source": {
+      "path": "gateway/csrf.go",
+      "lines": "27-39"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.contract.gateway/header_forwarding.go:3-7:forwards:X-Ka-Service-Admin-Query",
+    "attrs": {
+      "contract": "forwards",
+      "domain": "gateway",
+      "ears": "ubiquitous",
+      "header": "X-Ka-Service-Admin-Query",
+      "nature": "business",
+      "requirement": "The system shall forward the request headers `Referer`, `X-Ka-Service-Admin-Query` and those of `gqlclient.ForwardedUserRequestHeaderNames` to the requests it makes (_reqHeaderForwardingMap).",
+      "slug": "contract-forwards-reqheaderforwardingmap",
+      "title": "Header contract: _reqHeaderForwardingMap"
+    },
+    "source": {
+      "path": "gateway/header_forwarding.go",
+      "lines": "3-7"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.table.gateway/rate_limiting.go:14-17",
+    "attrs": {
+      "domain": "gateway",
+      "ears": "ubiquitous",
+      "nature": "business",
+      "requirement": "The system shall hold `kaid_111`, `kaid_222` for `testQuery` in _safelistedKAIDsForOperation, which RateLimit reads.",
+      "slug": "table-safelistedkaidsforoperation-testquery",
+      "title": "Access table: _safelistedKAIDsForOperation[testQuery]"
+    },
+    "source": {
+      "path": "gateway/rate_limiting.go",
+      "lines": "14-17"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.table.gateway/rate_limiting.go:21-24",
+    "attrs": {
+      "domain": "gateway",
+      "ears": "ubiquitous",
+      "nature": "business",
+      "requirement": "The system shall limit `testQuery` to 10 requests per minute by IP and to 3 requests per minute by account.",
+      "slug": "ratelimit-testquery",
+      "title": "Rate limit: testQuery"
+    },
+    "source": {
+      "path": "gateway/rate_limiting.go",
+      "lines": "21-24"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.table.gateway/rate_limiting.go:25-28",
+    "attrs": {
+      "domain": "gateway",
+      "ears": "ubiquitous",
+      "nature": "business",
+      "requirement": "The system shall limit `createProgram` to 300 requests per hour by IP and to 25 requests per 2 hours by account.",
+      "slug": "ratelimit-createprogram",
+      "title": "Rate limit: createProgram"
+    },
+    "source": {
+      "path": "gateway/rate_limiting.go",
+      "lines": "25-28"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.table.gateway/rate_limiting.go:29-29",
+    "attrs": {
+      "domain": "gateway",
+      "ears": "ubiquitous",
+      "nature": "business",
+      "requirement": "The system shall limit `ipOnly` to 50 requests per 10 minutes by IP.",
+      "slug": "ratelimit-iponly",
+      "title": "Rate limit: ipOnly"
+    },
+    "source": {
+      "path": "gateway/rate_limiting.go",
+      "lines": "29-29"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.routes/graphql.go:6-22",
+    "attrs": {
+      "domain": "routes",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "IF `r.Method == http.MethodPost` holds AND `os.Getenv(\"KA_IS_DEV_SERVER\") != \"0\"` does not hold AND `validateIsTrustedClient(ctx, r.Header, \"X-Ka-Task-Secret\", useTaskSecret)` fails AND `validateIsTrustedClient(ctx, r.Header, \"X-Ka-Service-Admin-Query\", useServiceAdminSecret)` fails AND `gateway.ValidateCSRF(r.Header.Get(\"Origin\"), r.Header.Get(\"X-Ka-Fkey\"))` fails, THEN the system shall reject /graphql/, /tasks/graphql/ with the `StatusUnauthorized` error.",
+      "slug": "authz-graphql-tasks-graphql-2",
+      "title": "Access control: /graphql/, /tasks/graphql/ (2)"
+    },
+    "source": {
+      "path": "routes/graphql.go",
+      "lines": "6-22"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.routes/graphql.go:9-12",
+    "attrs": {
+      "domain": "routes",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "IF `gateway.RateLimit(ctx, operationName(r), r.Header.Get(\"X-Ka-Kaid\"))` holds, THEN the system shall reject /graphql/, /tasks/graphql/ with the `RateLimitExceeded` error.",
+      "slug": "authz-graphql-tasks-graphql",
+      "title": "Access control: /graphql/, /tasks/graphql/"
+    },
+    "source": {
+      "path": "routes/graphql.go",
+      "lines": "9-12"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.contract.routes/graphql.go:25-30:sends:X-Ka-Gateway-Secret",
+    "attrs": {
+      "contract": "sends",
+      "domain": "routes",
+      "ears": "ubiquitous",
+      "header": "X-Ka-Gateway-Secret",
+      "nature": "business",
+      "requirement": "The system shall send the secret `graphqlGateway.GatewayToBackendSecret` (backend_to_gateway_secret) in the `X-Ka-Gateway-Secret` header of the requests it makes.",
+      "secret": "backend_to_gateway_secret",
+      "slug": "contract-sends-x-ka-gateway-secret",
+      "title": "Header contract: X-Ka-Gateway-Secret"
+    },
+    "source": {
+      "path": "routes/graphql.go",
+      "lines": "25-30"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.policy.routes/permission.go:6-33",
+    "attrs": {
+      "domain": "routes",
+      "ears": "ubiquitous",
+      "nature": "business",
+      "requirement": "The system shall accept a request checked by `_validatePermission` only when `isDev` holds OR (`queryIsSafelisted` holds AND `operationName == queryName` holds) OR `validateIsTrustedClient(ctx, requestHeaders, \"X-Ka-Gateway-Secret\", useGatewaySecret)` succeeds OR (`operationName == _devadminQueryOperationName` holds AND the caller has permission `CanPerformDynamicGraphqlQueries` for any user) OR (`queryIsSafelisted` holds AND `queryName` is a key of `oldMobileExceptions` AND `operationName == allowedOpnameInURL` holds), and reject it otherwise with the `Unauthorized` error.",
+      "slug": "policy-validatepermission",
+      "title": "Access policy: _validatePermission"
+    },
+    "source": {
+      "path": "routes/permission.go",
+      "lines": "6-33"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.table.routes/permission.go:22-25",
+    "attrs": {
+      "domain": "routes",
+      "ears": "ubiquitous",
+      "nature": "business",
+      "requirement": "The system shall map `ContentProgressV1` to `ContentProgressV1Query`, `DomainsQueryV4` to `\"\"` in oldMobileExceptions, which _validatePermission reads.",
+      "slug": "table-oldmobileexceptions",
+      "title": "Access table: oldMobileExceptions"
+    },
+    "source": {
+      "path": "routes/permission.go",
+      "lines": "22-25"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.routes/pubsub.go:12-16",
+    "attrs": {
+      "domain": "routes",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "IF `pubsub.DecodeAndValidatePushMsg(ctx, r)` fails, THEN the system shall reject /pubsub/push.",
+      "slug": "authz-pubsub-push",
+      "title": "Access control: /pubsub/push"
+    },
+    "source": {
+      "path": "routes/pubsub.go",
+      "lines": "12-16"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.routes/pubsub.go:36-39",
+    "attrs": {
+      "domain": "routes",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "IF `r.URL.Query().Get(\"token\") != _pushToken` holds, THEN the system shall reject /pubsub/token.",
+      "slug": "authz-pubsub-token",
+      "title": "Access control: /pubsub/token"
+    },
+    "source": {
+      "path": "routes/pubsub.go",
+      "lines": "36-39"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authzcheck.routes/routes.go:18-18",
+    "attrs": {
+      "domain": "routes",
+      "ears": "ubiquitous",
+      "nature": "business",
+      "requirement": "The system shall check access to /tasks/cleanup with `serve.CreateTaskHandler`.",
+      "slug": "authzcheck-tasks-cleanup",
+      "title": "Access check: /tasks/cleanup"
+    },
+    "source": {
+      "path": "routes/routes.go",
+      "lines": "18-18"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authzcheck.routes/routes.go:22-22",
+    "attrs": {
+      "domain": "routes",
+      "ears": "ubiquitous",
+      "nature": "business",
+      "requirement": "The system shall check access to /tasks/archive with `serve.CreateTaskHandler`.",
+      "slug": "authzcheck-tasks-archive",
+      "title": "Access check: /tasks/archive"
+    },
+    "source": {
+      "path": "routes/routes.go",
+      "lines": "22-22"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.served.routes/routes.go:31-32",
+    "attrs": {
+      "domain": "routes",
+      "ears": "ubiquitous",
+      "nature": "business",
+      "requirement": "The system shall serve / only when `os.Getenv(\"KA_IS_DEV_SERVER\") == \"1\"` holds.",
+      "slug": "served",
+      "title": "Registration: /"
+    },
+    "source": {
+      "path": "routes/routes.go",
+      "lines": "31-32"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.served.routes/routes.go:31-34",
+    "attrs": {
+      "domain": "routes",
+      "ears": "ubiquitous",
+      "nature": "business",
+      "requirement": "The system shall serve /debug only when `os.Getenv(\"KA_IS_DEV_SERVER\") == \"1\"` does not hold.",
+      "slug": "served-debug",
+      "title": "Registration: /debug"
+    },
+    "source": {
+      "path": "routes/routes.go",
+      "lines": "31-34"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.routes/settings.go:6-10",
+    "attrs": {
+      "domain": "routes",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "IF `validateIsTrustedClient(ctx, r.Header, \"X-Ka-Secret-Key\", useSettingsSecret)` fails, THEN the system shall reject /settings with the `Unauthorized` error.",
+      "slug": "authz-settings",
+      "title": "Access control: /settings"
+    },
+    "source": {
+      "path": "routes/settings.go",
+      "lines": "6-10"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.routes/settings.go:27-29",
+    "attrs": {
+      "domain": "routes",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "IF `ctx.RequestIsTask()` does not hold, THEN the system shall reject /tasks/cleanup with the `Unauthorized` error.",
+      "slug": "authz-tasks-cleanup",
+      "title": "Access control: /tasks/cleanup"
+    },
+    "source": {
+      "path": "routes/settings.go",
+      "lines": "27-29"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.routes/settings.go:56-59",
+    "attrs": {
+      "domain": "routes",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "IF `_ensureLoggedIn(ctx)` fails, THEN the system shall reject /dev.",
+      "slug": "authz-dev",
+      "title": "Access control: /dev"
+    },
+    "source": {
+      "path": "routes/settings.go",
+      "lines": "56-59"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authz.pkg/web/serve/task_handler_util.go:4-10",
+    "attrs": {
+      "domain": "shared-serve",
+      "ears": "unwanted",
+      "nature": "business",
+      "requirement": "IF `ctx.RequestIsTask()` does not hold, THEN the system shall reject requests through `CreateTaskHandler` with the `StatusUnauthorized` error.",
+      "slug": "authz-requests-through-createtaskhandler",
+      "title": "Access control: requests through `CreateTaskHandler`"
+    },
+    "source": {
+      "path": "web/serve/task_handler_util.go",
+      "lines": "4-10",
+      "root": "pkg"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  }
+]

@@ -5,12 +5,13 @@ package ui
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"sort"
 	"strings"
 
-	"codetospec/internal/graph"
-	"codetospec/internal/llm"
+	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/llm"
 )
 
 // Sink receives pipeline progress events. Implementations must be safe for
@@ -105,23 +106,46 @@ type RunFinished struct {
 	DomainsFailed int
 	DomainsTotal  int
 	Extractors    map[string]string
-	TokensMap     llm.Usage
-	TokensReduce  llm.Usage
+	Tokens        []PhaseUsage // this run's, in phase order
 }
 
-// PrintSummary prints the end-of-run summary on stdout (plain mode, and
-// after the TUI exits the alternate screen).
-func PrintSummary(e RunFinished) {
-	fmt.Printf("nodes: %d domains, %d entities, %d endpoints, %d rules\n",
-		e.NodesByType["domain"], e.NodesByType["entity"], e.NodesByType["endpoint"], e.NodesByType["rule"])
-	fmt.Printf("coverage: endpoints %d/%d, entities %d/%d\n",
+// PhaseUsage is the tokens one LLM phase used.
+type PhaseUsage struct {
+	Phase string
+	Usage llm.Usage
+}
+
+// PrintSummary writes the end-of-run summary to w (stdout in plain mode,
+// and after the TUI exits the alternate screen).
+func PrintSummary(w io.Writer, e *RunFinished) {
+	_, _ = fmt.Fprintf(w,
+		"nodes: %d domains, %d entities, %d endpoints, %d rules\n",
+		e.NodesByType[graph.TypeDomain],
+		e.NodesByType[graph.TypeEntity],
+		e.NodesByType["endpoint"],
+		e.NodesByType[graph.TypeRule],
+	)
+	_, _ = fmt.Fprintf(w, "coverage: endpoints %d/%d, entities %d/%d\n",
 		e.Coverage.EndpointsReferenced, e.Coverage.EndpointsTotal,
 		e.Coverage.EntitiesTouched, e.Coverage.EntitiesTotal)
-	fmt.Printf("failures: %d/%d chunks, %d/%d domains\n",
+	_, _ = fmt.Fprintf(w, "failures: %d/%d chunks, %d/%d domains\n",
 		e.ChunksFailed, e.ChunksTotal, e.DomainsFailed, e.DomainsTotal)
-	fmt.Printf("tokens: map %d+%d, reduce %d+%d (prompt+completion)\n",
-		e.TokensMap.PromptTokens, e.TokensMap.CompletionTokens,
-		e.TokensReduce.PromptTokens, e.TokensReduce.CompletionTokens)
+	if len(e.Tokens) > 0 {
+		parts := make([]string, len(e.Tokens))
+		for i, t := range e.Tokens {
+			parts[i] = fmt.Sprintf(
+				"%s %d+%d",
+				t.Phase,
+				t.Usage.PromptTokens,
+				t.Usage.CompletionTokens,
+			)
+		}
+		_, _ = fmt.Fprintf(
+			w,
+			"tokens this run: %s (prompt+completion)\n",
+			strings.Join(parts, ", "),
+		)
+	}
 	if len(e.Extractors) > 0 {
 		names := make([]string, 0, len(e.Extractors))
 		for name := range e.Extractors {
@@ -132,7 +156,7 @@ func PrintSummary(e RunFinished) {
 		for i, name := range names {
 			parts[i] = name + "=" + e.Extractors[name]
 		}
-		fmt.Printf("extractors: %s\n", strings.Join(parts, " "))
+		_, _ = fmt.Fprintf(w, "extractors: %s\n", strings.Join(parts, " "))
 	}
 }
 
@@ -142,31 +166,45 @@ type Discard struct{}
 // Emit implements Sink.
 func (Discard) Emit(any) {}
 
-// Plain logs events through slog, preserving the original non-TUI output.
-type Plain struct{}
+// Plain logs events to Log and writes the run summary to Out: the non-TUI
+// output.
+type Plain struct {
+	Log *slog.Logger
+	Out io.Writer
+}
 
 // Emit implements Sink.
-func (Plain) Emit(event any) {
+func (p Plain) Emit(event any) {
 	switch e := event.(type) {
 	case FactsMerged:
-		slog.Info("extract done", "facts", e.Total)
+		p.Log.Info("extract done", "facts", e.Total)
 	case Chunked:
-		slog.Info("chunking done", "chunks", e.Chunks)
+		p.Log.Info("chunking done", "chunks", e.Chunks)
 	case ExtractorFinished:
-		slog.Info("extractor finished", "name", e.Name, "status", e.Status, "facts", e.Facts)
+		p.Log.Info("extractor finished", "name", e.Name, "status", e.Status, "facts", e.Facts)
 	case MapUnit:
 		if e.Done%25 == 0 {
-			slog.Info("map progress", "done", e.Done, "total", e.Total)
+			p.Log.Info("map progress", "done", e.Done, "total", e.Total)
 		}
 	case ReduceUnit:
-		slog.Info("reduce progress", "domain", e.Domain, "done", e.Done, "total", e.Total)
+		p.Log.Info("reduce progress", "domain", e.Domain, "done", e.Done, "total", e.Total)
 	case CrosscheckUnit:
-		slog.Info("crosscheck progress", "rule", e.RuleID, "verdict", e.Verdict, "done", e.Done, "total", e.Total)
+		p.Log.Info(
+			"crosscheck progress",
+			"rule",
+			e.RuleID,
+			"verdict",
+			e.Verdict,
+			"done",
+			e.Done,
+			"total",
+			e.Total,
+		)
 	case LogLine:
-		slog.Log(context.Background(), e.Level, e.Message)
+		p.Log.Log(context.Background(), e.Level, e.Message)
 	case RunFinished:
 		if e.Err == nil {
-			PrintSummary(e)
+			PrintSummary(p.Out, &e)
 		}
 	}
 }

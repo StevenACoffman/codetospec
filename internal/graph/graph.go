@@ -3,21 +3,28 @@
 package graph
 
 import (
+	"cmp"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
-	"codetospec/internal/extract"
-	"codetospec/internal/reducer"
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/locale"
+	"github.com/StevenACoffman/codetospec/internal/reducer"
 )
 
 // Node is one markdown file in the spec graph.
 type Node struct {
 	ID      string // "rule.billing.prorata-activation"
-	Type    string // "domain" | "entity" | "endpoint" | "rule"
-	Status  string // always "generated" in v0.1
+	Type    string // "domain" | "entity" | "endpoint" | "enum" | "service" | "rule"
+	Status  string // StatusGenerated, or StatusReviewed for a rule a person owns
 	Sources []extract.Ref
+	// Callees is the code the cited lines call, one hop (rules only; see
+	// drift.Callees): drift re-hashes it to flag a rule whose helper changed.
+	Callees []extract.Ref
 	Edges   []Edge
 	Title   string
 	Body    string            // markdown body without frontmatter
@@ -30,33 +37,111 @@ type Edge struct {
 	To   string `json:"to"`
 }
 
-// StatusGenerated is the only node status in v0.1.
+// RuleRequirement returns the EARS requirement of a rule body written in any
+// supported language, falling back to the body's first line when the body
+// has no requirement line.
+func RuleRequirement(body string) string {
+	texts := locale.All()
+	for line := range strings.SplitSeq(body, "\n") {
+		for _, text := range texts {
+			if rest, ok := strings.CutPrefix(line, text.Requirement); ok {
+				return rest
+			}
+		}
+	}
+	first, _, _ := strings.Cut(body, "\n")
+	return first
+}
+
+// RuleCriteria returns the numbered acceptance criteria lines ("1. ...") of
+// a rule body written in any supported language.
+func RuleCriteria(body string) []string {
+	texts := locale.All()
+	var criteria []string
+	inList := false
+	for line := range strings.SplitSeq(body, "\n") {
+		if !inList {
+			inList = slices.ContainsFunc(texts, func(text *locale.Text) bool {
+				return strings.HasPrefix(line, text.Criteria)
+			})
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || trimmed[0] < '0' || trimmed[0] > '9' {
+			break
+		}
+		criteria = append(criteria, trimmed)
+	}
+	return criteria
+}
+
+// Edge types a rule node carries.
+const (
+	EdgeBelongsTo = "belongs_to" // rule → its domain
+	EdgeExposedBy = "exposed_by" // rule → an endpoint it guards or serves
+	EdgeTouches   = "touches"    // rule → an entity it reads or writes
+)
+
+// TypeRule is the Node.Type of a business rule.
+const TypeRule = "rule"
+
+// TypeDomain is the node type of a domain.
+const TypeDomain = "domain"
+
+// TypeEntity is the node type of a data entity (a table fact).
+const TypeEntity = "entity"
+
+// StatusGenerated is the status of every node a run writes.
 const StatusGenerated = "generated"
 
-// Build assembles the node set: entities from table facts, endpoints from
-// route facts, rules and domains from the reduce outputs, and domain
-// depends_on edges computed from cross-domain import facts (never by the LLM).
-func Build(facts []extract.Fact, reduced []reducer.Output, resolver extract.DomainResolver) []Node {
-	var nodes []Node
-	nodes = append(nodes, entityNodes(facts)...)
-	nodes = append(nodes, endpointNodes(facts)...)
+// StatusReviewed is the status of a rule file a person owns: one they
+// edited, or marked reviewed. A run keeps it as it is (see
+// render.KeepReviewed).
+const StatusReviewed = "reviewed"
 
-	ruleNodes, domainNodes := ruleAndDomainNodes(reduced)
+// Build assembles the node set: entities from table facts, endpoints from
+// route facts, enumerations from enum facts, rules and domains from the reduce outputs and from rule facts
+// (which must have passed ValidateRuleFacts), and domain
+// depends_on edges computed from cross-domain import facts (never by the LLM).
+// Node bodies use the labels of the --lang code lang. prior is the graph
+// the previous run rendered (nil for none): a rule restating one of its
+// rules keeps that rule's id (see MatchRules and assignRuleIDs).
+func Build(
+	facts []extract.Fact,
+	reduced []reducer.Output,
+	resolver extract.DomainResolver,
+	lang string,
+	prior []Node,
+) []Node {
+	text := locale.For(lang)
+	var nodes []Node
+	nodes = append(nodes, entityNodes(facts, text)...)
+	nodes = append(nodes, endpointNodes(facts, text)...)
+	nodes = append(nodes, enumNodes(facts, text)...)
+
+	ruleNodes, domainNodes := ruleAndDomainNodes(reduced, facts, prior, text)
+	linkHandlers(ruleNodes, facts)
 	domainDeps := domainDependencies(facts, resolver, domainNodes)
+	namespaces := namespaceByPath(facts)
+	services, serviceDeps := serviceNodes(facts, func(path string) string {
+		return resolver.Resolve(namespaces[path], path)
+	}, text)
 	for i := range domainNodes {
 		slug := strings.TrimPrefix(domainNodes[i].ID, "domain.")
 		domainNodes[i].Edges = append(domainNodes[i].Edges, domainDeps[slug]...)
+		domainNodes[i].Edges = append(domainNodes[i].Edges, serviceDeps[slug]...)
 		sortEdges(domainNodes[i].Edges)
 	}
 	nodes = append(nodes, ruleNodes...)
 	nodes = append(nodes, domainNodes...)
+	nodes = append(nodes, services...)
 
 	sort.SliceStable(nodes, func(i, j int) bool { return nodes[i].ID < nodes[j].ID })
 	return nodes
 }
 
 // EntityID derives the node id for a table fact.
-func EntityID(f extract.Fact) string {
+func EntityID(f *extract.Fact) string {
 	name := f.Attrs["name"]
 	if name == "" {
 		name = strings.TrimPrefix(f.ID, "table.")
@@ -64,20 +149,30 @@ func EntityID(f extract.Fact) string {
 	return "entity." + extract.Slugify(name)
 }
 
-// EndpointID derives the node id for a route fact.
-func EndpointID(f extract.Fact) string {
+// rootPathSlug names the path "/" in an endpoint id, which would
+// otherwise slug to nothing (endpoint. and a hidden nodes/endpoints/.md).
+const rootPathSlug = "root"
+
+// EndpointID derives the node id for a route fact: its verb and path,
+// slugged. Paths differing only by punctuation share an id (/graphql and
+// /graphql/); changing that would rename existing endpoints.
+func EndpointID(f *extract.Fact) string {
 	verb := strings.ToLower(routeVerb(f))
-	return "endpoint." + extract.Slugify(verb+" "+f.Attrs["path"])
+	path := f.Attrs["path"]
+	if extract.Slugify(path) == "" {
+		path = rootPathSlug
+	}
+	return "endpoint." + extract.Slugify(verb+" "+path)
 }
 
-func routeVerb(f extract.Fact) string {
+func routeVerb(f *extract.Fact) string {
 	if v := f.Attrs["method"]; v != "" {
 		return v
 	}
 	return f.Attrs["verb"]
 }
 
-func routeHandler(f extract.Fact) string {
+func routeHandler(f *extract.Fact) string {
 	handler := f.Attrs["handler"]
 	if handler == "" {
 		handler = f.Attrs["controller"]
@@ -88,7 +183,7 @@ func routeHandler(f extract.Fact) string {
 	return handler
 }
 
-func entityNodes(facts []extract.Fact) []Node {
+func entityNodes(facts []extract.Fact, text *locale.Text) []Node {
 	var nodes []Node
 	for _, f := range facts {
 		if f.Kind != "table" {
@@ -99,13 +194,17 @@ func entityNodes(facts []extract.Fact) []Node {
 			name = strings.TrimPrefix(f.ID, "table.")
 		}
 		var body strings.Builder
-		body.WriteString("**Table** : `" + name + "`\n\n**Colonnes** :\n")
+		body.WriteString(text.Table + "`" + name + "`\n\n")
+		if description := f.Attrs[extract.AttrDescription]; description != "" {
+			body.WriteString(description + "\n\n")
+		}
+		body.WriteString(text.Columns + "\n")
 		for _, col := range splitColumns(f.Attrs["columns"]) {
 			body.WriteString("- `" + col + "`\n")
 		}
 		nodes = append(nodes, Node{
-			ID:      EntityID(f),
-			Type:    "entity",
+			ID:      EntityID(&f),
+			Type:    TypeEntity,
 			Status:  StatusGenerated,
 			Sources: []extract.Ref{f.Source},
 			Title:   name,
@@ -125,161 +224,222 @@ func splitColumns(columns string) []string {
 	return cols
 }
 
-func endpointNodes(facts []extract.Fact) []Node {
-	var nodes []Node
-	for _, f := range facts {
-		if f.Kind != "route" {
+// endpointDraft collects the route facts sharing one endpoint id.
+type endpointDraft struct {
+	verb     string
+	paths    []string
+	handlers []string
+	sources  []extract.Ref
+}
+
+// endpointNodes builds one endpoint node per endpoint id. Routes whose ids
+// collide (/login and /login/) share the node: its title and body list
+// every path and handler, and it cites every route, all sorted.
+func endpointNodes(facts []extract.Fact, text *locale.Text) []Node {
+	drafts := map[string]*endpointDraft{}
+	for i := range facts {
+		f := &facts[i]
+		if f.Kind != extract.KindRoute {
 			continue
 		}
-		verb := strings.ToUpper(routeVerb(f))
-		path := f.Attrs["path"]
-		body := fmt.Sprintf("**Méthode** : %s\n\n**Path** : `%s`", verb, path)
-		if handler := routeHandler(f); handler != "" {
-			body += fmt.Sprintf("\n\n**Handler** : `%s`", handler)
+		id := EndpointID(f)
+		d := drafts[id]
+		if d == nil {
+			d = &endpointDraft{verb: strings.ToUpper(routeVerb(f))}
+			drafts[id] = d
 		}
+		d.paths = append(d.paths, f.Attrs["path"])
+		if handler := routeHandler(f); handler != "" {
+			d.handlers = append(d.handlers, handler)
+		}
+		d.sources = append(d.sources, f.Source)
+	}
+	nodes := make([]Node, 0, len(drafts))
+	for _, id := range slices.Sorted(maps.Keys(drafts)) {
+		d := drafts[id]
+		paths := dedupSorted(d.paths)
+		body := text.Method + d.verb + "\n\n" + text.Path + codeList(paths)
+		if handlers := dedupSorted(d.handlers); len(handlers) > 0 {
+			body += "\n\n" + text.Handler + codeList(handlers)
+		}
+		slices.SortFunc(d.sources, func(a, b extract.Ref) int {
+			return cmp.Or(cmp.Compare(a.File(), b.File()), cmp.Compare(a.Lines, b.Lines))
+		})
 		nodes = append(nodes, Node{
-			ID:      EndpointID(f),
+			ID:      id,
 			Type:    "endpoint",
 			Status:  StatusGenerated,
-			Sources: []extract.Ref{f.Source},
-			Title:   verb + " " + path,
+			Sources: d.sources,
+			Title:   d.verb + " " + strings.Join(paths, ", "),
 			Body:    body,
 		})
 	}
 	return nodes
 }
 
-func ruleAndDomainNodes(reduced []reducer.Output) (rules, domains []Node) {
+// codeList renders values as comma-separated inline code.
+func codeList(values []string) string {
+	return "`" + strings.Join(values, "`, `") + "`"
+}
+
+// domainDraft collects one domain's summary and rule nodes before its
+// domain node is written.
+type domainDraft struct {
+	summary string
+	rules   []Node
+}
+
+// ruleAndDomainNodes builds rule nodes from the reduce outputs and from the
+// mechanical rule facts, and one domain node per domain that has rules.
+func ruleAndDomainNodes(
+	reduced []reducer.Output,
+	facts []extract.Fact,
+	prior []Node,
+	text *locale.Text,
+) ([]Node, []Node) {
+	drafts := make(map[string]*domainDraft)
+	draft := func(domain string) *domainDraft {
+		if drafts[domain] == nil {
+			drafts[domain] = &domainDraft{}
+		}
+		return drafts[domain]
+	}
+	routes := routesByID(facts)
+
+	var llmRules, mechanical []Node
 	for _, out := range reduced {
 		if out.Failed || len(out.Rules) == 0 {
 			continue
 		}
-		domainRules := append([]reducer.Rule(nil), out.Rules...)
-		sort.SliceStable(domainRules, func(i, j int) bool { return domainRules[i].Slug < domainRules[j].Slug })
+		draft(out.Domain).summary = out.DomainSummary
+		for i := range out.Rules {
+			llmRules = append(llmRules, reducedRuleNode(out.Domain, &out.Rules[i], text))
+		}
+	}
+	for i := range facts {
+		f := &facts[i]
+		if f.Kind != extract.KindRule {
+			continue
+		}
+		id := "rule." + f.Attrs[extract.AttrDomain] + "." + f.Attrs[extract.AttrSlug]
+		mechanical = append(mechanical, mechanicalRuleNode(f, id, routes, text))
+	}
+	llmRules, mechanical = assignRuleIDs(llmRules, mechanical, prior)
+	for _, n := range slices.Concat(llmRules, mechanical) {
+		d := draft(ruleDomain(&n))
+		d.rules = append(d.rules, n)
+	}
 
+	var rules, domains []Node
+	for _, domain := range slices.Sorted(maps.Keys(drafts)) {
+		d := drafts[domain]
+		sort.SliceStable(d.rules, func(i, j int) bool { return d.rules[i].ID < d.rules[j].ID })
 		var ruleList strings.Builder
-		for _, rule := range domainRules {
-			nodeID := fmt.Sprintf("rule.%s.%s", out.Domain, rule.Slug)
-			edges := []Edge{{Type: "belongs_to", To: "domain." + out.Domain}}
-			for _, e := range dedupSorted(rule.Entities) {
-				edges = append(edges, Edge{Type: "touches", To: e})
-			}
-			for _, e := range dedupSorted(rule.Endpoints) {
-				edges = append(edges, Edge{Type: "exposed_by", To: e})
-			}
-			sortEdges(edges)
-
-			sources := append([]extract.Ref(nil), rule.Citations...)
-			sort.SliceStable(sources, func(i, j int) bool {
-				if sources[i].Path != sources[j].Path {
-					return sources[i].Path < sources[j].Path
-				}
-				return sources[i].Lines < sources[j].Lines
-			})
-
-			var body strings.Builder
-			body.WriteString("**Exigence (EARS)** : " + rule.Requirement)
-			if rule.Rationale != "" {
-				body.WriteString("\n\n**Justification** : " + rule.Rationale)
-			}
-			if len(rule.AcceptanceCriteria) > 0 {
-				body.WriteString("\n\n**Critères d'acceptation** :")
-				for i, criterion := range rule.AcceptanceCriteria {
-					fmt.Fprintf(&body, "\n%d. %s", i+1, criterion)
-				}
-			}
-
-			rules = append(rules, Node{
-				ID:      nodeID,
-				Type:    "rule",
-				Status:  StatusGenerated,
-				Sources: sources,
-				Edges:   edges,
-				Title:   rule.Title,
-				Body:    body.String(),
-				Extra: map[string]string{
-					"ears":       rule.EarsKind,
-					"acceptance": strconv.Itoa(len(rule.AcceptanceCriteria)),
-					"nature":     rule.Nature,
-					"origin":     rule.Origin,
-					"confidence": strconv.FormatFloat(rule.Confidence, 'f', 2, 64),
-				},
-			})
-			fmt.Fprintf(&ruleList, "- [%s](../rules/%s.%s.md)\n", rule.Title, out.Domain, rule.Slug)
+		for _, r := range d.rules {
+			fmt.Fprintf(
+				&ruleList,
+				"- [%s](../rules/%s.md)\n",
+				r.Title,
+				strings.TrimPrefix(r.ID, "rule."),
+			)
 		}
-
-		body := out.DomainSummary
-		if ruleList.Len() > 0 {
-			body += "\n\n## Règles\n\n" + strings.TrimRight(ruleList.String(), "\n")
-		}
+		rules = append(rules, d.rules...)
+		body := d.summary + "\n\n" + text.RulesHeading + "\n\n" + strings.TrimRight(
+			ruleList.String(),
+			"\n",
+		)
 		domains = append(domains, Node{
-			ID:     "domain." + out.Domain,
+			ID:     "domain." + domain,
 			Type:   "domain",
 			Status: StatusGenerated,
-			Title:  "Domaine " + out.Domain,
+			Title:  fmt.Sprintf(text.DomainTitleFmt, domain),
 			Body:   strings.TrimSpace(body),
 		})
 	}
 	return rules, domains
 }
 
+// reducedRuleNode turns one reduced rule of domain into a rule node.
+func reducedRuleNode(domain string, rule *reducer.Rule, text *locale.Text) Node {
+	edges := []Edge{{Type: EdgeBelongsTo, To: "domain." + domain}}
+	for _, e := range dedupSorted(rule.Entities) {
+		edges = append(edges, Edge{Type: EdgeTouches, To: e})
+	}
+	for _, e := range dedupSorted(rule.Endpoints) {
+		edges = append(edges, Edge{Type: EdgeExposedBy, To: e})
+	}
+	sortEdges(edges)
+
+	sources := append([]extract.Ref(nil), rule.Citations...)
+	sort.SliceStable(sources, func(i, j int) bool {
+		if sources[i].File() != sources[j].File() {
+			return sources[i].File() < sources[j].File()
+		}
+		return sources[i].Lines < sources[j].Lines
+	})
+
+	var body strings.Builder
+	body.WriteString(text.Requirement + rule.Requirement)
+	if rule.Rationale != "" {
+		body.WriteString("\n\n" + text.Rationale + rule.Rationale)
+	}
+	if len(rule.AcceptanceCriteria) > 0 {
+		body.WriteString("\n\n" + text.Criteria)
+		for i, criterion := range rule.AcceptanceCriteria {
+			fmt.Fprintf(&body, "\n%d. %s", i+1, criterion)
+		}
+	}
+
+	return Node{
+		ID:      fmt.Sprintf("rule.%s.%s", domain, rule.Slug),
+		Type:    TypeRule,
+		Status:  StatusGenerated,
+		Sources: sources,
+		Edges:   edges,
+		Title:   rule.Title,
+		Body:    body.String(),
+		Extra: withEARSIssue(map[string]string{
+			"ears":       rule.EarsKind,
+			"acceptance": strconv.Itoa(len(rule.AcceptanceCriteria)),
+			"nature":     rule.Nature,
+			"origin":     rule.Origin,
+			"confidence": strconv.FormatFloat(rule.Confidence, 'f', 2, 64),
+		}, rule.Requirement),
+	}
+}
+
+// uniqueID returns id, or id-2, id-3… if taken already holds it.
+func uniqueID(id string, taken map[string]bool) string {
+	if !taken[id] {
+		return id
+	}
+	for n := 2; ; n++ {
+		if candidate := id + "-" + strconv.Itoa(n); !taken[candidate] {
+			return candidate
+		}
+	}
+}
+
 // domainDependencies computes depends_on edges between existing domains from
 // import facts whose source and target resolve to different domains.
-func domainDependencies(facts []extract.Fact, resolver extract.DomainResolver, domains []Node) map[string][]Edge {
+func domainDependencies(
+	facts []extract.Fact,
+	resolver extract.DomainResolver,
+	domains []Node,
+) map[string][]Edge {
 	existing := make(map[string]bool, len(domains))
 	for _, d := range domains {
 		existing[strings.TrimPrefix(d.ID, "domain.")] = true
 	}
-
-	type module struct {
-		segments []string
-		domain   string
-	}
-	var modules []module
-	for _, f := range facts {
-		if f.Kind != "module" {
-			continue
-		}
-		name := f.Attrs["name"]
-		if name == "" {
-			continue
-		}
-		modules = append(modules, module{
-			segments: extract.SplitQualified(name),
-			domain:   resolver.Resolve(name, f.Source.Path),
-		})
-	}
-
+	modules := moduleDomains(facts, resolver)
 	deps := make(map[string]map[string]bool)
-	for _, f := range facts {
+	for i := range facts {
+		f := &facts[i]
 		if f.Kind != "import" {
 			continue
 		}
 		from := resolver.Resolve(f.Attrs["namespace"], f.Source.Path)
-		targetSegments := extract.SplitQualified(f.Attrs["target"])
-		to, bestLen := "", 0
-		for _, m := range modules {
-			if len(m.segments) > bestLen && segmentsPrefix(m.segments, targetSegments) {
-				to, bestLen = m.domain, len(m.segments)
-			}
-		}
-		if to == "" {
-			// Suffix fallback for languages where imports carry a path while
-			// module facts carry the bare package name (Go: import
-			// "app/internal/billing" vs package "billing"). Only applied
-			// when it resolves to exactly one domain.
-			suffixDomains := map[string]bool{}
-			for _, m := range modules {
-				if len(m.segments) > 0 && segmentsSuffix(m.segments, targetSegments) {
-					suffixDomains[m.domain] = true
-				}
-			}
-			if len(suffixDomains) == 1 {
-				for domain := range suffixDomains {
-					to = domain
-				}
-			}
-		}
+		to := importDomain(modules, extract.SplitQualified(f.Attrs["target"]))
 		if to == "" || to == from || !existing[from] || !existing[to] {
 			continue
 		}
@@ -293,12 +453,62 @@ func domainDependencies(facts []extract.Fact, resolver extract.DomainResolver, d
 	for from, targets := range deps {
 		var list []Edge
 		for to := range targets {
-			list = append(list, Edge{Type: "depends_on", To: "domain." + to})
+			list = append(list, Edge{Type: EdgeDependsOn, To: "domain." + to})
 		}
 		sortEdges(list)
 		edges[from] = list
 	}
 	return edges
+}
+
+// moduleDomain is a module fact's qualified name, split, and its domain.
+type moduleDomain struct {
+	segments []string
+	domain   string
+}
+
+// moduleDomains lists the named module facts with their domain.
+func moduleDomains(facts []extract.Fact, resolver extract.DomainResolver) []moduleDomain {
+	var modules []moduleDomain
+	for i := range facts {
+		f := &facts[i]
+		if name := f.Attrs["name"]; f.Kind == "module" && name != "" {
+			modules = append(modules, moduleDomain{
+				segments: extract.SplitQualified(name),
+				domain:   resolver.Resolve(name, f.Source.Path),
+			})
+		}
+	}
+	return modules
+}
+
+// importDomain is the domain of the module an import target names: the
+// longest module prefix of the target, else the single domain whose module
+// is a suffix of it (Go imports carry a path, "app/internal/billing", while
+// its package fact names "billing"); "" when neither resolves.
+func importDomain(modules []moduleDomain, target []string) string {
+	to, bestLen := "", 0
+	for _, m := range modules {
+		if len(m.segments) > bestLen && segmentsPrefix(m.segments, target) {
+			to, bestLen = m.domain, len(m.segments)
+		}
+	}
+	if to != "" {
+		return to
+	}
+	suffixDomains := map[string]bool{}
+	for _, m := range modules {
+		if len(m.segments) > 0 && segmentsSuffix(m.segments, target) {
+			suffixDomains[m.domain] = true
+		}
+	}
+	if len(suffixDomains) != 1 {
+		return ""
+	}
+	for domain := range suffixDomains {
+		to = domain
+	}
+	return to
 }
 
 // segmentsPrefix reports whether prefix is a segment-wise prefix of full.
@@ -338,16 +548,11 @@ func sortEdges(edges []Edge) {
 }
 
 func edgeTypeRank(t string) int {
-	switch t {
-	case "belongs_to":
-		return 0
-	case "touches":
-		return 1
-	case "exposed_by":
-		return 2
-	default: // depends_on
-		return 3
+	order := []string{EdgeBelongsTo, EdgeTouches, EdgeExposedBy}
+	if i := slices.Index(order, t); i >= 0 {
+		return i
 	}
+	return len(order) // depends_on
 }
 
 func dedupSorted(values []string) []string {
@@ -377,11 +582,11 @@ func ComputeCoverage(nodes []Node) Coverage {
 	var cov Coverage
 	referenced := make(map[string]bool)
 	for _, n := range nodes {
-		if n.Type != "rule" {
+		if n.Type != TypeRule {
 			continue
 		}
 		for _, e := range n.Edges {
-			if e.Type == "touches" || e.Type == "exposed_by" {
+			if e.Type == EdgeTouches || e.Type == EdgeExposedBy {
 				referenced[e.To] = true
 			}
 		}
@@ -393,7 +598,7 @@ func ComputeCoverage(nodes []Node) Coverage {
 			if referenced[n.ID] {
 				cov.EndpointsReferenced++
 			}
-		case "entity":
+		case TypeEntity:
 			cov.EntitiesTotal++
 			if referenced[n.ID] {
 				cov.EntitiesTouched++

@@ -7,10 +7,15 @@ Navigation : commencer par nodes/domains/, puis suivre les edges du frontmatter
 (belongs_to, touches, exposed_by, depends_on). graph.json contient le graphe complet
 au format machine ; les citations `path:lines` pointent dans le dépôt source.
 
+Chaque règle ci-dessous porte sa citation, son verdict de revue (crosscheck) et son
+ancrage (grounding). Ne s'y fier que si elle est grounded et supported, repaired ou
+mechanical : unchecked n'est jamais un succès. Un domaine partial contient du code
+qui n'a produit aucune règle : l'absence d'une règle n'y prouve rien.
+
 ## domain
 
-- nodes/domains/billing.md : Domaine billing
-- nodes/domains/crm.md : Domaine crm
+- nodes/domains/billing.md : Domaine billing · partial
+- nodes/domains/crm.md : Domaine crm · complete
 
 ## entity
 
@@ -20,6 +25,12 @@ au format machine ; les citations `path:lines` pointent dans le dépôt source.
 
 - nodes/endpoints/post-api-activate.md : POST /api/activate
 
+## enum
+
+- nodes/enums/models-invoicestatus.md : models.InvoiceStatus
+
 ## rule
 
-- nodes/rules/billing.prorata-activation.md : Prorata à l'activation
+### billing
+
+- nodes/rules/billing.prorata-activation.md : Prorata à l'activation · `app/Services/Billing/ProrataCalculator.php:11-24` · supported · ungrounded

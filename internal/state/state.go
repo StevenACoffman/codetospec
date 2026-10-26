@@ -12,12 +12,36 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/StevenACoffman/codetospec/internal/atomicfs"
 )
 
-// PhaseTokens accumulates token usage for one phase.
+// PhaseTokens accumulates token usage for one phase: over every run on
+// this output, and over the latest run alone (a warm-cache run costs 0).
 type PhaseTokens struct {
-	Prompt     int `json:"prompt"`
-	Completion int `json:"completion"`
+	Prompt         int `json:"prompt"`
+	Completion     int `json:"completion"`
+	LastPrompt     int `json:"last_prompt"`
+	LastCompletion int `json:"last_completion"`
+}
+
+// Phases lists the LLM phases whose tokens State counts, in run order.
+func Phases() []string {
+	return []string{"map", "reduce", "crosscheck"}
+}
+
+// AddTokens counts one LLM call of phase, in the cumulative and the
+// latest-run counters.
+func (s *State) AddTokens(phase string, prompt, completion int) {
+	t := s.Tokens[phase]
+	if t == nil {
+		t = &PhaseTokens{}
+		s.Tokens[phase] = t
+	}
+	t.Prompt += prompt
+	t.Completion += completion
+	t.LastPrompt += prompt
+	t.LastCompletion += completion
 }
 
 // State is the persisted run state.
@@ -36,6 +60,13 @@ type State struct {
 	Tokens        map[string]*PhaseTokens `json:"tokens"`
 }
 
+// sameSource reports whether a state recording recorded may be reused for
+// the absolute source src: nothing recorded, a relative path (older
+// versions stored --src as given) or the same path.
+func sameSource(recorded, src string) bool {
+	return recorded == "" || !filepath.IsAbs(recorded) || filepath.Clean(recorded) == src
+}
+
 // Store persists State atomically after every mutation.
 type Store struct {
 	mu   sync.Mutex
@@ -43,11 +74,21 @@ type Store struct {
 	s    State
 }
 
+// ErrOtherSource reports an output directory whose state records another
+// source: running there would replace that source's spec.
+var ErrOtherSource = errors.New("output holds the spec of another source")
+
 // Open loads the state file when present, otherwise initializes a fresh
-// state for srcPath.
+// state for srcPath; either way it starts a run, resetting the latest-run
+// token counters.
+//
+// Requires: srcPath names the analyzed repository.
+// Ensures:  the state records srcPath made absolute; ErrOtherSource when
+// the loaded state records another absolute source (a relative one, from
+// an older version, is taken as matching).
 func Open(path, srcPath string) (*Store, error) {
 	store := &Store{path: path}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	switch {
 	case err == nil:
 		if unmarshalErr := json.Unmarshal(data, &store.s); unmarshalErr != nil {
@@ -61,17 +102,28 @@ func Open(path, srcPath string) (*Store, error) {
 	default:
 		return nil, fmt.Errorf("load state %s: %w", path, err)
 	}
-	store.s.SrcPath = srcPath
+	src, err := filepath.Abs(srcPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve source %s: %w", srcPath, err)
+	}
+	if !sameSource(store.s.SrcPath, src) {
+		return nil, fmt.Errorf(
+			"%w: %s records %s, not %s; choose another --out, or delete the file to take it over",
+			ErrOtherSource, path, store.s.SrcPath, src)
+	}
+	store.s.SrcPath = src
 	if store.s.Extractors == nil {
 		store.s.Extractors = map[string]string{}
 	}
 	if store.s.Tokens == nil {
 		store.s.Tokens = map[string]*PhaseTokens{}
 	}
-	for _, phase := range []string{"map", "reduce", "crosscheck"} {
+	for _, phase := range Phases() {
 		if store.s.Tokens[phase] == nil {
 			store.s.Tokens[phase] = &PhaseTokens{}
 		}
+		store.s.Tokens[phase].LastPrompt = 0
+		store.s.Tokens[phase].LastCompletion = 0
 	}
 	return store, nil
 }
@@ -79,11 +131,11 @@ func Open(path, srcPath string) (*Store, error) {
 // Load reads a state file without creating a store; used by the stats command.
 func Load(path string) (State, error) {
 	var s State
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return s, fmt.Errorf("load state %s: %w", path, err)
 	}
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err = json.Unmarshal(data, &s); err != nil {
 		return s, fmt.Errorf("load state %s: %w", path, err)
 	}
 	return s, nil
@@ -123,33 +175,5 @@ func (st *Store) saveLocked() error {
 	if err != nil {
 		return fmt.Errorf("encode state: %w", err)
 	}
-	return WriteFileAtomic(st.path, append(data, '\n'))
-}
-
-// WriteFileAtomic writes data to path via a temporary file and rename, so a
-// crash never leaves a truncated file behind.
-func WriteFileAtomic(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create dir %s: %w", dir, err)
-	}
-	tmp, err := os.CreateTemp(dir, ".tmp-*")
-	if err != nil {
-		return fmt.Errorf("create temp file in %s: %w", dir, err)
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return fmt.Errorf("write %s: %w", tmpName, err)
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return fmt.Errorf("close %s: %w", tmpName, err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		os.Remove(tmpName)
-		return fmt.Errorf("rename to %s: %w", path, err)
-	}
-	return nil
+	return atomicfs.WriteFile(st.path, append(data, '\n'))
 }

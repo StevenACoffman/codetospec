@@ -44,7 +44,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("extract", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	root := flags.String("root", "", "webapp service directory to analyze (required)")
-	lang := flags.String("lang", "fr", "requirement language: fr or en")
+	lang := flags.String("lang", "en", "requirement language: en or fr")
 	supergraph := flags.String("supergraph", "",
 		"directory holding composed_schema.graphql (default: <root>/../../gengraphql)")
 	graph := flags.String(

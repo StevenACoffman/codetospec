@@ -16,17 +16,27 @@ import (
 // uses: one test fact per test and declaration, citing the test, with the
 // declaration as callee. A use through a helper declared in a _test.go
 // file counts as the test's own: helpers are how tests share setup and
-// assertions. codetospec follows the module's call facts from there to
+// assertions. A call of a method of one of the module's interfaces uses
+// each implementation, marked attrDispatch unless also used directly. codetospec follows the module's call facts from there to
 // tell which rules' code a test reaches.
 //
 // Requires: m was loaded by loadPackages (tests included).
 // Ensures:  sorted by id; callees are declarations of non-test files only.
 func TestFacts(m *loadedModule, root string) []Fact {
-	decls := declsByPosition(m.pkgs, m.fset, root)
+	module := moduleDecls(m.pkgs, m.fset, root)
+	uses := testUses{
+		decls: declsByPosition(module, m.fset),
+		impls: map[token.Position][]declSpan{},
+	}
+	for pos, impls := range implementations(module, m.fset) {
+		for i := range impls {
+			uses.impls[pos] = append(uses.impls[pos], spanOf(&impls[i], m.fset))
+		}
+	}
 	var facts []Fact
 	for _, p := range m.tests {
 		if p.TypesInfo != nil {
-			facts = append(facts, packageTestFacts(p, m.fset, root, decls)...)
+			facts = append(facts, packageTestFacts(p, m.fset, root, &uses)...)
 		}
 	}
 	sort.Slice(facts, func(i, j int) bool { return facts[i].ID < facts[j].ID })
@@ -40,7 +50,7 @@ func packageTestFacts(
 	p *packages.Package,
 	fset *token.FileSet,
 	root string,
-	decls map[token.Position]declSpan,
+	uses *testUses,
 ) []Fact {
 	helpers := testHelpers(p.Syntax, p.TypesInfo, fset)
 	var facts []Fact
@@ -55,16 +65,20 @@ func packageTestFacts(
 				continue
 			}
 			lines := itoa(fset.Position(fn.Pos()).Line) + "-" + itoa(fset.Position(fn.End()).Line)
-			for _, callee := range usedDecls(fn, p.TypesInfo, helpers, decls, fset) {
+			for _, callee := range uses.of(fn, p.TypesInfo, helpers, fset) {
+				attrs := map[string]string{
+					attrName:       testName(fn),
+					"callee_path":  callee.file,
+					"callee_lines": callee.lines,
+				}
+				if callee.viaInterface {
+					attrs[attrDispatch] = dispatchInterface
+				}
 				facts = append(facts, Fact{
 					Kind: "test",
 					ID: "test." + rel + "#" + testName(fn) + ":" + lines +
 						"#" + callee.file + ":" + callee.lines,
-					Attrs: map[string]string{
-						attrName:       testName(fn),
-						"callee_path":  callee.file,
-						"callee_lines": callee.lines,
-					},
+					Attrs:     attrs,
 					Source:    Ref{Path: rel, Lines: lines},
 					Origin:    origin,
 					Certainty: certain,
@@ -80,24 +94,30 @@ type declSpan struct {
 	file, lines string
 }
 
-// declsByPosition indexes the module's functions, methods and named types
-// by the position of their name. A test variant type-checks its package
+// testUses resolves what a test's body names to module declarations, by
+// the position of their name: a test variant type-checks its package
 // again, so its objects are not the plain package's; their positions are.
+type testUses struct {
+	decls map[token.Position]declSpan   // declaration name → its span
+	impls map[token.Position][]declSpan // interface method → implementations
+}
+
+// declsByPosition indexes the module's functions, methods and named types
+// by the position of their name.
 func declsByPosition(
-	pkgs []*packages.Package,
+	module map[types.Object]moduleDecl,
 	fset *token.FileSet,
-	root string,
 ) map[token.Position]declSpan {
 	byPos := map[token.Position]declSpan{}
-	for _, d := range moduleDecls(pkgs, fset, root) {
-		lines := itoa(
-			fset.Position(d.node.Pos()).Line,
-		) + "-" + itoa(
-			fset.Position(d.node.End()).Line,
-		)
-		byPos[fset.Position(d.obj.Pos())] = declSpan{file: d.file, lines: lines}
+	for _, d := range module {
+		byPos[fset.Position(d.obj.Pos())] = spanOf(&d, fset)
 	}
 	return byPos
+}
+
+// spanOf is the citation of a declaration.
+func spanOf(d *moduleDecl, fset *token.FileSet) declSpan {
+	return declSpan{file: d.file, lines: d.lines(fset)}
 }
 
 // testHelpers indexes the functions and methods declared in the _test.go
@@ -123,16 +143,35 @@ func testHelpers(
 	return helpers
 }
 
-// usedDecls lists the module declarations test uses, itself or through the
-// test helpers it calls, transitively; sorted by file then lines.
-func usedDecls(
+// note records in direct what a name declared at pos uses: its
+// declaration directly, or an interface method's implementations.
+func (u *testUses) note(direct map[declSpan]bool, pos token.Position) {
+	if d, isDecl := u.decls[pos]; isDecl {
+		direct[d] = true
+	}
+	for _, d := range u.impls[pos] {
+		if _, used := direct[d]; !used {
+			direct[d] = false
+		}
+	}
+}
+
+// usedDecl is a declaration a test uses, and whether it uses it only
+// through an interface.
+type usedDecl struct {
+	declSpan
+	viaInterface bool
+}
+
+// of lists the module declarations test uses, itself or through the test
+// helpers it calls, transitively; sorted by file then lines.
+func (u *testUses) of(
 	test *ast.FuncDecl,
 	info *types.Info,
 	helpers map[types.Object]*ast.FuncDecl,
-	decls map[token.Position]declSpan,
 	fset *token.FileSet,
-) []declSpan {
-	used := map[declSpan]bool{}
+) []usedDecl {
+	direct := map[declSpan]bool{} // span → used directly (not only via an interface)
 	visited := map[*ast.FuncDecl]bool{test: true}
 	queue := []*ast.FuncDecl{test}
 	for len(queue) > 0 {
@@ -151,23 +190,21 @@ func usedDecls(
 				}
 				return true
 			}
-			if d, isDecl := decls[fset.Position(obj.Pos())]; isDecl {
-				used[d] = true
-			}
+			u.note(direct, fset.Position(obj.Pos()))
 			return true
 		})
 	}
-	spans := make([]declSpan, 0, len(used))
-	for d := range used {
-		spans = append(spans, d)
+	used := make([]usedDecl, 0, len(direct))
+	for d, isDirect := range direct {
+		used = append(used, usedDecl{declSpan: d, viaInterface: !isDirect})
 	}
-	sort.Slice(spans, func(i, j int) bool {
-		if spans[i].file != spans[j].file {
-			return spans[i].file < spans[j].file
+	sort.Slice(used, func(i, j int) bool {
+		if used[i].file != used[j].file {
+			return used[i].file < used[j].file
 		}
-		return spans[i].lines < spans[j].lines
+		return used[i].lines < used[j].lines
 	})
-	return spans
+	return used
 }
 
 // isTestFunc reports whether fn is a test: a function `go test` runs,

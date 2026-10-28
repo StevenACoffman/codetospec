@@ -325,9 +325,9 @@ func rulesTouching(rules []rule, entityID string) []rule {
 	return out
 }
 
-// isEARSWord reports whether w is a word of the EARS templates (see
-// locale.EARSPatterns) in a supported language: every rule has them and no
-// prose invariant does, so they would only dilute the similarity.
+// isEARSWord reports whether w is a word of the EARS sentences (see
+// ears.Render) in a supported language: every rule has them and no prose
+// invariant does, so they would only dilute the similarity.
 func isEARSWord(w string) bool {
 	switch w {
 	case "the", "system", "shall", "when", "while", "then", "where",

@@ -89,7 +89,7 @@ func regroundRequest(misses []miss) string {
 			mi.rule, strings.Join(mi.values, ", "), strings.Join(mi.lines, ", "))
 	}
 	b.WriteString("For each, cite the lines that hold the value, or remove the value " +
-		"from the requirement. Keep every rule, change nothing else, and resend the " +
-		"full corrected JSON only.")
+		"from the rule's ears components. Keep every rule, change nothing else, and " +
+		"resend the full corrected JSON only.")
 	return b.String()
 }

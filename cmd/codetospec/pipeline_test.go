@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/mapper"
+	"github.com/StevenACoffman/codetospec/internal/questions"
 	"github.com/StevenACoffman/codetospec/internal/reducer"
 	"github.com/StevenACoffman/codetospec/internal/render"
 	"github.com/StevenACoffman/codetospec/internal/ui"
@@ -162,4 +164,82 @@ func TestEndToEndKeepsReviewedRule(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "no longer cites existing code") {
 		t.Fatalf("third run: err = %v, want the broken reviewed rule named", err)
 	}
+}
+
+// TestEndToEndResolutions: a question resolved in resolutions.yaml is no
+// longer listed in the README, and questions.json records its answer; a
+// malformed resolution stops the next run before any LLM call.
+func TestEndToEndResolutions(t *testing.T) {
+	server := mockLLM(t)
+	defer server.Close()
+	outDir := t.TempDir()
+	cfg := e2eConfig(t, server.URL, outDir)
+	logger := slog.New(slog.NewTextHandler(t.Output(), nil))
+	if err := runPipeline(context.Background(), cfg, ui.Discard{}, logger); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	out, err := os.OpenRoot(outDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = out.Close() })
+	ledger := readLedger(t, out)
+	var target questions.Question
+	for _, q := range ledger.Questions {
+		if q.Kind == questions.KindUngrounded {
+			target = q
+		}
+	}
+	if target.ID == "" {
+		t.Fatalf("no ungrounded question in %+v", ledger.Questions)
+	}
+	listed := "`" + target.Subject + "` : "
+	if readme, readErr := out.ReadFile("README.md"); readErr != nil ||
+		!strings.Contains(string(readme), listed) {
+		t.Fatalf("first README does not list %s (%v)", target.Subject, readErr)
+	}
+
+	resolution := target.ID + ":\n  disposition: verified\n  reason: checked by hand\n"
+	if err = out.WriteFile(questions.ResolutionsFile, []byte(resolution), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err = runPipeline(context.Background(), cfg, ui.Discard{}, logger); err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	readme, err := out.ReadFile("README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(readme), listed) {
+		t.Errorf("resolved rule %s still listed:\n%s", target.Subject, readme)
+	}
+	answered := false
+	for _, q := range readLedger(t, out).Questions {
+		answered = answered || (q.ID == target.ID && q.Resolution != nil)
+	}
+	if !answered {
+		t.Errorf("questions.json does not record the resolution of %s", target.ID)
+	}
+
+	if err = out.WriteFile(questions.ResolutionsFile, []byte("q-1: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err = runPipeline(context.Background(), cfg, ui.Discard{}, logger)
+	if err == nil || !strings.Contains(err.Error(), questions.ResolutionsFile) {
+		t.Fatalf("third run: err = %v, want the resolutions file named", err)
+	}
+}
+
+// readLedger reads the questions.json of out.
+func readLedger(t *testing.T, out *os.Root) questions.Ledger {
+	t.Helper()
+	data, err := out.ReadFile(render.QuestionsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ledger questions.Ledger
+	if err = json.Unmarshal(data, &ledger); err != nil {
+		t.Fatal(err)
+	}
+	return ledger
 }

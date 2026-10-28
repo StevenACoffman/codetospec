@@ -411,7 +411,7 @@ func servedFacts(sources []source, w *wording) []Fact {
 func addServedTexts(w *wording, tr translate) {
 	w.servedTitleFmt = tr("Enregistrement : %s", "Registration: %s")
 	w.servedFmt = tr(
-		"Le systeme doit servir %s seulement si %s.",
+		"Le système doit servir %s seulement si %s.",
 		"The system shall serve %s only when %s.",
 	)
 }

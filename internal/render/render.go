@@ -20,10 +20,11 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/communities"
 	"github.com/StevenACoffman/codetospec/internal/consistency"
 	"github.com/StevenACoffman/codetospec/internal/domainmodel"
+	"github.com/StevenACoffman/codetospec/internal/ears"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/locale"
-	"github.com/StevenACoffman/codetospec/internal/testreach"
+	"github.com/StevenACoffman/codetospec/internal/questions"
 )
 
 // Meta is run-level information rendered into README.md.
@@ -73,6 +74,12 @@ type Meta struct {
 	// Reviewed are the files of the rules a person owns, by node id, written
 	// as they are instead of rendered (see KeepReviewed).
 	Reviewed map[string][]byte
+	// Resolutions are a person's answers to the run's questions, by id
+	// (questions.Load): a resolved finding is not listed in the README.
+	Resolutions map[string]questions.Resolution
+	// Actors is the glossary of the actors rules may name (config
+	// actors), kept in graph.json for exports (LoadActors).
+	Actors map[string]string
 }
 
 // Write renders the whole graph into outDir: nodes/, graph.json, README.md
@@ -88,12 +95,16 @@ func Write(outDir string, nodes []graph.Node, meta *Meta) error {
 	if err != nil {
 		return err
 	}
-	if err = writeGraphJSON(outDir, nodes, files); err != nil {
+	if err = writeGraphJSON(outDir, nodes, files, meta.Actors); err != nil {
+		return err
+	}
+	ledger := questions.Apply(questions.List(nodes, meta.CoverageGaps), meta.Resolutions)
+	if err = writeQuestions(outDir, &ledger); err != nil {
 		return err
 	}
 	if err = atomicfs.WriteFile(
 		filepath.Join(outDir, "README.md"),
-		[]byte(readme(nodes, meta, text)),
+		[]byte(readme(nodes, meta, &ledger, text)),
 	); err != nil {
 		return fmt.Errorf("write README.md: %w", err)
 	}
@@ -175,6 +186,8 @@ type extraField struct {
 func frontmatterExtras() []extraField {
 	return []extraField{
 		{key: "ears"},
+		{key: graph.ExtraEARSPatterns},
+		{key: graph.ExtraEARSActions, quoted: true},
 		{key: "acceptance"},
 		{key: "nature"},
 		{key: graph.ExtraQualityAttribute},
@@ -193,6 +206,8 @@ func frontmatterExtras() []extraField {
 		{key: graph.ExtraTests},
 		{key: graph.ExtraTestDepth},
 		{key: graph.ExtraTestedBy, quoted: true},
+		{key: graph.ExtraTestsViaInterface},
+		{key: graph.ExtraExecuted},
 		{key: graph.ExtraTransitions},
 		{key: graph.ExtraCoverage},
 		{key: graph.ExtraCoverageGaps, quoted: true},
@@ -310,12 +325,22 @@ type graphJSONNode struct {
 	File string `json:"file"`
 	// Hash is the hash of the file as written: the next run tells a file a
 	// person edited by it (see LoadPrior).
-	Hash     string       `json:"hash"`
-	Coverage string       `json:"coverage,omitempty"` // domains only
-	Edges    []graph.Edge `json:"edges"`
+	Hash     string `json:"hash"`
+	Coverage string `json:"coverage,omitempty"` // domains only
+	// EARS are a rule's components, read from its sentence with the
+	// actions kept beside it (graph.RuleComponents), so that a rule a
+	// person edited has the components of its text; absent when the
+	// sentence does not parse.
+	EARS  *ears.Components `json:"ears,omitempty"`
+	Edges []graph.Edge     `json:"edges"`
 }
 
-func writeGraphJSON(outDir string, nodes []graph.Node, files map[string][]byte) error {
+func writeGraphJSON(
+	outDir string,
+	nodes []graph.Node,
+	files map[string][]byte,
+	actors map[string]string,
+) error {
 	entries := make(map[string]graphJSONNode, len(nodes))
 	for _, n := range nodes {
 		edges := n.Edges
@@ -327,10 +352,15 @@ func writeGraphJSON(outDir string, nodes []graph.Node, files map[string][]byte) 
 			File:     NodeFile(&n),
 			Hash:     fileHash(files[n.ID]),
 			Coverage: n.Extra[graph.ExtraCoverage],
+			EARS:     components(&n),
 			Edges:    edges,
 		}
 	}
-	data, err := json.MarshalIndent(map[string]any{"nodes": entries}, "", "  ")
+	doc := map[string]any{"nodes": entries}
+	if len(actors) > 0 {
+		doc["actors"] = actors
+	}
+	data, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode graph.json: %w", err)
 	}
@@ -341,6 +371,19 @@ func writeGraphJSON(outDir string, nodes []graph.Node, files map[string][]byte) 
 		return fmt.Errorf("write graph.json: %w", err)
 	}
 	return nil
+}
+
+// components are the EARS components of a rule node's sentence; nil for
+// another node or a sentence that does not parse.
+func components(n *graph.Node) *ears.Components {
+	if n.Type != graph.TypeRule {
+		return nil
+	}
+	c, ok := graph.RuleComponents(n)
+	if !ok {
+		return nil
+	}
+	return &c
 }
 
 func countByType(nodes []graph.Node) map[string]int {
@@ -430,6 +473,27 @@ func readmeCounts(nodes []graph.Node, text *locale.Text) string {
 	return b.String()
 }
 
+// unusedActorsLine names the glossary's actors (Meta.Actors) that no
+// rule names, so a dead entry, or one the model never picks, shows; ""
+// when every one is named. A rule whose sentence does not read back
+// (graph.RuleComponents) names no actor here.
+func unusedActorsLine(nodes []graph.Node, actors map[string]string, text *locale.Text) string {
+	unused := maps.Clone(actors)
+	for i := range nodes {
+		if nodes[i].Type != graph.TypeRule {
+			continue
+		}
+		if c, ok := graph.RuleComponents(&nodes[i]); ok {
+			delete(unused, c.System)
+		}
+	}
+	if len(unused) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(text.UnusedActorsFmt+"\n",
+		strings.Join(slices.Sorted(maps.Keys(unused)), ", "))
+}
+
 // readmeCoverage is the README coverage section: what the graph covers,
 // what failed or was left out, and the crosscheck tally.
 func readmeCoverage(meta *Meta, text *locale.Text) string {
@@ -487,7 +551,7 @@ func readmeCoverage(meta *Meta, text *locale.Text) string {
 
 // readme renders the output README: counts, coverage, the checks for
 // review, the domain-model sections and the domain map.
-func readme(nodes []graph.Node, meta *Meta, text *locale.Text) string {
+func readme(nodes []graph.Node, meta *Meta, ledger *questions.Ledger, text *locale.Text) string {
 	var b strings.Builder
 	b.WriteString(readmeCounts(nodes, text))
 	b.WriteString(readmeCoverage(meta, text))
@@ -495,9 +559,12 @@ func readme(nodes []graph.Node, meta *Meta, text *locale.Text) string {
 	if issues := countSet(nodes, graph.TypeRule, graph.ExtraEARSIssue); issues > 0 {
 		fmt.Fprintf(&b, text.EARSIssuesFmt+"\n", issues)
 	}
+	b.WriteString(unusedActorsLine(nodes, meta.Actors, text))
 	b.WriteString(testedLine(nodes, text))
-	b.WriteString(ungroundedSection(nodes, text))
-	b.WriteString(gapsSection(meta.CoverageGaps, text))
+	b.WriteString(executedLine(nodes, text))
+	b.WriteString(resolutionsLine(ledger, text))
+	b.WriteString(ungroundedSection(nodes, ledger, text))
+	b.WriteString(gapsSection(meta.CoverageGaps, ledger, text))
 	b.WriteString(splitSection(meta.DomainSplits, text))
 	b.WriteString(sharedSection(meta.SharedEntities, text))
 
@@ -659,32 +726,13 @@ func countSet(nodes []graph.Node, nodeType, key string) int {
 	return n
 }
 
-// testedLine counts the rules a test reaches among those whose test reach
-// is known; empty when none is (the run had no test facts).
-func testedLine(nodes []graph.Node, text *locale.Text) string {
-	known, reached := 0, 0
-	for i := range nodes {
-		tests := nodes[i].Extra[graph.ExtraTests]
-		if nodes[i].Type != graph.TypeRule || tests == "" {
-			continue
-		}
-		known++
-		if tests != "0" {
-			reached++
-		}
-	}
-	if known == 0 {
-		return ""
-	}
-	return fmt.Sprintf(text.TestedFmt+"\n", reached, known, testreach.MaxDepth)
-}
-
 // ungroundedSection lists the rules whose stated values are missing from
 // their cited code, for review; empty when there are none.
-func ungroundedSection(nodes []graph.Node, text *locale.Text) string {
+func ungroundedSection(nodes []graph.Node, ledger *questions.Ledger, text *locale.Text) string {
 	var listed []graph.Node
 	for _, n := range nodes {
-		if n.Type == graph.TypeRule && n.Extra["grounding"] == "ungrounded" {
+		if n.Type == graph.TypeRule && n.Extra["grounding"] == "ungrounded" &&
+			!ledger.ResolvedRule(questions.KindUngrounded, n.ID) {
 			listed = append(listed, n)
 		}
 	}
@@ -705,7 +753,13 @@ func ungroundedSection(nodes []graph.Node, text *locale.Text) string {
 
 // gapsSection lists the code that produced no rule, by domain: where a
 // missing rule proves nothing.
-func gapsSection(gaps []graph.CoverageGap, text *locale.Text) string {
+func gapsSection(all []graph.CoverageGap, ledger *questions.Ledger, text *locale.Text) string {
+	var gaps []graph.CoverageGap
+	for _, g := range all {
+		if !ledger.ResolvedGap(&g) {
+			gaps = append(gaps, g)
+		}
+	}
 	if len(gaps) == 0 {
 		return ""
 	}

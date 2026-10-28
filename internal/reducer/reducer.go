@@ -13,11 +13,13 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/StevenACoffman/codetospec/internal/atomicfs"
+	"github.com/StevenACoffman/codetospec/internal/ears"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/llm"
 	"github.com/StevenACoffman/codetospec/internal/locale"
@@ -31,7 +33,7 @@ Hard rules:
 - Output ONLY a valid JSON object matching the schema. No markdown fences, no prose.
 - Merge duplicates and near-duplicates. Keep the union of their citations verbatim; never invent or alter citations.
 - entities and endpoints MUST be subsets of the provided allowed lists.
-- Keep requirements in <LANG>, one behavior per rule, each in one of these EARS patterns:
+- Keep each rule's requirement as EARS components in "ears", in <LANG>, one behavior per rule, each part a phrase without its keyword: "where" features (0 or more), "while" states and preconditions (0 or more, a precondition of the trigger included), "when" the triggering event (0 or 1), "if" the unwanted condition (0 or 1; with a "when" it is a second trigger), "system" one of ALLOWED_ACTORS when that part of the system performs the response (omit it otherwise), "shall" what the actor does (1 or more; one item per action: "log an error and return the cached value" is two, "log an error" and "return the cached value"; a list the action applies to stays one, "validate the role, the source and the invariants"), each {"text": the verb phrase that follows "the system shall", "action": its opening words naming what is done, negation included ("not store" in "not store card numbers")}. When merging candidates, keep the conditions they share; never add one the candidates do not state. The sentence is written from them, in this order:
 <EARS>
 - slug: lowercase ascii, words separated by "-", max 5 words, unique within the domain.
 - acceptance_criteria: 2 to 5 concrete, testable checks per rule, each restating a behavior the requirement and its cited code actually establish. Do NOT invent error cases, edge cases, thresholds, defaults or inputs the requirement does not state — a criterion that reaches beyond the cited behavior gets the whole rule rejected at review. Written in <LANG>.
@@ -41,19 +43,23 @@ Hard rules:
 const userPromptFormat = `DOMAIN: %s
 ALLOWED_ENTITIES: %s
 ALLOWED_ENDPOINTS: %s
+ALLOWED_ACTORS: %s
 
 OUTPUT JSON SCHEMA:
-{"domain_summary": string, "rules": [{"slug": string, "title": string, "ears_kind": string, "requirement": string, "rationale": string, "citations": [{"path": string, "lines": "A-B"}], "entities": [string], "endpoints": [string], "acceptance_criteria": [string], "nature": "business|presentation|technical", "origin": "explicit|implicit", "confidence": number}]}
+{"domain_summary": string, "rules": [{"slug": string, "title": string, "ears": {"where": [string], "while": [string], "when": string, "if": string, "system": string, "shall": [{"text": string, "action": string}]}, "rationale": string, "citations": [{"path": string, "lines": "A-B"}], "entities": [string], "endpoints": [string], "acceptance_criteria": [string], "nature": "business|presentation|technical", "origin": "explicit|implicit", "confidence": number}]}
 
 CANDIDATE_RULES:
 %s`
 
 // Rule is one consolidated business rule.
 type Rule struct {
-	Slug               string        `json:"slug"`
-	Title              string        `json:"title"`
-	EarsKind           string        `json:"ears_kind"`
-	Requirement        string        `json:"requirement"`
+	Slug  string          `json:"slug"`
+	Title string          `json:"title"`
+	EARS  ears.Components `json:"ears"`
+	// EarsKind and Requirement are derived from EARS (ears.KindOf,
+	// ears.Render) by withText, as mapper.Rule's are.
+	EarsKind           string        `json:"-"`
+	Requirement        string        `json:"-"`
 	Rationale          string        `json:"rationale"`
 	Citations          []extract.Ref `json:"citations"`
 	Entities           []string      `json:"entities"`
@@ -87,12 +93,13 @@ type Reducer struct {
 	Log       *slog.Logger
 	Model     string // model id, folded into the cache key
 	Lang      string
-	OutDir    string   // <out>/.codetospec/reduce
-	Entities  []string // allowed entity ids
-	Endpoints []string // allowed endpoint ids
-	BatchSize int      // candidates per reduce call; 0 uses DefaultBatchSize
-	Workers   int      // parallel domains; 0 or 1 means sequential
-	Mode      string   // ModeFull (default when empty) or ModeMerge
+	OutDir    string        // <out>/.codetospec/reduce
+	Entities  []string      // allowed entity ids
+	Endpoints []string      // allowed endpoint ids
+	Actors    mapper.Actors // actors a rule may name (mapper.Mapper.Actors)
+	BatchSize int           // candidates per reduce call; 0 uses DefaultBatchSize
+	Workers   int           // parallel domains; 0 or 1 means sequential
+	Mode      string        // ModeFull (default when empty) or ModeMerge
 	// OnUnit is called after each finished domain with its token usage.
 	OnUnit func(out Output, usage llm.Usage)
 }
@@ -189,8 +196,14 @@ func (r *Reducer) reduceDomain(
 		switch unmarshalErr := json.Unmarshal(data, &cached); {
 		case unmarshalErr != nil:
 			r.Log.WarnContext(ctx, "corrupt reduce cache, re-reducing", "path", outPath)
-		case cached.CandidatesHash == hash:
-			return cached, llm.Usage{}, nil // candidates and prompt unchanged
+		case cached.CandidatesHash == hash: // candidates and prompt unchanged
+			rules, unlisted := listedActors(cached.Rules, &r.Actors)
+			if unlisted > 0 {
+				r.Log.InfoContext(ctx, "cached rules name actors no longer listed; "+
+					"they now state the system", "domain", domain, "rules", unlisted)
+			}
+			cached.Rules = withText(rules, r.Lang)
+			return cached, llm.Usage{}, nil
 		default:
 			r.Log.InfoContext(
 				ctx,
@@ -247,7 +260,8 @@ func (r *Reducer) reduceBatch(
 		return reducePayload{}, llm.Usage{}, fmt.Errorf("encode candidates: %w", err)
 	}
 	userPrompt := fmt.Sprintf(userPromptFormat,
-		domain, mustJSON(r.Entities), mustJSON(r.Endpoints), string(candidateJSON))
+		domain, mustJSON(r.Entities), mustJSON(r.Endpoints), mustJSON(r.Actors.Names),
+		string(candidateJSON))
 	msgs := []llm.Message{
 		{
 			Role:    "system",
@@ -259,7 +273,9 @@ func (r *Reducer) reduceBatch(
 	var usage llm.Usage
 	payload, err := llm.ChatJSON(ctx, r.LLM, msgs, maxRepairs, func(u llm.Usage) { usage.Add(u) },
 		func(reply string) (reducePayload, error) {
-			return validateReduceReply(reply, r.Entities, r.Endpoints, allowedCitations)
+			return validateReduceReply(reply, r.Lang,
+				&mapper.Allowed{Entities: r.Entities, Endpoints: r.Endpoints, Actors: r.Actors},
+				allowedCitations)
 		})
 	return payload, usage, err
 }
@@ -447,8 +463,8 @@ func unionRefs(a, b []extract.Ref) []extract.Ref {
 // repaired mechanically (slugify, truncate to 5 words, numeric suffix on
 // duplicates) instead of burning LLM correction rounds on formatting.
 func validateReduceReply(
-	reply string,
-	allowedEntities, allowedEndpoints []string,
+	reply, lang string,
+	lists *mapper.Allowed,
 	allowedCitations map[string]bool,
 ) (reducePayload, error) {
 	var payload reducePayload
@@ -474,15 +490,45 @@ func validateReduceReply(
 		if err := checkCitations(i, rule.Citations, allowedCitations); err != nil {
 			return payload, err
 		}
+		normalized := rule.EARS.Normalized()
+		rule.EARS = lists.Actors.Named(&normalized)
 		labels := mapper.Labels{
-			EarsKind: rule.EarsKind, Nature: rule.Nature, Origin: rule.Origin,
+			EARS: &rule.EARS, Nature: rule.Nature, Origin: rule.Origin,
 			Confidence: rule.Confidence, Entities: rule.Entities, Endpoints: rule.Endpoints,
 		}
-		if err := mapper.CheckLabels(&labels, allowedEntities, allowedEndpoints); err != nil {
+		if err := mapper.CheckLabels(&labels, lists); err != nil {
 			return payload, fmt.Errorf("rules[%d].%w", i, err)
 		}
 	}
+	payload.Rules = withText(payload.Rules, lang)
 	return payload, nil
+}
+
+// listedActors returns rules with each actor as mapper.Actors.Listed
+// keeps it, and how many fell back to the system, as mapper.ListedActors.
+func listedActors(rules []Rule, actors *mapper.Actors) ([]Rule, int) {
+	out := slices.Clone(rules)
+	unlisted := 0
+	for i := range out {
+		var dropped bool
+		if out[i].EARS, dropped = actors.Listed(&out[i].EARS); dropped {
+			unlisted++
+		}
+	}
+	return out, unlisted
+}
+
+// withText returns rules with the kind and sentence their components make
+// in lang.
+//
+// Requires: each rule's EARS passed ears.Validate.
+func withText(rules []Rule, lang string) []Rule {
+	out := slices.Clone(rules)
+	for i := range out {
+		out[i].EarsKind = ears.KindOf(&out[i].EARS)
+		out[i].Requirement = ears.Render(&out[i].EARS, lang)
+	}
+	return out
 }
 
 // checkCitations requires rule i to cite at least one span, each copied

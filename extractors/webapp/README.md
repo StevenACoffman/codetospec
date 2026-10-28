@@ -1,269 +1,269 @@
-# Extracteur webapp (Khan Academy)
+# webapp extractor (Khan Academy)
 
-Extracteur codetospec pour les services Go de `Khan/webapp` (GraphQL via
-gqlgen), sur le protocole `codetospec/facts/v1`. Il émet, sans LLM, ce qu'un
-modèle reproduit cher et approximativement, ou pas du tout :
+codetospec extractor for the Go services of `Khan/webapp` (GraphQL via
+gqlgen), on the `codetospec/facts/v1` protocol. Without an LLM, it emits what
+a model reproduces at high cost and approximately, or not at all:
 
-- **Règles d'autorisation** (`rule`) : le garde d'accès de chaque méthode de
-  resolver gqlgen. Un contrôle est d'abord ce que webapp déclare comme tel :
-  toute fonction, méthode d'interface ou variable marquée
-  `//ka:permission-check` dans le service (la directive qu'exige son linter
-  `dev/linters/permissions_lint.go`, ADR-211), et ceux que marquent les paquets
-  partagés de webapp (`pkg/khan/acl`, `pkg/web` : option `-webapp`, par défaut
-  `<root>/../..` ; seuls les fichiers de `pkg/` portant la directive sont lus,
-  le service garde la main sur ses propres marquages). L'erreur d'un tel contrôle
-  est un refus seulement s'il construit lui-même une erreur d'autorisation
-  (`requireLoggedInAdminKaid` → `errors.Unauthorized`) ; sinon c'est un échec
-  de lecture (`GetAllVisibleUDIs` refuse par une liste vide,
-  `UserIsKADSSSuperAdmin` par `false`) et `if err != nil` reste de la
-  plomberie. Forme `if err := check(); err != nil {…}` reconnue. S'y ajoutent
+- **Authorization rules** (`rule`): the access guard of each gqlgen resolver
+  method. A check is first what webapp declares as one: any function,
+  interface method or variable marked `//ka:permission-check` in the service
+  (the directive its linter `dev/linters/permissions_lint.go` requires,
+  ADR-211), and those marked by webapp's shared packages (`pkg/khan/acl`,
+  `pkg/web`: option `-webapp`, default `<root>/../..`; only the files of
+  `pkg/` carrying the directive are read, and the service keeps control of its
+  own markings). The error of such a check is a refusal only if the check
+  itself builds an authorization error (`requireLoggedInAdminKaid` →
+  `errors.Unauthorized`); otherwise it is a read failure (`GetAllVisibleUDIs`
+  refuses with an empty list, `UserIsKADSSSuperAdmin` with `false`) and
+  `if err != nil` stays plumbing. The form `if err := check(); err != nil {…}`
+  is recognized. Added to these are
   (`acl.IsLoggedIn`, `acl.IsCurrentUser`,
   `acl.ActorHasPermission[Err]`, `acl.IsCoachedByActor`,
-  `ktx.RequestIs…()`, les prédicats du paquet d'accès du service — fonctions
-  exportées de `permissions/` dont le premier résultat est un `bool`, option
-  `-access-pkgs` ; les chargeurs comme `GetAllVisibleUDIs` n'en sont pas —
-  et le marqueur `acl.OpenAccess()`), rendu en exigence
-  EARS qui **nomme l'opération GraphQL** (`Mutation.addAuthEmail`), citée sur
-  les lignes exactes du garde. Le corps est parcouru branche par branche
-  (`if`/`else`, `else if`, `switch` sans étiquette, boucles `range`, jusqu'à
-  4 niveaux) : la condition d'un garde est celle des branches qui y mènent
-  ET la sienne (« `kaid == nil` est faux ET l'appelant n'est pas
-  l'utilisateur `kaid` »), le `default` d'un `switch` vaut « aucun des cas »,
-  et un `else if` après une branche qui rend se lit comme l'instruction
-  suivante. Un garde est un bloc qui **finit** par un `return` (ou, dans une
-  boucle, par `continue` : « rejeter cet élément `udiID` » ; un `return` dans
-  une boucle se lit « pour un `cdi` de `cdis` ») et dont la condition propre
-  utilise un contrôle, ou qui renvoie une erreur d'autorisation sur son
-  propre chemin : `errors.Unauthorized`/`NotAllowed`/`Forbidden`/
-  `PermissionDenied`, ou un code GraphQL `…ErrorCodeUnauthorized`. Les
-  variables sont remplacées par ce qu'elles valent, appel ou condition
-  (`authorized := a || b` puis `if !authorized`), y compris l'idiome
-  `ok := A; if !ok { ok = B }` (« A OU B ») ; une variable réaffectée dans un
-  bloc imbriqué n'est plus rattachée. L'erreur d'un appel se lit « `f(…)`
-  échoue », et ne fait un garde que si l'appel refuse par son erreur — lui
-  ou, par délégation, une fonction qu'il appelle (`updateUserRoleValidation`
-  → `getValidatedAdminKaid`). `acl.IsCurrentUser` sur le kaid de l'appelant
-  lui-même (`kaid := user.Kaid`, `user` de `RequestUser()`) est signalé
-  « (jamais vrai) » : ce contrôle ne refuse personne. Le résultat est nommé :
-  rejet avec l'erreur `X`, ou « ne renvoie aucune donnée » quand le garde
-  renvoie des valeurs nulles ou vides (`return nil, nil`, `[]T{}`). Un
-  prédicat inconnu est cité tel quel (jamais paraphrasé).
-- **Visibilité** (`rule`, « Visibilité : … ») : chaque appel d'un filtre
-  marqué — premier résultat une collection, erreur qui ne refuse pas
-  (`permissions.GetAllVisibleUDIs`) — limite l'opération à ce que le filtre
-  laisse voir à l'appelant.
-- **Accès non vérifié** (`rule`, « Accès non vérifié : … ») : `acl.TODO()`,
-  que webapp documente comme un contrôle vide marquant un resolver sans
-  vérification de permission (« un risque de sécurité potentiel »).
-- **Rôles** (`rule`, « Rôle : … », service admin) : chaque
-  `RegisterRoleDefinition(RoleDefinition{…})` accorde ses capacités —
-  « Le systeme doit accorder au rôle `supporter` (…) les capacités
-  `CanViewUserIdentity`, … » ; attributs `role` et `capabilities` pour la
-  jointure avec les permissions que les services vérifient.
-- **Vérification d'accès** (`rule`, « Vérification d'accès : … ») : un
-  resolver sans autre règle nomme le premier contrôle qu'il référence — le
-  linter de webapp en exige un — sans prétendre dire comment il décide. À
-  défaut, un alias nomme la méthode exportée du même resolver qu'il appelle
+  `ktx.RequestIs…()`, the predicates of the service's access package —
+  exported functions of `permissions/` whose first result is a `bool`, option
+  `-access-pkgs`; loaders such as `GetAllVisibleUDIs` are not —
+  and the `acl.OpenAccess()` marker), rendered as an EARS requirement
+  that **names the GraphQL operation** (`Mutation.addAuthEmail`), cited on
+  the exact lines of the guard. The body is walked branch by branch
+  (`if`/`else`, `else if`, unlabeled `switch`, `range` loops, up to
+  4 levels): a guard's condition is that of the branches leading to it
+  AND its own ("`kaid == nil` does not hold AND the caller is not the user
+  `kaid`"), the `default` of a `switch` means "none of the cases",
+  and an `else if` after a branch that returns reads as the next
+  statement. A guard is a block that **ends** with a `return` (or, in a
+  loop, with `continue`: "reject that `udiID`"; a `return` inside a loop
+  reads "for some `cdi` in `cdis`") and whose own condition uses a check, or
+  that returns an authorization error on its own path:
+  `errors.Unauthorized`/`NotAllowed`/`Forbidden`/
+  `PermissionDenied`, or a GraphQL code `…ErrorCodeUnauthorized`.
+  Variables are replaced by what they hold, call or condition
+  (`authorized := a || b` then `if !authorized`), including the idiom
+  `ok := A; if !ok { ok = B }` ("A OR B"); a variable reassigned in a
+  nested block is no longer attached. The error of a call reads "`f(…)`
+  fails", and makes a guard only if the call refuses through its error — itself
+  or, by delegation, a function it calls (`updateUserRoleValidation`
+  → `getValidatedAdminKaid`). `acl.IsCurrentUser` on the caller's own kaid
+  (`kaid := user.Kaid`, `user` from `RequestUser()`) is flagged
+  "(never true)": this check refuses no one. The result is named:
+  rejection with the `X` error, or "return no data" when the guard
+  returns zero or empty values (`return nil, nil`, `[]T{}`). An
+  unknown predicate is quoted as is (never paraphrased).
+- **Visibility** (`rule`, "Visibility: …"): each call of a marked
+  filter — first result a collection, an error that does not refuse
+  (`permissions.GetAllVisibleUDIs`) — limits the operation to what the filter
+  lets the caller see.
+- **Unchecked access** (`rule`, "Unchecked access: …"): `acl.TODO()`,
+  which webapp documents as an empty check marking a resolver without a
+  permission check ("a potential security risk").
+- **Roles** (`rule`, "Role: …", admin service): each
+  `RegisterRoleDefinition(RoleDefinition{…})` grants its capabilities —
+  "The system shall grant the `supporter` role (…) the capabilities
+  `CanViewUserIdentity`, …"; attributes `role` and `capabilities` for the
+  join with the permissions the services check.
+- **Access check** (`rule`, "Access check: …"): a resolver with no other
+  rule names the first check it references — webapp's linter requires
+  one — without claiming to say how it decides. Failing that, an alias names
+  the exported method of the same resolver that it calls
   (`FindManyStudentListByDescriptors` → `r.FindManyClassroomByDescriptors`),
-  y compris sur un récepteur reconstruit
+  including on a rebuilt receiver
   (`(&mutationResolver{r.Resolver}).SyncActiveAssignmentsInClassroomToLms`),
-  seulement si celle-ci a une règle.
-  Restent à ce niveau les formes qui demandent un flot de données : erreur
-  différée (`err = errors.Unauthorized()` rendue plus loin), erreurs
-  chaînées (`if err == nil { err = check() }`), branche d'octroi
+  only if that method has a rule.
+  The forms that need data flow stay at this level: a deferred
+  error (`err = errors.Unauthorized()` returned later), chained errors
+  (`if err == nil { err = check() }`), a granting branch
   (`if canView { result = … }`).
-- **Handlers net/http** (`rule`, « Contrôle d'accès : /safelist/add ») :
-  chaque handler enregistré par `serve.HandleFunc(path, h)` /
-  `serve.Handle(path, h)` hors de `resolvers/` — valeur de méthode
-  (`rts.HandleGraphQL`), fonction, closure qui n'appelle qu'elle, ou
-  enveloppe (`serve.CreateTaskHandler(f)`) — est parcouru comme un resolver ;
-  la règle nomme ses chemins. C'est le cas du graphql-gateway, qui n'a ni
-  `gqlgen.yml` ni resolvers. Un refus s'y lit aussi par le statut écrit
-  (`w.WriteHeader(http.StatusUnauthorized)`, `http.Error(…, 403)`) ; une
-  erreur construite pour être journalisée (`ctx.Log().Warn(errors.X(…))`)
-  n'est pas renvoyée et ne compte pas — ce qui corrige aussi des resolvers
-  qui journalisent un `Unauthorized` puis ne renvoient rien. Les endpoints
-  viennent de l'extracteur Go, que codetospec relie aux règles par leurs
-  citations. Une variable de paquet tenant une erreur d'autorisation
-  (`var RateLimitExceeded = errors.Unauthorized(…)`) nomme le refus. Une
-  fonction qui construit seulement une erreur d'autorisation quelque part
-  n'est pas pour autant un contrôle (mesuré : cela lisait des échecs de
-  données comme `signup.ProcessSignup` échoue).
-- **Authentification des requêtes** : sont aussi des contrôles, sans
-  directive ni erreur d'autorisation, (1) les authentificateurs — une
-  fonction qui renvoie une erreur, reçoit la requête (`*http.Request`,
-  `http.Header`) et lit un secret (`ctx.Secrets().Get`, `secrets.Validate`),
-  elle-même ou par une fonction de son paquet : la signature des messages
-  pubsub (`pubsub.DecodeAndValidatePushMsg`, échec `InvalidInput`), lue dans
-  les paquets de `pkg/` que le service importe (`go.mod` de webapp) ; (2) une
-  valeur de la requête (`r.URL.Query().Get`, `r.Header.Get`, `r.FormValue`)
-  comparée à une chaîne de paquet dont le nom dit jeton ou secret
-  (`_pubsubToken`, heuristique sur le nom, rendue telle quelle) ; (3) une
-  enveloppe d'enregistrement dont la closure renvoyée a un garde
-  (`serve.CreateTaskHandler` refuse ce qui n'est pas une tâche) : « vérifier
-  l'accès à /tasks/… avec `serve.CreateTaskHandler` », cité sur
-  l'enregistrement ; (4) une fonction non marquée qui refuse elle-même avec
-  une erreur d'autorisation sous une condition sur un contrôle connu
-  (`_ensureDevAccess`, `checkAIGuidePermissions`) : son erreur refuse.
-- **Règles du code partagé** (citées dans `pkg/`, racine `pkg` :
-  `codetospec --ref-root pkg=<checkout>/pkg`, que passe `scanwebapp.sh`) : les
-  paquets de `pkg/` que le service importe sont lus transitivement, et seules
-  les fonctions qu'il **atteint** — appelées ou passées en valeur, d'un paquet
-  à l'autre, méthodes et interfaces non suivies (borne basse) — donnent des
-  règles : gardes d'une enveloppe (« rejeter les requêtes passant par
-  `ValidateGraphqlSecretMiddleware` »), politiques
-  (`validateFastlyAuthnHeader`). Le gateway importe `serve` sans atteindre
-  son middleware GraphQL, et n'en hérite pas. Domaine `shared-<paquet>`. Une
-  comparaison avec un local tenant une valeur de requête
-  (`actual := r.Header.Get(H)`) se lit côte à côte : « `r.Header.Get(H)`
-  ne vaut pas `expected` ».
-- **Code partagé atteint** (`reach`, racine `pkg`) : chaque déclaration de
-  `pkg/` que le service atteint (la même lecture que ci-dessus : fonctions,
-  variables, types, et les méthodes d'un type atteint). codetospec en tire
-  les règles héritées de la spec de `pkg/` (`codetospec run --inherit
-  pkg=<graphe>`, voir `internal/inherit`) ; `scanwebapp.sh` le passe dès
-  que `~/spec-graphs/pkg` existe (`PKG_GRAPH`).
-- **Contrats d'en-tête** (`rule`, « Contrat d'en-tête : H ») : attributs
-  `header`, `contract` (`sends` | `requires` | `forwards`) et `secret` (le nom
-  du secret dans le magasin, `secrets.GSM("backend_to_gateway_secret", 1)`,
-  le même d'un service à l'autre). `sends` : `….Header.Set|Add("X-…", v)`
-  avec `v` lu d'un secret dans la fonction, ou passé en paramètre par un
-  appelant du même paquet qui l'a lu (`gqlclient.NewClient` → `newClient`) ;
-  `requires` : `secrets.Validate(ctx, S, <en-tête>)` ou un local d'en-tête
-  comparé à un local de secret ; `forwards` : une variable de paquet que
-  parcourt une boucle qui copie des en-têtes (`_reqHeaderForwardingMap` du
-  gateway), une règle pour la liste.
-- **Enregistrements conditionnels** (`rule`, « Enregistrement : / ») : un
-  `serve.HandleFunc|Handle(path, …)` sous des `if` (le `else` nié), quel que
-  soit le handler : « Le systeme doit servir / seulement si
-  `os.Getenv("KA_IS_DEV_SERVER") == "1"` est vrai » (le playground du
-  gateway), cité du `if` extérieur à l'enregistrement. Les règles du code
-  partagé et ses contrats ont toujours le domaine `shared-<paquet>`.
-- **Politiques d'accès** (`rule`, « Politique d'accès : _validatePermission »)
-  : une fonction qui ne renvoie qu'une erreur, accepte sur certains chemins
-  (`return nil`) et finit par un refus (erreur d'autorisation, ou erreur d'un
-  contrôle qui en construit une : `return validateErr`) est une liste
-  d'autorisation ; la règle donne chaque condition d'acceptation (branche,
-  imbrication, « pour un `x` de `xs` » en boucle), jointes par OU : « Le
-  systeme doit accepter une requête vérifiée par `_validatePermission`
-  seulement si `isDev` est vrai OU (…) …, et la rejeter sinon avec l'erreur
-  `Unauthorized` ». `v, ok := m[k]` se lit « `k` est une clé de `m` ».
-- **Tables d'accès** (`rule`) : une table lue par un contrôle a ses propres
-  règles, citées sur ses entrées. Une table de limites de débit
-  (`rules := _rateLimits[op]` puis `ratelimit.ByIP(…,
+- **net/http handlers** (`rule`, "Access control: /safelist/add"):
+  each handler registered by `serve.HandleFunc(path, h)` /
+  `serve.Handle(path, h)` outside `resolvers/` — method value
+  (`rts.HandleGraphQL`), function, closure that only calls one, or
+  wrapper (`serve.CreateTaskHandler(f)`) — is walked like a resolver;
+  the rule names its paths. This is the case of the graphql-gateway, which has
+  neither `gqlgen.yml` nor resolvers. A refusal also reads from the status
+  written (`w.WriteHeader(http.StatusUnauthorized)`, `http.Error(…, 403)`); an
+  error built to be logged (`ctx.Log().Warn(errors.X(…))`)
+  is not returned and does not count — which also corrects resolvers
+  that log an `Unauthorized` and then return nothing. The endpoints
+  come from the Go extractor, which codetospec links to rules by their
+  citations. A package variable holding an authorization error
+  (`var RateLimitExceeded = errors.Unauthorized(…)`) names the refusal. A
+  function that merely builds an authorization error somewhere
+  is not thereby a check (measured: this read data failures
+  such as `signup.ProcessSignup` fails).
+- **Request authentication**: also checks, with no
+  directive or authorization error, are (1) authenticators — a
+  function that returns an error, receives the request (`*http.Request`,
+  `http.Header`) and reads a secret (`ctx.Secrets().Get`, `secrets.Validate`),
+  itself or through a function of its package: the signature of pubsub
+  messages (`pubsub.DecodeAndValidatePushMsg`, failure `InvalidInput`), read in
+  the `pkg/` packages the service imports (webapp's `go.mod`); (2) a
+  request value (`r.URL.Query().Get`, `r.Header.Get`, `r.FormValue`)
+  compared with a package string whose name says token or secret
+  (`_pubsubToken`, a heuristic on the name, rendered as is); (3) a
+  registration wrapper whose returned closure has a guard
+  (`serve.CreateTaskHandler` refuses what is not a task): "check
+  access to /tasks/… with `serve.CreateTaskHandler`", cited on
+  the registration; (4) an unmarked function that refuses on its own with
+  an authorization error under a condition on a known check
+  (`_ensureDevAccess`, `checkAIGuidePermissions`): its error refuses.
+- **Shared code rules** (cited in `pkg/`, root `pkg`:
+  `codetospec --ref-root pkg=<checkout>/pkg`, which `scanwebapp.sh` passes): the
+  `pkg/` packages the service imports are read transitively, and only
+  the functions it **reaches** — called or passed as values, from one package
+  to another, methods and interfaces not followed (lower bound) — give
+  rules: guards of a wrapper ("reject requests through
+  `ValidateGraphqlSecretMiddleware`"), policies
+  (`validateFastlyAuthnHeader`). The gateway imports `serve` without reaching
+  its GraphQL middleware, and does not inherit it. Domain `shared-<package>`. A
+  comparison with a local holding a request value
+  (`actual := r.Header.Get(H)`) reads side by side: "`r.Header.Get(H)`
+  is not `expected`".
+- **Reached shared code** (`reach`, root `pkg`): each declaration of
+  `pkg/` that the service reaches (the same reading as above: functions,
+  variables, types, and the methods of a reached type). codetospec derives
+  from it the rules inherited from the `pkg/` spec (`codetospec run --inherit
+  pkg=<graph>`, see `internal/inherit`); `scanwebapp.sh` passes it as soon
+  as `~/spec-graphs/pkg` exists (`PKG_GRAPH`).
+- **Header contracts** (`rule`, "Header contract: H"): attributes
+  `header`, `contract` (`sends` | `requires` | `forwards`) and `secret` (the
+  name of the secret in the store, `secrets.GSM("backend_to_gateway_secret", 1)`,
+  the same from one service to the next). `sends`: `….Header.Set|Add("X-…", v)`
+  with `v` read from a secret in the function, or passed as a parameter by a
+  caller in the same package that read it (`gqlclient.NewClient` → `newClient`);
+  `requires`: `secrets.Validate(ctx, S, <header>)` or a header local
+  compared with a secret local; `forwards`: a package variable that a
+  header-copying loop walks (the gateway's `_reqHeaderForwardingMap`), one
+  rule for the list.
+- **Conditional registrations** (`rule`, "Registration: /"): a
+  `serve.HandleFunc|Handle(path, …)` under `if`s (the `else` negated), whatever
+  the handler: "The system shall serve / only when
+  `os.Getenv("KA_IS_DEV_SERVER") == "1"` holds" (the gateway's
+  playground), cited from the outer `if` to the registration. Shared-code
+  rules and their contracts always have the domain `shared-<package>`.
+- **Access policies** (`rule`, "Access policy: _validatePermission")
+  : a function that returns only an error, accepts on some paths
+  (`return nil`) and ends with a refusal (an authorization error, or the error of a
+  check that builds one: `return validateErr`) is an
+  allowlist; the rule gives each acceptance condition (branch,
+  nesting, "for some `x` in `xs`" in a loop), joined by OR: "The
+  system shall accept a request checked by `_validatePermission`
+  only when `isDev` holds OR (…) …, and reject it otherwise with the
+  `Unauthorized` error". `v, ok := m[k]` reads "`k` is a key of `m`".
+- **Access tables** (`rule`): a table read by a check has its own
+  rules, cited on its entries. A rate-limit table
+  (`rules := _rateLimits[op]` then `ratelimit.ByIP(…,
   MaxRequestsPerWindow(rules.maxIPCount), LimitWindow(rules.ipWindow))`)
-  donne une règle par opération (« limiter `createProgram` à 300 requêtes par
-  heure par adresse IP et à 25 requêtes par heure par compte » ; un compteur
-  absent ne s'applique pas). Une table lue par une politique, une fonction
-  qu'elle appelle ou une fonction de limite donne ses entrées : ensemble
-  (`map[string]bool`, `_csrfExempt`), correspondances (`map[string]string`,
-  `oldMobileExceptions`), listes par clé (`map[string][]string`,
-  `_safelistedKAIDsForOperation`). La table et son lecteur sont nommés sans
-  backticks : leurs noms ne sont pas sur les lignes citées.
-- **Limites de débit** (`rule`, « Limite de débit : … ») : chaque
-  `if ratelimit.ByIP|ByAccount|ByEmailRecipient(ctx, "Clé", …) { return … }`
-  (vrai au-delà de la limite), avec la limite écrite comme dans le code pour
-  le grounding : « l'appelant dépasse la limite de débit `Clé` par adresse IP
-  (200 requêtes par 600 secondes) » ; « sa limite par défaut » sans options.
-- **Domaines** (`domain`) : chaque méthode de resolver est rattachée au domaine
-  du fichier de schéma qui déclare son champ (`auth_emails.graphql` →
-  `auth-emails`), d'après `gqlgen.yml` et `vektah/gqlparser/v2` (le parseur de
-  gqlgen). Les schémas partagés hors service (`../../pkg/...`) sont ignorés.
-  Le type GraphQL d'un resolver est lu dans les fabriques de `Resolver` :
-  une méthode sans paramètre qui renvoie une interface `…Resolver` et
-  construit `&impl{…}`. L'interface générée nomme le type
-  (`graphql.MutationResolver` → `Mutation`, même pour l'alias
-  `InvalidatePracticeTaskByID()` de progress) ; une interface locale
-  (`gapFillerContentSequenceDataResolver`), le nom de la méthode. Un type Go
-  qui sert plusieurs types GraphQL (l'`entityResolver` de gap-finder) les
-  départage par méthode : celui dont le schéma déclare le champ. Une autre
-  méthode de `Resolver` (`GetServiceSpecificKAContext(ctx)`) n'est pas une
-  fabrique ; sans fabrique, le nom du type Go sert de repli
-  (`mutationResolver` → `Mutation`). Un finder de fédération (`entityResolver.FindMany<T>By<Clés>s`,
-  `Find<T>By<Clé>`) prend le domaine du fichier qui déclare le type `@key` `T`
-  (le plus long qui convient : `RowForActivationReportByTeacherV2`), ou à
-  défaut qui l'étend quand le `@key` est dans un schéma partagé. Une méthode
-  non exportée d'un resolver (`e._deleteUserAccountBlock`), que gqlgen
-  n'appelle jamais, est une auxiliaire : ses règles portent l'opération de
-  ses appelants quand ils s'accordent (« Mutation.deleteUserAccountBlock (via
-  _deleteUserAccountBlock) »). Seule une méthode exportée sans champ de
-  schéma est signalée (code mort : `DevadminTriggerAlarm`).
-  Un schéma fourre-tout — plus de la moitié des méthodes, réparties sur au
-  moins 10 fichiers (le `schema.graphql` de districts) — ne nomme pas de
-  domaine : ses méthodes prennent celui de leur fichier de resolvers
+  gives one rule per operation ("limit `createProgram` to 300 requests per
+  hour by IP and to 25 requests per 2 hours by account"; a counter
+  left out does not apply). A table read by a policy, a function
+  it calls or a limit function gives its entries: set
+  (`map[string]bool`, `_csrfExempt`), mappings (`map[string]string`,
+  `oldMobileExceptions`), lists by key (`map[string][]string`,
+  `_safelistedKAIDsForOperation`). The table and its reader are named without
+  backticks: their names are not on the cited lines.
+- **Rate limits** (`rule`, "Rate limit: …"): each
+  `if ratelimit.ByIP|ByAccount|ByEmailRecipient(ctx, "Key", …) { return … }`
+  (true past the limit), with the limit written as in the code for
+  grounding: "the caller exceeds the `Key` rate limit by IP
+  (200 requests per 600 seconds)"; "its default limit" without options.
+- **Domains** (`domain`): each resolver method is attached to the domain
+  of the schema file that declares its field (`auth_emails.graphql` →
+  `auth-emails`), from `gqlgen.yml` and `vektah/gqlparser/v2` (gqlgen's
+  parser). Shared schemas outside the service (`../../pkg/...`) are ignored.
+  A resolver's GraphQL type is read from the `Resolver` factories:
+  a method with no parameter that returns a `…Resolver` interface and
+  builds `&impl{…}`. The generated interface names the type
+  (`graphql.MutationResolver` → `Mutation`, even for progress's alias
+  `InvalidatePracticeTaskByID()`); a local interface
+  (`gapFillerContentSequenceDataResolver`), the method's name. A Go type
+  that serves several GraphQL types (gap-finder's `entityResolver`) tells them
+  apart by method: the one whose schema declares the field. Another
+  `Resolver` method (`GetServiceSpecificKAContext(ctx)`) is not a
+  factory; with no factory, the Go type's name is the fallback
+  (`mutationResolver` → `Mutation`). A federation finder (`entityResolver.FindMany<T>By<Keys>s`,
+  `Find<T>By<Key>`) takes the domain of the file that declares the `@key` type `T`
+  (the longest that fits: `RowForActivationReportByTeacherV2`), or
+  failing that the file that extends it when the `@key` is in a shared schema. An
+  unexported resolver method (`e._deleteUserAccountBlock`), which gqlgen
+  never calls, is a helper: its rules carry the operation of
+  its callers when they agree ("Mutation.deleteUserAccountBlock (via
+  _deleteUserAccountBlock)"). Only an exported method with no schema
+  field is flagged (dead code: `DevadminTriggerAlarm`).
+  A catch-all schema — more than half the methods, spread over at
+  least 10 files (districts' `schema.graphql`) — names no
+  domain: its methods take that of their resolvers file
   (`user_district_info.go` → `user-district-info`).
-  Un fichier de resolvers dont toutes les méthodes ont le même domaine le
-  donne au fichier entier. Une fonction auxiliaire prend le domaine de ses
-  appelants quand ils s'accordent : c'est le cœur qui le fait, à partir des
-  faits `call` de l'extracteur Go (que `scanwebapp.sh` lance sur chaque
+  A resolvers file whose methods all have the same domain
+  gives it to the whole file. A helper function takes the domain of its
+  callers when they agree: the core does this, from the
+  `call` facts of the Go extractor (which `scanwebapp.sh` runs on each
   service).
-  `schema.graphql`, le fichier par défaut de gqlgen, ne nomme pas de domaine
-  quand le service a d'autres schémas : c'est le fourre-tout.
-- **Endpoints** (`route`) : chaque champ racine (`Query`, `Mutation`,
-  `Subscription`) qui a une méthode de resolver, et chaque finder de
-  fédération (méthode `ENTITY` : la requête `_entities` du gateway l'appelle
-  pour tout service qui référence le type), avec `handler_path` ; les règles
-  d'autorisation y sont reliées (`exposed_by`).
-- **Entités** (`table`) : chaque `datastore.RegisterKind("Kind", new(T))`,
-  colonnes = champs de `T` tels que Datastore les stocke (tag `datastore`),
-  `description` = le commentaire de doc de `T`, sur une ligne.
-- **Docs** (`doc`) : description GraphQL du champ et de ses arguments,
-  montrée au map pour la méthode qui le résout.
-- **Appels inter-services** (`dependency`) : chaque appel
-  `genqlient.<Op>(…)` dont un champ racine appartient à un autre subgraph
-  (`@join__field` du schéma composé `gengraphql/composed_schema.graphql`).
-  Options `-supergraph` (dossier du schéma composé, défaut
-  `<root>/../../gengraphql`) et `-graph` (subgraph du service, défaut : nom
-  du dossier en majuscules). Attribut `as` : `service-admin` quand le client
-  est construit par `….AsServiceAdmin()` (requête service-admin, que les
-  contrôles `RequestIsServiceAdminQuery` acceptent), `user` pour `AsUser()`,
-  absent pour un client en variable.
+  `schema.graphql`, gqlgen's default file, names no domain
+  when the service has other schemas: it is the catch-all.
+- **Endpoints** (`route`): each root field (`Query`, `Mutation`,
+  `Subscription`) that has a resolver method, and each federation
+  finder (method `ENTITY`: the gateway's `_entities` query calls it
+  for any service that references the type), with `handler_path`; the
+  authorization rules are linked to them (`exposed_by`).
+- **Entities** (`table`): each `datastore.RegisterKind("Kind", new(T))`,
+  columns = fields of `T` as Datastore stores them (`datastore` tag),
+  `description` = the doc comment of `T`, on one line.
+- **Docs** (`doc`): GraphQL description of the field and its arguments,
+  shown to the map for the method that resolves it.
+- **Cross-service calls** (`dependency`): each
+  `genqlient.<Op>(…)` call one of whose root fields belongs to another subgraph
+  (`@join__field` of the composed schema `gengraphql/composed_schema.graphql`).
+  Options `-supergraph` (folder of the composed schema, default
+  `<root>/../../gengraphql`) and `-graph` (the service's subgraph, default: the
+  folder name in capitals). Attribute `as`: `service-admin` when the client
+  is built by `….AsServiceAdmin()` (a service-admin query, which
+  `RequestIsServiceAdminQuery` checks accept), `user` for `AsUser()`,
+  absent for a client held in a variable.
 
 ## Usage
 
 ```sh
 go build -o extract .
 ./extract -root ~/khan/webapp/services/users -lang en
-./extract -all -root ~/khan/webapp -lang en   # tout webapp, consolidé
+./extract -all -root ~/khan/webapp -lang en   # all of webapp, consolidated
 ```
 
-`-all` analyse chaque service de `services/` qui contient du Go, comme un
-service seul, puis consolide : les citations deviennent relatives à la racine
-du checkout (`services/<svc>/…`, `pkg/…`), les identifiants, domaines
-(`<svc>-<domaine>`) et liens de route sont préfixés par le service, chaque fait
-porte `in_services`, et une règle du code partagé n'apparaît qu'une fois, avec
-la liste des services qui en héritent. `scanwebapp-authz.sh` (à la racine du
-dépôt) l'enchaîne avec l'extracteur Go et `scripts/authzall.py` :
-`~/authz-webapp/authz.html`, `authz.csv`, `authz.md`, en une minute et demie,
-sans LLM.
+`-all` analyzes each service of `services/` that contains Go, as a
+single service, then consolidates: citations become relative to the root
+of the checkout (`services/<svc>/…`, `pkg/…`), ids, domains
+(`<svc>-<domain>`) and route links are prefixed by the service, each fact
+carries `in_services`, and a shared-code rule appears only once, with
+the list of services that inherit it. `scanwebapp-authz.sh` (at the root of the
+repository) chains it with the Go extractor and `scripts/authzall.py`:
+`~/authz-webapp/authz.html`, `authz.csv`, `authz.md`, in a minute and a half,
+without an LLM.
 
 ```yaml
 # codetospec.yaml
 extractors:
   - name: webapp
-    cmd: /chemin/vers/extractors/webapp/extract
+    cmd: /path/to/extractors/webapp/extract
     args: [-root, "{src}", -lang, "{lang}"]
 ```
 
-`--src` de codetospec doit être le dossier du service (celui qui contient
-`gqlgen.yml` et `resolvers/`). Les avertissements (fichier non parsable,
-méthode sans champ de schéma) vont sur stderr.
+codetospec's `--src` must be the service folder (the one that contains
+`gqlgen.yml` and `resolvers/`). Warnings (unparsable file,
+method with no schema field) go to stderr.
 
-## Vue des autorisations
+## Authorization view
 
-`uv run scripts/authzview.py` (depuis la racine du dépôt) écrit
-`~/spec-graphs/authz.html` : par service, opérations × contrôles, filtres,
-vérifications nommées, accès non vérifiés (`acl.TODO`) et trous, à partir des
-sorties de `scanwebapp.sh` ; les rôles du service admin (vue « By role » et
-« granted by » de chaque permission), et la règle des administrateurs du site
-(toutes les capacités, citée depuis `scopes.go`, sous réserve du drapeau
-`UserData.HasAnyPermissions` synchronisé). `--fresh` relance
-l'extracteur courant (secondes, sans LLM) au lieu des faits du dernier scan.
-Page locale, sans réseau.
+`uv run scripts/authzview.py` (from the repository root) writes
+`~/spec-graphs/authz.html`: per service, operations × checks, filters,
+named checks, unchecked accesses (`acl.TODO`) and gaps, from the
+outputs of `scanwebapp.sh`; the admin service's roles ("By role" view and
+"granted by" for each permission), and the site administrators' rule
+(all capabilities, cited from `scopes.go`, subject to the synced
+`UserData.HasAnyPermissions` flag). `--fresh` reruns
+the current extractor (seconds, without an LLM) instead of the facts of the last scan.
+Local page, no network.
 
 ## Tests
 
 ```sh
 go test ./...                    # golden testdata/golden.{fr,en}.json
-UPDATE_GOLDEN=1 go test ./...    # régénérer, puis relire le diff
+UPDATE_GOLDEN=1 go test ./...    # regenerate, then review the diff
 ```

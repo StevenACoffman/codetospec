@@ -2,7 +2,9 @@ package render_test
 
 import (
 	"bytes"
+	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	pathpkg "path"
 	"path/filepath"
@@ -18,31 +20,45 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/render"
 )
 
-func testNodes() []graph.Node {
+// testNodes is the test graph in French.
+func testNodes() []graph.Node { return testNodesIn("fr") }
+
+// testNodesIn is the test graph whose text is written in lang, labels as
+// the build writes them.
+func testNodesIn(lang string) []graph.Node {
+	l := locale.For(lang).Labels
+	tr := func(fr, en string) string {
+		if lang == "fr" {
+			return fr
+		}
+		return en
+	}
 	return []graph.Node{
 		{
 			ID:     "domain.billing",
 			Type:   "domain",
 			Status: graph.StatusGenerated,
-			Title:  "Domaine billing",
-			Body:   "Facturation des abonnés.\n\n## Règles\n\n- [Prorata à l'activation](../rules/billing.prorata-activation.md)",
-			Edges:  []graph.Edge{{Type: "depends_on", To: "domain.crm"}},
+			Title:  fmt.Sprintf(l.DomainTitleFmt, "billing"),
+			Body: tr("Facturation des abonnés.", "Subscriber billing.") + "\n\n" + l.RulesHeading +
+				"\n\n- [" + tr("Prorata à l'activation", "Prorata on activation") +
+				"](../rules/billing.prorata-activation.md)",
+			Edges: []graph.Edge{{Type: "depends_on", To: "domain.crm"}},
 		},
 		{
 			ID:     "domain.crm",
 			Type:   "domain",
 			Status: graph.StatusGenerated,
-			Title:  "Domaine crm",
-			Body:   "Gestion des abonnés.",
+			Title:  fmt.Sprintf(l.DomainTitleFmt, "crm"),
+			Body:   tr("Gestion des abonnés.", "Subscriber management."),
 		},
 		{
 			ID:     "enum.models-invoicestatus",
 			Type:   graph.TypeEnum,
 			Status: graph.StatusGenerated,
 			Title:  "models.InvoiceStatus",
-			Body: "**Valeurs** :\n\n- `Draft` = `draft`\n- `Paid` = `paid`\n\n" +
-				"**Transitions** (le code, tant que la valeur est « De », la passe à « Vers ») :\n\n" +
-				"| De | Vers | Code |\n|----|------|------|\n| `Draft` | `Paid` | `app/Models/Invoice.php:20-24` |",
+			Body: l.EnumValues + "\n\n- `Draft` = `draft`\n- `Paid` = `paid`\n\n" +
+				l.EnumTransitions + "\n\n" +
+				l.EnumTransitionHeader + "\n| `Draft` | `Paid` | `app/Models/Invoice.php:20-24` |",
 			Sources: []extract.Ref{
 				{Path: "app/Models/Invoice.php", Lines: "5-5"},
 				{Path: "app/Models/Invoice.php", Lines: "20-24"},
@@ -54,25 +70,32 @@ func testNodes() []graph.Node {
 			Type:    "entity",
 			Status:  graph.StatusGenerated,
 			Title:   "invoices",
-			Body:    "**Table** : `invoices`\n\n**Colonnes** :\n- `id:id`\n- `amount:decimal`",
+			Body:    l.Table + "`invoices`\n\n" + l.Columns + "\n- `id:id`\n- `amount:decimal`",
 			Sources: []extract.Ref{{Path: "database/migrations/m.php", Lines: "11-16"}},
 		},
 		{
-			ID:      "endpoint.post-api-activate",
-			Type:    "endpoint",
-			Status:  graph.StatusGenerated,
-			Title:   "POST /api/activate",
-			Body:    "**Méthode** : POST\n\n**Path** : `/api/activate`\n\n**Handler** : `App\\Http\\Controllers\\ActivationController@store`",
+			ID:     "endpoint.post-api-activate",
+			Type:   "endpoint",
+			Status: graph.StatusGenerated,
+			Title:  "POST /api/activate",
+			Body: l.Method + "POST\n\n" + l.Path + "`/api/activate`\n\n" + l.Handler +
+				"`App\\Http\\Controllers\\ActivationController@store`",
 			Sources: []extract.Ref{{Path: "routes/web.php", Lines: "5-5"}},
 		},
 		{
 			ID:     "rule.billing.prorata-activation",
 			Type:   "rule",
 			Status: graph.StatusGenerated,
-			Title:  "Prorata à l'activation",
-			Body: "**Exigence (EARS)** : QUAND un abonné active en cours de mois, le systeme doit facturer au prorata des jours restants.\n\n" +
-				"**Justification** : Calcul observé dans ProrataCalculator.\n\n" +
-				"**Critères d'acceptation** :\n1. Cas nominal couvert.\n2. Cas limite couvert.\n3. Erreur couverte.",
+			Title:  tr("Prorata à l'activation", "Prorata on activation"),
+			Body: l.Requirement + tr(
+				"QUAND un abonné active en cours de mois, le systeme doit facturer au prorata des jours restants.",
+				"WHEN a subscriber activates mid-month, the system shall bill pro rata for the remaining days.",
+			) + "\n\n" +
+				l.Rationale + tr("Calcul observé dans ProrataCalculator.", "Computation seen in ProrataCalculator.") +
+				"\n\n" + l.Criteria + tr(
+				"\n1. Cas nominal couvert.\n2. Cas limite couvert.\n3. Erreur couverte.",
+				"\n1. Nominal case covered.\n2. Edge case covered.\n3. Error covered.",
+			),
 			Sources: []extract.Ref{
 				{Path: "app/Services/Billing/ProrataCalculator.php", Lines: "11-24"},
 			},
@@ -97,6 +120,8 @@ func testNodes() []graph.Node {
 				graph.ExtraTestDepth: "1",
 				graph.ExtraTestedBy: "tests/ProrataTest.php#testActivation, " +
 					"tests/ProrataTest.php#testRefund",
+				graph.ExtraTestsViaInterface: "1",
+				graph.ExtraExecuted:          "7/9",
 			},
 		},
 	}
@@ -131,10 +156,21 @@ func testMeta() render.Meta {
 	}
 }
 
+// TestWriteGolden writes the same graph in each language and compares it
+// with testdata/golden/<lang>.
 func TestWriteGolden(t *testing.T) {
+	for _, lang := range []string{"en", "fr"} {
+		t.Run(lang, func(t *testing.T) { writeGolden(t, lang) })
+	}
+}
+
+func writeGolden(t *testing.T, lang string) {
+	t.Helper()
 	outDir := t.TempDir()
-	nodes := graph.AnnotateCoverage(testNodes(), testGaps())
-	if err := render.Write(outDir, nodes, new(testMeta())); err != nil {
+	nodes := graph.AnnotateCoverage(testNodesIn(lang), testGaps())
+	meta := testMeta()
+	meta.Lang = lang
+	if err := render.Write(outDir, nodes, &meta); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -147,6 +183,7 @@ func TestWriteGolden(t *testing.T) {
 		"graph.json",
 		"README.md",
 		llmsFile,
+		render.QuestionsFile,
 	}
 	out := os.DirFS(outDir)
 	for _, rel := range goldenFiles {
@@ -154,7 +191,7 @@ func TestWriteGolden(t *testing.T) {
 		if err != nil {
 			t.Fatalf("missing output %s: %v", rel, err)
 		}
-		checkGolden(t, filepath.Join("testdata", "golden", filepath.FromSlash(rel)), got)
+		checkGolden(t, filepath.Join("testdata", "golden", lang, filepath.FromSlash(rel)), got)
 	}
 }
 
@@ -228,6 +265,23 @@ func TestParseNodeRoundTrip(t *testing.T) {
 		if n.Extra["ears"] != "" && parsed.Extra["ears"] != n.Extra["ears"] {
 			t.Errorf("%s: ears = %q, want %q", n.ID, parsed.Extra["ears"], n.Extra["ears"])
 		}
+	}
+
+	rule := testNodes()[0]
+	for _, n := range testNodes() {
+		if n.Type == graph.TypeRule {
+			rule = n
+		}
+	}
+	rule.Extra = maps.Clone(rule.Extra)
+	rule.Extra[graph.ExtraEARSPatterns] = "state, event"
+	parsed, err := render.ParseNode(render.NodeMarkdown(&rule, locale.For("fr")))
+	if err != nil || parsed.Extra[graph.ExtraEARSPatterns] != "state, event" {
+		t.Errorf(
+			"ears_patterns = %q, %v; want it read back",
+			parsed.Extra[graph.ExtraEARSPatterns],
+			err,
+		)
 	}
 }
 
@@ -449,5 +503,99 @@ func TestDomainDiagramGroupsSplitNamespaces(t *testing.T) {
 	}
 	if strings.Contains(got, "group_main --> cmd_seed") {
 		t.Errorf("arrow within the group drawn:\n%s", got)
+	}
+}
+
+// TestReadmeTestedLine: the README counts the rules a test reaches, then
+// apart those only an interface call reaches.
+func TestReadmeTestedLine(t *testing.T) {
+	ruleWith := func(slug string, extra map[string]string) graph.Node {
+		return graph.Node{ID: "rule.billing." + slug, Type: graph.TypeRule, Extra: extra}
+	}
+	nodes := []graph.Node{
+		ruleWith("a", map[string]string{graph.ExtraTests: "2"}),
+		ruleWith("b", map[string]string{graph.ExtraTests: "0", graph.ExtraTestsViaInterface: "1"}),
+		ruleWith("c", map[string]string{graph.ExtraTests: "0"}),
+	}
+	outDir := t.TempDir()
+	if err := render.Write(outDir, nodes, &render.Meta{Lang: "en"}); err != nil {
+		t.Fatal(err)
+	}
+	readme, err := fs.ReadFile(os.DirFS(outDir), "README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "- Tests: 1 of 3 rules have their cited code reached by a test, within 3 calls " +
+		"(`tests`, `tested_by`); 1 more only through an interface call " +
+		"(`tests_via_interface`: possibly run)\n"
+	if !strings.Contains(string(readme), want) {
+		t.Errorf("README lacks %q:\n%s", want, readme)
+	}
+}
+
+// scheduler is an actor of the glossaries these tests write.
+const scheduler = "the scheduler"
+
+// TestReadmeUnusedActors: the README names the glossary's actors no rule
+// names; none named when every one is.
+func TestReadmeUnusedActors(t *testing.T) {
+	rule := func(slug, sentence string) graph.Node {
+		return graph.Node{
+			ID: "rule.billing." + slug, Type: graph.TypeRule,
+			Body: "**Requirement (EARS)**: " + sentence,
+		}
+	}
+	nodes := []graph.Node{
+		rule("nightly", "The scheduler shall close the invoices."),
+		rule("bill", "The system shall bill."),
+	}
+	for name, tc := range map[string]struct {
+		actors map[string]string
+		want   string
+	}{
+		"unused": {
+			map[string]string{scheduler: "Runs jobs.", "the pager": "", "the notifier": ""},
+			"- Glossary actors no rule names: the notifier, the pager\n",
+		},
+		"all named": {map[string]string{scheduler: "Runs jobs."}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			outDir := t.TempDir()
+			if err := render.Write(
+				outDir,
+				nodes,
+				&render.Meta{Lang: "en", Actors: tc.actors},
+			); err != nil {
+				t.Fatal(err)
+			}
+			readme, err := fs.ReadFile(os.DirFS(outDir), "README.md")
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := string(readme)
+			if tc.want != "" && !strings.Contains(got, tc.want) {
+				t.Errorf("README lacks %q:\n%s", tc.want, got)
+			}
+			if tc.want == "" && strings.Contains(got, "Glossary actors") {
+				t.Errorf("README lists unused actors:\n%s", got)
+			}
+		})
+	}
+}
+
+// TestActorsRoundTrip: the glossary of actors is kept in graph.json for
+// exports; a graph without one reads back none.
+func TestActorsRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	actors := map[string]string{scheduler: "Runs the nightly jobs."}
+	if err := render.Write(dir, testNodes(), &render.Meta{Lang: "en", Actors: actors}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := render.LoadActors(dir)
+	if err != nil || !maps.Equal(got, actors) {
+		t.Errorf("LoadActors = %v, %v; want %v", got, err, actors)
+	}
+	if none, noneErr := render.LoadActors(t.TempDir()); noneErr != nil || len(none) != 0 {
+		t.Errorf("no graph: %v, %v", none, noneErr)
 	}
 }

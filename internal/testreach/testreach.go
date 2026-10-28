@@ -1,7 +1,9 @@
 // Package testreach tells which tests reach each rule's cited code, from
 // the extractor's test facts (what each test uses) and call facts (what
-// each definition uses). Mechanical, no LLM: a rule reached by no test is
-// a rule nothing verifies, which a reviewer wants to know first.
+// each definition uses), and how much of it a profiled test run executed
+// (executed facts). Mechanical, no LLM: a rule reached by no test is a
+// rule nothing verifies, which a reviewer wants to know first. Reach is
+// derived from the code; execution is observed: they are kept apart.
 package testreach
 
 import (
@@ -39,53 +41,101 @@ type reached struct {
 
 // Annotate sets, on each rule citing code of --src, how many tests reach
 // that code (ExtraTests), the depth of the nearest (ExtraTestDepth) and
-// the nearest few (ExtraTestedBy, by depth then name).
+// the nearest few (ExtraTestedBy, by depth then name), through direct
+// uses alone; how many more reach it only through a call of an interface
+// the cited code implements (ExtraTestsViaInterface, when any): a test
+// that may run the code, not one known to; and, from a coverage profile,
+// how much of the cited code a test run did execute (ExtraExecuted).
 //
 // Requires: facts are the run's merged facts.
-// Ensures:  nodes is not modified; without any test fact, the nodes are
-// returned as they are (no test facts means unknown, not untested); a
-// rule citing only other roots gets no field (the facts cover --src).
+// Ensures:  nodes is not modified; without test facts no reach field is
+// set, and without executed facts for every cited file no ExtraExecuted
+// (no facts means unknown, not untested); a rule citing only other roots
+// gets no field (the facts cover --src).
 func Annotate(nodes []graph.Node, facts []extract.Fact) []graph.Node {
-	byDef := reachedDefinitions(facts)
-	if byDef == nil {
+	reach := reachOf(facts)
+	profiled := runsOf(facts)
+	if reach == nil && profiled == nil {
 		return nodes
 	}
-	defs := definitionsByFile(byDef)
 	out := slices.Clone(nodes)
 	for i := range out {
 		if out[i].Type != graph.TypeRule {
 			continue
 		}
-		nearest, cited := testsCiting(out[i].Sources, defs, byDef)
-		if !cited {
+		fields := map[string]string{}
+		if reach != nil {
+			reach.fields(out[i].Sources, fields)
+		}
+		if executed, known := profiled.executed(out[i].Sources); known {
+			fields[graph.ExtraExecuted] = executed
+		}
+		if len(fields) == 0 {
 			continue
 		}
 		out[i].Extra = maps.Clone(out[i].Extra)
 		if out[i].Extra == nil {
 			out[i].Extra = map[string]string{}
 		}
-		out[i].Extra[graph.ExtraTests] = strconv.Itoa(len(nearest))
-		if len(nearest) > 0 {
-			out[i].Extra[graph.ExtraTestDepth] = strconv.Itoa(nearest[0].depth)
-			names := make([]string, 0, maxListed)
-			for _, r := range nearest[:min(maxListed, len(nearest))] {
-				names = append(names, r.test.String())
-			}
-			out[i].Extra[graph.ExtraTestedBy] = strings.Join(names, ", ")
-		}
+		maps.Copy(out[i].Extra, fields)
 	}
 	return out
 }
 
-// reachedDefinitions maps each definition (a call or test fact span of
-// --src) to the tests reaching it within MaxDepth, at their least depth;
-// nil when facts hold no test fact.
-func reachedDefinitions(facts []extract.Fact) map[extract.Ref][]reached {
-	calls := map[extract.Ref][]extract.Ref{} // caller → callees
-	direct := map[test][]extract.Ref{}       // test → what it uses
+// testReach is which tests reach each definition: through direct uses,
+// and through uses via an interface too.
+type testReach struct {
+	direct, possible         map[extract.Ref][]reached
+	directDefs, possibleDefs map[string][]span
+}
+
+// reachOf computes the test reach of facts; nil without any test fact.
+func reachOf(facts []extract.Fact) *testReach {
+	static, all := usesOf(facts, false), usesOf(facts, true)
+	if len(all.tests) == 0 {
+		return nil
+	}
+	r := &testReach{direct: static.reach(), possible: all.reach()}
+	r.directDefs, r.possibleDefs = definitionsByFile(r.direct), definitionsByFile(r.possible)
+	return r
+}
+
+// fields sets the reach fields of a rule citing sources, none when no
+// source is under --src.
+func (r *testReach) fields(sources []extract.Ref, fields map[string]string) {
+	nearest, cited := testsCiting(sources, r.directDefs, r.direct)
+	if !cited {
+		return
+	}
+	fields[graph.ExtraTests] = strconv.Itoa(len(nearest))
+	if len(nearest) > 0 {
+		fields[graph.ExtraTestDepth] = strconv.Itoa(nearest[0].depth)
+		names := make([]string, 0, maxListed)
+		for _, t := range nearest[:min(maxListed, len(nearest))] {
+			names = append(names, t.test.String())
+		}
+		fields[graph.ExtraTestedBy] = strings.Join(names, ", ")
+	}
+	maybe, _ := testsCiting(sources, r.possibleDefs, r.possible)
+	if more := len(maybe) - len(nearest); more > 0 {
+		fields[graph.ExtraTestsViaInterface] = strconv.Itoa(more)
+	}
+}
+
+// uses is what the module's tests and definitions use: one edge per call
+// or test fact of --src.
+type uses struct {
+	calls map[extract.Ref][]extract.Ref // caller → callees
+	tests map[test][]extract.Ref        // test → what it uses
+}
+
+// usesOf reads the call and test facts of --src: the direct uses, and
+// with viaInterface the uses through an interface too.
+func usesOf(facts []extract.Fact, viaInterface bool) uses {
+	u := uses{calls: map[extract.Ref][]extract.Ref{}, tests: map[test][]extract.Ref{}}
 	for i := range facts {
 		f := &facts[i]
-		if f.Source.Root != "" {
+		if f.Source.Root != "" || (f.ViaDispatch() && !viaInterface) {
 			continue
 		}
 		callee := extract.Ref{
@@ -94,20 +144,22 @@ func reachedDefinitions(facts []extract.Fact) map[extract.Ref][]reached {
 		}
 		switch f.Kind {
 		case extract.KindCall:
-			calls[f.Source] = append(calls[f.Source], callee)
+			u.calls[f.Source] = append(u.calls[f.Source], callee)
 		case extract.KindTest:
 			t := test{path: f.Source.Path, name: f.Attrs[extract.AttrName]}
-			direct[t] = append(direct[t], callee)
+			u.tests[t] = append(u.tests[t], callee)
 		}
 	}
-	if len(direct) == 0 {
-		return nil
-	}
+	return u
+}
 
+// reach maps each definition (a call or test fact span) to the tests
+// reaching it within MaxDepth, at their least depth.
+func (u *uses) reach() map[extract.Ref][]reached {
 	byDef := map[extract.Ref][]reached{}
-	for t, uses := range direct {
+	for t, used := range u.tests {
 		depth := map[extract.Ref]int{}
-		frontier := uses
+		frontier := used
 		for d := 1; d <= MaxDepth && len(frontier) > 0; d++ {
 			var next []extract.Ref
 			for _, def := range frontier {
@@ -115,7 +167,7 @@ func reachedDefinitions(facts []extract.Fact) map[extract.Ref][]reached {
 					continue
 				}
 				depth[def] = d
-				next = append(next, calls[def]...)
+				next = append(next, u.calls[def]...)
 			}
 			frontier = next
 		}

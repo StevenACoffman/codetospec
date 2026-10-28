@@ -2,10 +2,12 @@ package mapper_test
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"strings"
 	"testing"
 
+	"github.com/StevenACoffman/codetospec/internal/ears"
 	"github.com/StevenACoffman/codetospec/internal/llm"
 	"github.com/StevenACoffman/codetospec/internal/mapper"
 	"github.com/StevenACoffman/codetospec/internal/sitter"
@@ -37,12 +39,23 @@ func groundChunk() sitter.Chunk {
 	}
 }
 
-// ruleReply is a valid map reply with one rule per requirement, each citing
-// lines 10-12.
+// ruleReply is a valid map reply with one rule per requirement, written
+// as its EARS components, each citing lines 10-12.
 func ruleReply(requirements ...string) string {
 	rules := make([]string, len(requirements))
 	for i, r := range requirements {
-		rules[i] = `{"title": "T", "ears_kind": "event", "requirement": "` + r + `",
+		components, err := ears.Parse(r)
+		if err != nil {
+			panic(err)
+		}
+		for i, response := range components.Shall {
+			components.Shall[i].Action = strings.Fields(response.Text)[0]
+		}
+		data, err := json.Marshal(components)
+		if err != nil {
+			panic(err)
+		}
+		rules[i] = `{"title": "T", "ears": ` + string(data) + `,
 "citations": [{"path": "app/X.php", "lines": "10-12"}], "entities": [], "endpoints": [],
 "nature": "business", "origin": "explicit", "confidence": 0.9}`
 	}

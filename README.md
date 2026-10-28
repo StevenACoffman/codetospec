@@ -78,16 +78,37 @@ the LLM inside a loop it does not control:
   merging, graph building and cross-domain edges are computed
   deterministically. The LLM never invents structure.
 - **Every LLM output is mechanically validated** before it enters the graph:
-  JSON schema, a known EARS kind, citations that must resolve to real files
+  JSON schema, EARS components that make one sentence, citations that must resolve to real files
   and line ranges, references that must exist. Invalid output is sent back
   for correction (twice max), then the unit is marked failed and the run
   continues — one bad chunk never kills a run.
-- **The EARS form is checked, not assumed**: a rule whose sentence lacks its
-  kind's form (no "shall", two of them — two behaviors —, an `event` rule
-  not opening with WHEN, an `unwanted` one without IF … THEN) is kept and
-  flagged `ears_issue` in its frontmatter, counted in the output README. An
-  extractor's rule with a bad form is dropped: the extractor is
-  deterministic, so it is its bug.
+- **The model writes EARS components, not sentences**, after the generic
+  syntax `[Trigger] [Precondition] Actor Action [Object]`: `where`
+  (features) and `while` (states and preconditions, 0 or more), `when`
+  and `if` (0 or 1 each; both make two triggers), `system` (the actor, from the
+  config's `actors`; "the system" when left out), `shall` (1 or more
+  responses, one per action — "log an error" and "return the cached
+  value" are two — each its `text` and its `action` — the opening words naming
+  what is done, kept beside the sentence as `ears_actions: create; sound`
+  so `graph.json` reads the components back whole). The
+  sentence (`WHERE …, WHILE … AND …, WHEN …, IF …, THEN the system shall
+  …; …`) and the kind are derived, so an LLM rule always has its kind's
+  form. A rule with two or more keywords is `ears: complex`, and
+  `ears_patterns: state, event` lists what it combines (derived from the
+  sentence, for every rule). Sentences written otherwise read back too:
+  a precondition after the trigger (`WHEN t AND p`, capital AND; a
+  lowercase "and" stays in the trigger, which a parser cannot split),
+  any actor "the <system name>";
+  `graph.json` carries every rule's components, read back from its
+  sentence (98.7 % of today's sentences parse,
+  `docs/verification/ears-components-2026-10-27.md`). A sentence nobody
+  wrote as components — an inherited rule, one a person edited — is
+  checked: lacking its kind's form (no "shall", two of them — two
+  behaviors —, an `event` rule not opening with WHEN, an `unwanted` one
+  without IF … THEN, `docs/verification/ears-generic-syntax-2026-10-27.md`),
+  it is kept and flagged `ears_issue` in its
+  frontmatter, counted in the output README. An extractor's rule with a
+  bad form is dropped: the extractor is deterministic, so it is its bug.
 - **Mechanically extracted facts are the anchors.** Symbols, routes, tables
   and imports are extracted by parsers, not by the model. The LLM consumes
   facts; it never produces them.
@@ -228,6 +249,7 @@ bin/codetospec drift  --src <repo> --out <graph>   # flag rules whose cited code
 bin/codetospec stats  --out <graph>                # phase counters; tokens of the last run and all runs
 bin/codetospec diff   --old <graph> --new <graph>  # rules added, removed, renamed or changed between two runs
 bin/codetospec export --out <graph> --to <dir>     # the rules as ISO 29148 FRs in the Quire format (quoin)
+bin/codetospec export --out <graph> --to <dir> --format kiro  # the rules as Kiro specs
 ```
 
 `export` writes each rule as a functional requirement in the Quire format
@@ -244,6 +266,19 @@ refuted is left out. It bootstraps a spec a team then edits in quoin, so
 `<dir>` must be new or empty: a second export would overwrite their work.
 Not exported: NFRs (they need a measured target and threshold the code does
 not state) and enumerations (another module's object types).
+
+`export --format kiro` writes one [Kiro](https://kiro.dev) spec per
+domain, `<dir>/.kiro/specs/<domain>/`: `requirements.md` (Introduction
+from the domain summary, a Glossary of the system and the actors the rules
+name, then `### Requirement N` per rule, its EARS sentence the one
+acceptance criterion, written in Kiro's capitals — `WHEN …, THE SYSTEM
+SHALL …`) and, when rules have acceptance criteria, `design.md`, whose
+Correctness Properties each `**Validates: Requirements N.1**`. Each
+requirement carries its rule id, verdict and cited code in an HTML
+comment. No user story (the code states none) and no `tasks.md` (the code
+exists); refuted rules are left out. On districts and assignments every
+exported criterion reads back into its rule's components
+(`docs/verification/kiro-export-2026-10-27.md`).
 
 `diff` compares two outputs of one code base rule by rule, without an LLM:
 rules added and removed, rules renamed (a rule restating an old one under
@@ -276,6 +311,22 @@ the analyzed code records `tests` (how many reach it, 0 included),
 `test_depth` (the nearest) and `tested_by` (the nearest three,
 `path#TestName`); the output README counts them. Without test facts (other
 languages) the fields are absent: unknown, not untested. Mechanical, no LLM.
+A call `x.M()` on a value of one of the module's interfaces is linked to
+each of the module's implementations of `M`, marked as a dispatch: those
+are tests that *may* run the code, so they are counted apart, in
+`tests_via_interface`, and `tests` keeps counting direct uses only.
+Interfaces of other modules (`error`, `io.Writer`) are not followed, and
+domain placement and drift's callees ignore dispatch links (the
+implementations include test doubles).
+
+**What the tests executed.** Give the Go extractor a coverage profile made
+at the analyzed commit (`go test -coverpkg=./... -coverprofile=FILE ./...`,
+then `-cover FILE`, or `COVER=FILE` for the scan scripts) and each rule
+records `executed: k/n`: of the `n` statement lines it cites, the run
+executed `k`. Observed, where `tests` is derived, so both are kept. A file
+changed since the profile is left out, and a rule citing a file the profile
+does not cover gets no field. A profile does not say which test ran a line,
+nor that anything asserted on it.
 
 **Edits to rule files survive re-runs.** `graph.json` records a hash of
 every node file it wrote; a rule file whose bytes no longer match (or that
@@ -285,7 +336,24 @@ produces that rule's id. It keeps its own digest, so `drift` flags it stale
 once its cited code changes, and the run warns too. Delete the file to have
 it regenerated. A reviewed rule whose citation no longer resolves stops the
 run before any LLM call; an edited domain, entity or endpoint file is
-overwritten, with a warning. The
+overwritten, with a warning.
+
+**Findings a person has checked stay checked.** Each finding about one
+rule or domain (an ungrounded rule, an `ears_issue`, a refuted rule, a
+stale inherited verdict, code without rules) is a question in
+`questions.json`, with an id that depends on the finding and the digest of
+the cited code, not on its wording. Answer one in `<out>/resolutions.yaml`:
+
+```yaml
+q-3f9a1c0d2e4b:
+  disposition: verified      # or out-of-scope
+  reason: the 30 days come from the contract; the citation is right
+```
+
+and the README stops listing it. When the cited code changes, the id
+changes and the question comes back; the README counts the resolutions
+that no longer match anything. codetospec never writes the file; a
+malformed entry stops the run before any LLM call. The
 output README also lists near-duplicate rule candidates (a deterministic
 consistency check, split into intra- and cross-domain) for a reviewer to
 reconcile; two extractor rules are never paired, since they come from one
@@ -318,7 +386,7 @@ together in one box), `--reground` (give cached map outputs with ungrounded
 rules one correction exchange), `--workers N` (map
 parallelism), `--max-tokens N` (raise it if a large domain truncates its
 reduce output), `--lang fr|en` (output language: EARS requirements, node labels, README and
-llms.txt; default `fr`),
+llms.txt; default `en`),
 `--exclude 'vendor,node_modules,*.md,*.csv'` (directory names and
 file globs), `--facts extra.facts.json` (inject facts from anywhere),
 `--ref-root name=dir` (repeatable; also on `verify` and `drift`: an extra
@@ -342,6 +410,26 @@ Invariants are matched to the rules that touch their entity by word
 similarity (Jaccard ≥ 0.3, EARS keywords ignored). A pairing is a lead to
 check, not a verdict, and it works only when the model and `--lang` use the
 same language. When names differ, map them in the config file:
+
+**Actors.** A rule states "the system" unless the config names the actors
+it may name instead — a glossary, as Kiro specs have:
+
+```yaml
+actors:
+  the scheduler: Runs the nightly jobs (cmd/scheduler).
+  the notifier:
+    description: Pages the owner.
+    aliases: [the pager]   # other names a rule may give it
+```
+
+The map and reduce models get the names as `ALLOWED_ACTORS` (outside the
+cache key: a cached rule naming an actor no longer listed states the
+system). A reply naming an alias states the actor's name, without a
+correction, and so does a cached rule after a rename that keeps the old
+name as an alias. A name or alias a sentence cannot open with (no
+article, a comma, "the system" itself), an alias that is a name, or one
+that stands for two actors stops the run before any call. The output
+README lists the actors no rule names; the Kiro export describes them.
 
 ```yaml
 domain_models: [docs/billing.modelith.yaml]
@@ -373,6 +461,8 @@ Copy a model back into your repository, edit it, and pass it with
 ├── llms.txt          # navigation guide for agents
 ├── README.md         # summary, coverage report, Mermaid domain graph
 ├── graph.json        # whole graph, machine format
+├── questions.json    # findings to review, with their ids
+├── resolutions.yaml  # yours: answers to questions (never written by codetospec)
 └── nodes/
     ├── domains/<slug>.md
     ├── entities/<slug>.md
@@ -396,7 +486,8 @@ domain, so they never make one partial.
 `llms.txt` indexes every node for an agent; each rule line carries its
 citations, crosscheck verdict and grounding, grouped by domain, so an agent
 knows which rules to rely on (grounded and supported, repaired or
-mechanical) before opening one.
+mechanical) before opening one, and that `confidence` is the model's own
+rating, not a check.
 
 ## Extractor protocol (facts v1)
 
@@ -491,7 +582,10 @@ ids collide (`/login` and `/login/`) share one endpoint node citing both.
   first (a helper of a helper follows the operation at the top);
   disagreeing callers, no caller or a call cycle leave it be. Callers in
   other directories are ignored: they use a package, whose domain stands.
-  The Go extractor emits these.
+  The Go extractor emits these. Optional `dispatch: interface` (on `call`
+  and `test` facts): the callee implements an interface method the caller
+  calls, so it may run, not must; domains and drift ignore such facts,
+  test reach counts them apart.
 - `reach` — the shared declaration at `source` (rooted) is reached by the
   scanned code; read by `--inherit`.
 - `constant` — attrs `name` (as written in code, e.g.
@@ -507,6 +601,9 @@ ids collide (`/login` and `/login/`) share one endpoint node citing both.
 - `test` — attrs `name` (`TestClose`, or `accountSuite.TestClose` for a
   testify-style suite method), `callee_path`, `callee_lines`: the test at
   `source` uses that definition. See "Which rules a test reaches".
+- `executed` — attrs `executed` and `unexecuted`, comma-separated `a-b`
+  spans: the lines of the file at `source` a profiled test run executed,
+  and the statement lines it did not. See "What the tests executed".
 - `enum`, `enum_value`, `transition` — an enumeration (attr `name`, e.g.
   `shop.Status`, citing the type), each of its values (attrs `enum` = the
   enum fact id, `name`, `value`, citing the constant), and each change of

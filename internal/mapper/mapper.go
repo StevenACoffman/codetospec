@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -31,7 +32,7 @@ Hard rules:
 - Every rule MUST cite one or more exact line ranges inside the provided range. Never cite outside it.
 - When PRECISE_SYMBOLS is present, cite the exact line span of the symbol whose logic a rule describes; do not cite blank lines, import blocks or type declarations that carry no behavior.
 - entities MUST be a subset of ALLOWED_ENTITIES. endpoints MUST be a subset of ALLOWED_ENDPOINTS. When unsure, use [].
-- Write the requirement in <LANG> using one EARS pattern:
+- Write each rule's requirement as EARS components in "ears", in <LANG>, each part a phrase without its keyword: "where" the features it applies to (0 or more), "while" the states and preconditions it holds under (0 or more, a precondition of the trigger included), "when" the event that triggers it (0 or 1), "if" the unwanted condition it handles (0 or 1; with a "when" it is a second trigger, "WHEN x, IF y, THEN"), "system" one of ALLOWED_ACTORS when that part of the system performs the response; omit it otherwise (the system as a whole), "shall" what the actor does (1 or more; one behavior per rule, one item per action: "log an error and return the cached value" is two, "log an error" and "return the cached value"; a list the action applies to stays one, "validate the role, the source and the invariants"), each {"text": the verb phrase that follows "the system shall", "action": its opening words naming what is done, negation included ("not store" in "not store card numbers")}. Leave out a component the code does not condition the rule on. The sentence is written from them, in this order:
 <EARS>
 - Focus on business behavior: validation, calculation, state transitions, side effects, authorization. Ignore framework plumbing.
 - Classify each rule:
@@ -46,9 +47,10 @@ NAMESPACE: %s
 DOMAIN: %s
 ALLOWED_ENTITIES: %s
 ALLOWED_ENDPOINTS: %s
+ALLOWED_ACTORS: %s
 %s
 OUTPUT JSON SCHEMA:
-{"chunk_summary": string, "rules": [{"title": string, "ears_kind": "ubiquitous|event|state|unwanted|optional", "requirement": string, "citations": [{"path": string, "lines": "A-B"}], "entities": [string], "endpoints": [string], "nature": "business|presentation|technical", "origin": "explicit|implicit", "confidence": number}]}
+{"chunk_summary": string, "rules": [{"title": string, "ears": {"where": [string], "while": [string], "when": string, "if": string, "system": string, "shall": [{"text": string, "action": string}]}, "citations": [{"path": string, "lines": "A-B"}], "entities": [string], "endpoints": [string], "nature": "business|presentation|technical", "origin": "explicit|implicit", "confidence": number}]}
 
 %s`
 
@@ -78,9 +80,13 @@ func numberedContent(chunk *sitter.Chunk) string {
 
 // Rule is one candidate business rule produced by the map phase.
 type Rule struct {
-	Title       string        `json:"title"`
-	EarsKind    string        `json:"ears_kind"`
-	Requirement string        `json:"requirement"`
+	Title string          `json:"title"`
+	EARS  ears.Components `json:"ears"`
+	// EarsKind and Requirement are derived from EARS (ears.KindOf,
+	// ears.Render) by WithText, never written by the model nor stored:
+	// the JSON of a Rule is what the model reads and writes.
+	EarsKind    string        `json:"-"`
+	Requirement string        `json:"-"`
 	Citations   []extract.Ref `json:"citations"`
 	Entities    []string      `json:"entities"`
 	Endpoints   []string      `json:"endpoints"`
@@ -152,12 +158,17 @@ type Note struct {
 type Mapper struct {
 	LLM llm.Chatter
 	// Log receives progress and degraded-mode warnings (required).
-	Log          *slog.Logger
-	Model        string // model id, folded into the cache key
-	Lang         string // "fr" | "en"
-	Workers      int
-	OutDir       string   // <out>/.codetospec/map
-	Entities     []string // allowed entity ids, sorted
+	Log      *slog.Logger
+	Model    string // model id, folded into the cache key
+	Lang     string // "fr" | "en"
+	Workers  int
+	OutDir   string   // <out>/.codetospec/map
+	Entities []string // allowed entity ids, sorted
+	// Actors are the actors a rule may name (config actors); none leaves
+	// every rule to "the system". Like Entities, outside the prompt key: a
+	// cached rule naming an actor no longer listed falls back to "the
+	// system" (ListedActors).
+	Actors       Actors
 	EndpointsFor func(path string) []string
 	// SymbolsFor returns the precise symbol definitions known for a file
 	// (empty when no SCIP index was provided). Optional.
@@ -253,6 +264,12 @@ func (m *Mapper) mapChunk(ctx context.Context, chunk *sitter.Chunk) (Output, llm
 			// the current one so a domain change regroups cached outputs
 			// instead of silently keeping the old grouping.
 			cached.Domain = chunk.Domain
+			rules, unlisted := ListedActors(cached.Rules, &m.Actors)
+			if unlisted > 0 {
+				m.Log.InfoContext(ctx, "cached rules name actors no longer listed; "+
+					"they now state the system", "chunk", chunk.ID, "rules", unlisted)
+			}
+			cached.Rules = WithText(rules, m.Lang)
 			return m.regroundCached(ctx, &cached, chunk, sections, outPath)
 		}
 	}
@@ -261,7 +278,12 @@ func (m *Mapper) mapChunk(ctx context.Context, chunk *sitter.Chunk) (Output, llm
 	msgs := m.prompt(chunk, sections, allowedEndpoints)
 	var usage llm.Usage
 	validate := func(reply string) (mapPayload, error) {
-		return validateMapReply(reply, chunk, m.Entities, allowedEndpoints)
+		return validateMapReply(
+			reply,
+			chunk,
+			m.Lang,
+			&Allowed{m.Entities, allowedEndpoints, m.Actors},
+		)
 	}
 	payload, err := llm.ChatJSON(
 		ctx,
@@ -318,7 +340,7 @@ func (m *Mapper) prompt(
 	userPrompt := fmt.Sprintf(userPromptFormat,
 		chunk.Path, chunk.StartLine, chunk.EndLine,
 		chunk.Language, namespace, chunk.Domain,
-		mustJSON(m.Entities), mustJSON(allowedEndpoints),
+		mustJSON(m.Entities), mustJSON(allowedEndpoints), mustJSON(m.Actors.Names),
 		sections,
 		numberedContent(chunk),
 	)
@@ -347,7 +369,12 @@ func (m *Mapper) regroundCached(
 	}
 	allowedEndpoints := m.EndpointsFor(chunk.Path)
 	validate := func(reply string) (mapPayload, error) {
-		return validateMapReply(reply, chunk, m.Entities, allowedEndpoints)
+		return validateMapReply(
+			reply,
+			chunk,
+			m.Lang,
+			&Allowed{m.Entities, allowedEndpoints, m.Actors},
+		)
 	}
 	fixed, usage, _ := m.reground(
 		ctx,
@@ -465,11 +492,13 @@ func (m *Mapper) symbolsSection(chunk *sitter.Chunk) string {
 	return b.String()
 }
 
-// validateMapReply enforces the deterministic contract on one map reply.
+// validateMapReply enforces the deterministic contract on one map reply,
+// and returns its rules with their text in lang (WithText).
 func validateMapReply(
 	reply string,
 	chunk *sitter.Chunk,
-	allowedEntities, allowedEndpoints []string,
+	lang string,
+	lists *Allowed,
 ) (mapPayload, error) {
 	var payload mapPayload
 	if err := json.Unmarshal([]byte(llm.StripFences(reply)), &payload); err != nil {
@@ -480,15 +509,89 @@ func validateMapReply(
 		if err := checkCitations(i, rule.Citations, chunk); err != nil {
 			return payload, err
 		}
+		normalized := rule.EARS.Normalized()
+		rule.EARS = lists.Actors.Named(&normalized)
 		labels := Labels{
-			EarsKind: rule.EarsKind, Nature: rule.Nature, Origin: rule.Origin,
+			EARS: &rule.EARS, Nature: rule.Nature, Origin: rule.Origin,
 			Confidence: rule.Confidence, Entities: rule.Entities, Endpoints: rule.Endpoints,
 		}
-		if err := CheckLabels(&labels, allowedEntities, allowedEndpoints); err != nil {
+		if err := CheckLabels(&labels, lists); err != nil {
 			return payload, fmt.Errorf("rules[%d].%w", i, err)
 		}
 	}
+	payload.Rules = WithText(payload.Rules, lang)
 	return payload, nil
+}
+
+// Allowed are the lists a map or reduce rule's labels keep to: entity
+// and endpoint ids, and actors.
+type Allowed struct {
+	Entities, Endpoints []string
+	Actors              Actors
+}
+
+// Actors are the actors a rule may name instead of the system (config
+// actors): Names, sorted, shown to the model as ALLOWED_ACTORS; Aliases,
+// alias → name, the other names a rule may give one, accepted without a
+// correction and never shown.
+type Actors struct {
+	Names   []string
+	Aliases map[string]string
+}
+
+// Lists reports whether a rule may name system: a listed name, or ""
+// for the system.
+func (a *Actors) Lists(system string) bool {
+	return system == "" || slices.Contains(a.Names, system)
+}
+
+// Named returns c naming its actor by the listed name when c names it by
+// an alias; c otherwise (an unlisted actor is CheckLabels's to refuse).
+func (a *Actors) Named(c *ears.Components) ears.Components {
+	out := *c
+	if name, ok := a.Aliases[c.System]; ok {
+		out.System = name
+	}
+	return out
+}
+
+// Listed returns c as a cached rule keeps it: its actor by the listed
+// name (Named), or the system when the glossary lists it no more; and
+// whether it fell back to the system.
+func (a *Actors) Listed(c *ears.Components) (ears.Components, bool) {
+	out := a.Named(c)
+	if a.Lists(out.System) {
+		return out, false
+	}
+	out.System = ""
+	return out, true
+}
+
+// ListedActors returns rules with each actor as Actors.Listed keeps it,
+// and how many fell back to the system.
+func ListedActors(rules []Rule, actors *Actors) ([]Rule, int) {
+	out := slices.Clone(rules)
+	unlisted := 0
+	for i := range out {
+		var dropped bool
+		if out[i].EARS, dropped = actors.Listed(&out[i].EARS); dropped {
+			unlisted++
+		}
+	}
+	return out, unlisted
+}
+
+// WithText returns rules with the kind and sentence their components make
+// in lang.
+//
+// Requires: each rule's EARS passed ears.Validate.
+func WithText(rules []Rule, lang string) []Rule {
+	out := slices.Clone(rules)
+	for i := range out {
+		out[i].EarsKind = ears.KindOf(&out[i].EARS)
+		out[i].Requirement = ears.Render(&out[i].EARS, lang)
+	}
+	return out
 }
 
 // checkCitations requires rule i to cite at least one span, each within
@@ -514,22 +617,27 @@ func checkCitations(i int, citations []extract.Ref, chunk *sitter.Chunk) error {
 }
 
 // Labels is what a map or reduce rule declares about itself besides its
-// text and citations.
+// title and citations.
 type Labels struct {
-	EarsKind, Nature, Origin string
-	Confidence               float64
-	Entities, Endpoints      []string
+	EARS                *ears.Components
+	Nature, Origin      string
+	Confidence          float64
+	Entities, Endpoints []string
 }
 
-// CheckLabels checks a rule's labels: a known EARS kind, nature and origin,
-// a confidence in [0,1], and entity and endpoint ids among the allowed
-// ones. An error starts with the offending field, for the caller to prefix
+// CheckLabels checks a rule's labels: EARS components that make one
+// sentence (ears.Validate) with an allowed actor, a known nature and
+// origin, a confidence in [0,1], and entity and endpoint ids among the
+// allowed ones. An error starts with the offending field, for the caller to prefix
 // with the rule's position ("rules[2]."); map and reduce replies share it.
-func CheckLabels(l *Labels, allowedEntities, allowedEndpoints []string) error {
+func CheckLabels(l *Labels, a *Allowed) error {
+	if err := ears.Validate(l.EARS); err != nil {
+		return err
+	}
+	if s := l.EARS.System; !a.Actors.Lists(s) {
+		return fmt.Errorf("ears.system %q is not in ALLOWED_ACTORS; omit it for the system", s)
+	}
 	switch {
-	case !ears.IsKind(l.EarsKind):
-		return fmt.Errorf("ears_kind %q is not one of ubiquitous|event|state|unwanted|optional",
-			l.EarsKind)
 	case !IsNature(l.Nature):
 		return fmt.Errorf("nature %q is not one of business|presentation|technical", l.Nature)
 	case !IsOrigin(l.Origin):
@@ -537,10 +645,10 @@ func CheckLabels(l *Labels, allowedEntities, allowedEndpoints []string) error {
 	case l.Confidence < 0 || l.Confidence > 1:
 		return fmt.Errorf("confidence %v is outside [0,1]", l.Confidence)
 	}
-	if bad := notSubset(l.Entities, allowedEntities); bad != "" {
+	if bad := notSubset(l.Entities, a.Entities); bad != "" {
 		return fmt.Errorf("entities contains %q which is not in ALLOWED_ENTITIES", bad)
 	}
-	if bad := notSubset(l.Endpoints, allowedEndpoints); bad != "" {
+	if bad := notSubset(l.Endpoints, a.Endpoints); bad != "" {
 		return fmt.Errorf("endpoints contains %q which is not in ALLOWED_ENDPOINTS", bad)
 	}
 	return nil

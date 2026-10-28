@@ -149,20 +149,20 @@ type translate func(french, english string) string
 // addRuleTexts sets the phrases of whole rules: outcomes and titles.
 func addRuleTexts(w *wording, tr translate) {
 	w.rejectFmt = tr(
-		"SI %s, ALORS le systeme doit rejeter %s%s.",
+		"SI %s, ALORS le système doit rejeter %s%s.",
 		"IF %s, THEN the system shall reject %s%s.",
 	)
 	w.emptyFmt = tr(
-		"SI %s, ALORS le systeme doit ne renvoyer aucune donnée pour %s.",
+		"SI %s, ALORS le système doit ne renvoyer aucune donnée pour %s.",
 		"IF %s, THEN the system shall return no data for %s.",
 	)
 	w.withErrFmt = tr(" avec l'erreur `%s`", " with the `%s` error")
 	w.openFmt = tr(
-		"Le systeme doit autoriser tout appelant à appeler %s.",
+		"Le système doit autoriser tout appelant à appeler %s.",
 		"The system shall allow any caller to call %s.",
 	)
 	w.rejectItemFmt = tr(
-		"SI %s, ALORS le systeme doit rejeter cet élément `%s` de %s%s.",
+		"SI %s, ALORS le système doit rejeter cet élément `%s` de %s%s.",
 		"IF %s, THEN the system shall reject that `%s` of %s%s.",
 	)
 	w.forSomeFmt = tr(
@@ -175,23 +175,23 @@ func addRuleTexts(w *wording, tr translate) {
 	w.uncheckedTitleFmt = tr("Accès non vérifié : %s", "Unchecked access: %s")
 	w.roleTitleFmt = tr("Rôle : %s", "Role: %s")
 	w.roleFmt = tr(
-		"Le systeme doit accorder au rôle `%s`%s les capacités %s.",
+		"Le système doit accorder au rôle `%s`%s les capacités %s.",
 		"The system shall grant the `%s` role%s the capabilities %s.",
 	)
 	w.roleNoneFmt = tr(
-		"Le systeme ne doit accorder aucune capacité au rôle `%s`%s.",
+		"Le système ne doit accorder aucune capacité au rôle `%s`%s.",
 		"The system shall grant the `%s` role%s no capability.",
 	)
 	w.uncheckedFmt = tr(
-		"Le systeme doit laisser tout appelant appeler %s sans contrôle de permission (`acl.TODO()` : le contrôle manque encore).",
+		"Le système doit laisser tout appelant appeler %s sans contrôle de permission (`acl.TODO()` : le contrôle manque encore).",
 		"The system shall let any caller call %s without a permission check (`acl.TODO()`: the check is still missing).",
 	)
 	w.checkedFmt = tr(
-		"Le systeme doit vérifier l'accès à %s avec `%s`.",
+		"Le système doit vérifier l'accès à %s avec `%s`.",
 		"The system shall check access to %s with `%s`.",
 	)
 	w.visibilityFmt = tr(
-		"Le systeme doit limiter %s aux %s que `%s` laisse voir à l'appelant.",
+		"Le système doit limiter %s aux %s que `%s` laisse voir à l'appelant.",
 		"The system shall limit %s to the %s that `%s` lets the caller see.",
 	)
 	w.resultsNoun = tr("résultats", "results")

@@ -185,7 +185,7 @@ func (r renderer) policy(g *guard, name string) string {
 func addPolicyTexts(w *wording, tr translate) {
 	w.policyTitleFmt = tr("Politique d'accès : %s", "Access policy: %s")
 	w.permitFmt = tr(
-		"Le systeme doit accepter une requête vérifiée par `%s` seulement si %s, et la rejeter sinon%s.",
+		"Le système doit accepter une requête vérifiée par `%s` seulement si %s, et la rejeter sinon%s.",
 		"The system shall accept a request checked by `%s` only when %s, and reject it otherwise%s.",
 	)
 	w.keyFmt = tr("`%s` est une clé de `%s`", "`%s` is a key of `%s`")

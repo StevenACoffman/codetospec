@@ -3,7 +3,7 @@
     "domain.billing": {
       "type": "domain",
       "file": "nodes/domains/billing.md",
-      "hash": "68755e4c2fe5b693",
+      "hash": "4284cc93e621f5fb",
       "coverage": "partial",
       "edges": [
         {
@@ -15,32 +15,40 @@
     "domain.crm": {
       "type": "domain",
       "file": "nodes/domains/crm.md",
-      "hash": "718b0674c6910951",
+      "hash": "3306cf80b8b96e26",
       "coverage": "complete",
       "edges": []
     },
     "endpoint.post-api-activate": {
       "type": "endpoint",
       "file": "nodes/endpoints/post-api-activate.md",
-      "hash": "670ccefaf32ed0c2",
+      "hash": "932837883549907d",
       "edges": []
     },
     "entity.invoices": {
       "type": "entity",
       "file": "nodes/entities/invoices.md",
-      "hash": "08fdd5958a7c4cc2",
+      "hash": "39d142ba8a7bffe0",
       "edges": []
     },
     "enum.models-invoicestatus": {
       "type": "enum",
       "file": "nodes/enums/models-invoicestatus.md",
-      "hash": "0e3e58edd40f4e8a",
+      "hash": "24c7dc1373ef7b5b",
       "edges": []
     },
     "rule.billing.prorata-activation": {
       "type": "rule",
       "file": "nodes/rules/billing.prorata-activation.md",
-      "hash": "5a1fb263a71a3f94",
+      "hash": "54d7926c28038b6b",
+      "ears": {
+        "when": "a subscriber activates mid-month",
+        "shall": [
+          {
+            "text": "bill pro rata for the remaining days"
+          }
+        ]
+      },
       "edges": [
         {
           "type": "belongs_to",

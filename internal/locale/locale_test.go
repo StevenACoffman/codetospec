@@ -41,9 +41,10 @@ func TestFor(t *testing.T) {
 		want        string
 		wantDecimal byte
 	}{
-		"french":            {"fr", "fr", ','},
-		"english":           {"en", "en", '.'},
-		"unknown is french": {"de", "fr", ','},
+		"french":             {"fr", "fr", ','},
+		"english":            {"en", "en", '.'},
+		"unknown is english": {"de", "en", '.'},
+		"empty is english":   {"", "en", '.'},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -61,7 +62,7 @@ func TestFor(t *testing.T) {
 
 func TestPromptFillsPlaceholders(t *testing.T) {
 	got := locale.For("en").Prompt("Write in <LANG>:\n<EARS>")
-	want := "Write in English:\n" + locale.For("en").EARSPatterns
+	want := "Write in English:\n" + locale.For("en").EARSTemplate
 	if got != want {
 		t.Fatalf("Prompt = %q, want %q", got, want)
 	}

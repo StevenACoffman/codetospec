@@ -572,15 +572,15 @@ func headerNames(e ast.Expr) ([]string, []string) {
 func addContractTexts(w *wording, tr translate) {
 	w.contractTitleFmt = tr("Contrat d'en-tête : %s", "Header contract: %s")
 	w.sendsFmt = tr(
-		"Le systeme doit envoyer le secret %s (%s) dans l'en-tête %s des requêtes qu'il émet.",
+		"Le système doit envoyer le secret %s (%s) dans l'en-tête %s des requêtes qu'il émet.",
 		"The system shall send the secret %s (%s) in the %s header of the requests it makes.",
 	)
 	w.requiresFmt = tr(
-		"Le systeme doit accepter l'en-tête %s seulement s'il correspond au secret %s (%s).",
+		"Le système doit accepter l'en-tête %s seulement s'il correspond au secret %s (%s).",
 		"The system shall accept the %s header only when it matches the secret %s (%s).",
 	)
 	w.forwardsFmt = tr(
-		"Le systeme doit transmettre aux requêtes qu'il émet les en-têtes %s (%s).",
+		"Le système doit transmettre aux requêtes qu'il émet les en-têtes %s (%s).",
 		"The system shall forward the request headers %s to the requests it makes (%s).",
 	)
 	w.withListsFmt = tr("%s et ceux de %s", "%s and those of %s")

@@ -21,19 +21,21 @@ ears_issue: "event requirement does not open with WHEN"
 tests: 2
 test_depth: 1
 tested_by: "tests/ProrataTest.php#testActivation, tests/ProrataTest.php#testRefund"
+tests_via_interface: 1
+executed: 7/9
 ---
 
-# Prorata à l'activation
+# Prorata on activation
 
-**Exigence (EARS)** : QUAND un abonné active en cours de mois, le systeme doit facturer au prorata des jours restants.
+**Requirement (EARS)**: WHEN a subscriber activates mid-month, the system shall bill pro rata for the remaining days.
 
-**Justification** : Calcul observé dans ProrataCalculator.
+**Rationale**: Computation seen in ProrataCalculator.
 
-**Critères d'acceptation** :
-1. Cas nominal couvert.
-2. Cas limite couvert.
-3. Erreur couverte.
+**Acceptance criteria**:
+1. Nominal case covered.
+2. Edge case covered.
+3. Error covered.
 
-**Sources** : `app/Services/Billing/ProrataCalculator.php:11-24`
+**Sources**: `app/Services/Billing/ProrataCalculator.php:11-24`
 
-Liens : [Domaine billing](../domains/billing.md) · [entity.invoices](../entities/invoices.md) · [endpoint.post-api-activate](../endpoints/post-api-activate.md)
+Links: [Domain billing](../domains/billing.md) · [entity.invoices](../entities/invoices.md) · [endpoint.post-api-activate](../endpoints/post-api-activate.md)

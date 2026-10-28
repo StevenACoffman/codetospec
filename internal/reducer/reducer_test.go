@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/StevenACoffman/codetospec/internal/ears"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/llm"
 	"github.com/StevenACoffman/codetospec/internal/mapper"
@@ -24,22 +25,35 @@ func (f chatFunc) Chat(ctx context.Context, msgs []llm.Message) (string, llm.Usa
 // Values the candidate fixtures share.
 const (
 	billing    = "billing"
-	earsEvent  = "event"
 	xPath      = "app/X.php"
 	invoices   = "entity.invoices"
 	prorataRef = "prorata-activation"
 )
 
+// withEARS is rule as map leaves it: the components of its Requirement,
+// and the kind and sentence they make.
+func withEARS(rule *mapper.Rule) mapper.Rule {
+	c, err := ears.Parse(rule.Requirement)
+	if err != nil {
+		panic(err)
+	}
+	out := *rule
+	out.EARS = c
+	for i, r := range c.Shall {
+		out.EARS.Shall[i].Action = strings.Fields(r.Text)[0]
+	}
+	return mapper.WithText([]mapper.Rule{out}, "fr")[0]
+}
+
 func candidates() map[string][]mapper.Rule {
 	return map[string][]mapper.Rule{
-		billing: {{
+		billing: {withEARS(&mapper.Rule{
 			Title:       "Prorata",
-			EarsKind:    earsEvent,
 			Requirement: "QUAND x, le systeme doit y.",
 			Citations:   []extract.Ref{{Path: xPath, Lines: "12-15"}},
 			Entities:    []string{invoices},
 			Confidence:  0.9,
-		}},
+		})},
 	}
 }
 
@@ -56,7 +70,7 @@ func newReducer(t *testing.T, chat llm.Chatter) *reducer.Reducer {
 }
 
 const validReduceReply = `{"domain_summary": "Facturation.", "rules": [{"slug": "prorata-activation",
-"title": "Prorata", "ears_kind": "event", "requirement": "QUAND x, le systeme doit y.",
+"title": "Prorata", "ears": {"when": "x", "shall": [{"text": "y", "action": "y"}]},
 "rationale": "Vu dans le code.",
 "citations": [{"path": "app/X.php", "lines": "12-15"}],
 "entities": ["entity.invoices"], "endpoints": [],
@@ -145,7 +159,7 @@ func TestReduceValidationRules(t *testing.T) {
 		validReduceReply,
 		`"rules": [{`,
 		`"rules": [{"slug": "prorata-activation",
-"title": "Dup", "ears_kind": "event", "requirement": "QUAND a, le systeme doit b.",
+"title": "Dup", "ears": {"when": "a", "shall": [{"text": "b", "action": "b"}]},
 "rationale": "", "citations": [{"path": "app/X.php", "lines": "12-15"}],
 "entities": [], "endpoints": [], "acceptance_criteria": ["a", "b"], "nature": "business", "origin": "explicit", "confidence": 0.8}, {`,
 		1,
@@ -194,12 +208,11 @@ func TestReduceBatchesLargeDomain(t *testing.T) {
 	// 130 candidates with BatchSize 50 -> 3 batches, each answered per-batch.
 	big := make([]mapper.Rule, 130)
 	for i := range big {
-		big[i] = mapper.Rule{
+		big[i] = withEARS(&mapper.Rule{
 			Title:       fmt.Sprintf("Règle %d", i),
-			EarsKind:    earsEvent,
 			Requirement: fmt.Sprintf("QUAND cas %d, le systeme doit agir.", i),
 			Citations:   []extract.Ref{{Path: xPath, Lines: fmt.Sprintf("%d-%d", i+1, i+2)}},
-		}
+		})
 	}
 
 	calls := 0
@@ -219,8 +232,7 @@ func TestReduceBatchesLargeDomain(t *testing.T) {
 			rules := make([]map[string]any, len(cands))
 			for i, c := range cands {
 				rules[i] = map[string]any{
-					"slug": "regle", "title": c.Title, "ears_kind": "event",
-					"requirement": c.Requirement, "rationale": "r",
+					"slug": "regle", "title": c.Title, "ears": c.EARS, "rationale": "r",
 					"citations": c.Citations, "entities": []string{}, "endpoints": []string{},
 					"acceptance_criteria": []string{"a", "b"},
 					"nature":              "business", "origin": "explicit", "confidence": 0.8,
@@ -261,22 +273,22 @@ func TestReduceBatchesLargeDomain(t *testing.T) {
 
 func TestReduceBatchAdaptiveHalvingRecoversMostRules(t *testing.T) {
 	// 80 candidates, batchSize 40. Any batch containing candidate 0 (its
-	// requirement carries "QUAND cas 0,") always returns garbage, forcing the
+	// components carry when "cas 0") always returns garbage, forcing the
 	// adaptive halving to isolate it down to reducer.MinBatchSize. Everything else is
 	// recovered; only the floor-sized fragment holding candidate 0 is dropped.
 	big := make([]mapper.Rule, 80)
 	for i := range big {
-		big[i] = mapper.Rule{
-			Title: fmt.Sprintf("R%d", i), EarsKind: earsEvent,
+		big[i] = withEARS(&mapper.Rule{
+			Title:       fmt.Sprintf("R%d", i),
 			Requirement: fmt.Sprintf("QUAND cas %d, le systeme doit agir.", i),
 			Citations:   []extract.Ref{{Path: xPath, Lines: fmt.Sprintf("%d-%d", i+1, i+2)}},
-		}
+		})
 	}
 	r := newReducer(
 		t,
 		chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
 			_, candJSON, _ := strings.Cut(msgs[1].Content, "CANDIDATE_RULES:\n")
-			if strings.Contains(candJSON, "QUAND cas 0,") {
+			if strings.Contains(candJSON, `"when":"cas 0"`) {
 				return "not json", llm.Usage{}, nil
 			}
 			var cands []mapper.Rule
@@ -286,14 +298,13 @@ func TestReduceBatchAdaptiveHalvingRecoversMostRules(t *testing.T) {
 			rules := make([]map[string]any, len(cands))
 			for i, c := range cands {
 				rules[i] = map[string]any{
-					"slug":        "r",
-					"title":       c.Title,
-					"ears_kind":   "event",
-					"requirement": c.Requirement,
-					"rationale":   "r",
-					"citations":   c.Citations,
-					"entities":    []string{},
-					"endpoints":   []string{},
+					"slug":      "r",
+					"title":     c.Title,
+					"ears":      c.EARS,
+					"rationale": "r",
+					"citations": c.Citations,
+					"entities":  []string{},
+					"endpoints": []string{},
 					"acceptance_criteria": []string{
 						"a",
 						"b",
@@ -344,7 +355,7 @@ func TestReduceCacheInvalidatedByChangedCandidates(t *testing.T) {
 	}
 	// Changed candidate → cache stale → re-reduced.
 	changed := candidates()
-	changed[billing][0].Requirement = "QUAND z, le systeme doit w."
+	changed[billing][0].EARS.When = "z"
 	if _, err := r.Run(context.Background(), changed); err != nil {
 		t.Fatal(err)
 	}
@@ -358,15 +369,14 @@ func TestReduceParallelDeterministic(t *testing.T) {
 	multi := map[string][]mapper.Rule{}
 	for _, d := range []string{"zeta", "alpha", "mu", "beta", "kappa"} {
 		multi[d] = []mapper.Rule{
-			{
+			withEARS(&mapper.Rule{
 				Title:       "T",
-				EarsKind:    earsEvent,
 				Requirement: "QUAND x, le systeme doit y.",
 				Citations: []extract.Ref{
 					{Path: xPath, Lines: "12-15"},
 				},
 				Entities: []string{invoices},
-			},
+			}),
 		}
 	}
 	run := func() []string {
@@ -413,6 +423,15 @@ func TestReduceResumeSkipsCachedDomains(t *testing.T) {
 	outputs, err := r.Run(context.Background(), candidates())
 	if err != nil || len(outputs) != 1 || outputs[0].Failed {
 		t.Fatalf("cached run: outputs=%+v err=%v", outputs, err)
+	}
+	// The cache stores the components; the sentence is derived again.
+	if rule := outputs[0].Rules[0]; rule.Requirement != "QUAND x, le système doit y." ||
+		rule.EarsKind != ears.Event {
+		t.Errorf(
+			"cached rule = %q (%s), want its sentence and kind",
+			rule.Requirement,
+			rule.EarsKind,
+		)
 	}
 }
 
@@ -467,11 +486,11 @@ const (
 // citations) and one distinct rule.
 func mergeCandidates() map[string][]mapper.Rule {
 	rule := func(title, requirement, lines string) mapper.Rule {
-		return mapper.Rule{
-			Title: title, EarsKind: earsEvent, Requirement: requirement,
+		return withEARS(&mapper.Rule{
+			Title: title, Requirement: requirement,
 			Citations: []extract.Ref{{Path: xPath, Lines: lines}},
 			Nature:    natureBusiness, Origin: originExplicit, Confidence: 0.8,
-		}
+		})
 	}
 	return map[string][]mapper.Rule{billing: {
 		rule("Prorata", "QUAND x, le systeme doit y.", repliedLines),

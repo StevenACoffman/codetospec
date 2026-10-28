@@ -4,6 +4,8 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -112,55 +114,90 @@ func symbolKind(obj types.Object) string {
 // CallFacts lists which of the module's functions and methods call or use
 // which others of the module: one call fact per caller and callee, both
 // cited by their declaration span. codetospec places a definition used by
-// callers of one domain alone in that domain.
+// callers of one domain alone in that domain. A call of a method of one of
+// the module's interfaces gives a fact per implementation, marked
+// attrDispatch; a direct use of the same callee wins.
 //
 // Requires: as SymbolFacts.
 // Ensures:  sorted by id; no fact for a definition using itself.
 func CallFacts(pkgs []*packages.Package, fset *token.FileSet, root string) []Fact {
 	decls := moduleDecls(pkgs, fset, root)
-	span := func(d moduleDecl) string {
-		return itoa(fset.Position(d.node.Pos()).Line) + "-" + itoa(fset.Position(d.node.End()).Line)
-	}
-	seen := map[string]bool{}
-	var facts []Fact
+	impls := implementations(decls, fset)
+	byID := map[string]Fact{} // two declarations may share one span
 	for _, caller := range decls {
 		fn, isFunc := caller.node.(*ast.FuncDecl)
 		if !isFunc || fn.Body == nil {
 			continue
 		}
-		ast.Inspect(fn.Body, func(n ast.Node) bool {
-			id, isIdent := n.(*ast.Ident)
-			if !isIdent {
-				return true
+		for callee, static := range calleesOf(fn, &caller, decls, impls, fset) {
+			f := callFact(&caller, &callee, static, fset)
+			if prior, seen := byID[f.ID]; !seen || prior.Attrs[attrDispatch] != "" {
+				byID[f.ID] = f
 			}
-			callee, isDecl := decls[genericOrigin(caller.info.Uses[id])]
-			if !isDecl || callee.obj == caller.obj {
-				return true
-			}
-			factID := "call." + caller.file + ":" + span(
-				caller,
-			) + "#" + callee.file + ":" + span(
-				callee,
-			)
-			if !seen[factID] {
-				seen[factID] = true
-				facts = append(facts, Fact{
-					Kind: "call",
-					ID:   factID,
-					Attrs: map[string]string{
-						"callee_path":  callee.file,
-						"callee_lines": span(callee),
-					},
-					Source:    Ref{Path: caller.file, Lines: span(caller)},
-					Origin:    origin,
-					Certainty: certain,
-				})
-			}
-			return true
-		})
+		}
 	}
+	facts := slices.Collect(maps.Values(byID))
 	sort.Slice(facts, func(i, j int) bool { return facts[i].ID < facts[j].ID })
 	return facts
+}
+
+// calleesOf lists the module declarations fn's body uses, each with
+// whether it uses it directly (true) or only through an interface (false).
+func calleesOf(
+	fn *ast.FuncDecl,
+	caller *moduleDecl,
+	decls map[types.Object]moduleDecl,
+	impls map[token.Position][]moduleDecl,
+	fset *token.FileSet,
+) map[moduleDecl]bool {
+	callees := map[moduleDecl]bool{}
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		id, isIdent := n.(*ast.Ident)
+		if !isIdent {
+			return true
+		}
+		obj := genericOrigin(caller.info.Uses[id])
+		if callee, isDecl := decls[obj]; isDecl {
+			callees[callee] = true
+		} else if obj != nil {
+			for _, impl := range impls[fset.Position(obj.Pos())] {
+				if _, used := callees[impl]; !used {
+					callees[impl] = false
+				}
+			}
+		}
+		return true
+	})
+	delete(callees, *caller)
+	return callees
+}
+
+// callFact is the call fact of caller using callee, directly or not.
+func callFact(caller, callee *moduleDecl, static bool, fset *token.FileSet) Fact {
+	attrs := map[string]string{
+		"callee_path":  callee.file,
+		"callee_lines": callee.lines(fset),
+	}
+	if !static {
+		attrs[attrDispatch] = dispatchInterface
+	}
+	return Fact{
+		Kind: "call",
+		ID: "call." + caller.file + ":" + caller.lines(
+			fset,
+		) + "#" + callee.file + ":" + callee.lines(
+			fset,
+		),
+		Attrs:     attrs,
+		Source:    Ref{Path: caller.file, Lines: caller.lines(fset)},
+		Origin:    origin,
+		Certainty: certain,
+	}
+}
+
+// lines is the declaration's span, "a-b".
+func (d *moduleDecl) lines(fset *token.FileSet) string {
+	return itoa(fset.Position(d.node.Pos()).Line) + "-" + itoa(fset.Position(d.node.End()).Line)
 }
 
 // truncate shortens s to n bytes, marking the cut.

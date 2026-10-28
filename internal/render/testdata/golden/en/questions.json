@@ -1,0 +1,23 @@
+{
+  "questions": [
+    {
+      "id": "q-ba5a69d12ea9",
+      "kind": "ears_issue",
+      "subject": "rule.billing.prorata-activation",
+      "detail": "event requirement does not open with WHEN"
+    },
+    {
+      "id": "q-e205a1128c65",
+      "kind": "coverage_gap",
+      "subject": "billing",
+      "detail": "map-failed app/Services/Billing/Refunds.php:1-40"
+    },
+    {
+      "id": "q-f1c4216ecc7b",
+      "kind": "ungrounded",
+      "subject": "rule.billing.prorata-activation",
+      "detail": "30 @app/Services/Billing/ProrataCalculator.php:9"
+    }
+  ],
+  "unused_resolutions": []
+}

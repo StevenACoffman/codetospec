@@ -14,6 +14,7 @@ import (
 	"sort"
 
 	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/questions"
 )
 
 // Prior is the output a previous run left in an output directory.
@@ -28,6 +29,9 @@ type Prior struct {
 	// (domains, entities…): only rule files are kept, so these are
 	// rewritten, and the run says so.
 	Overwritten []string
+	// Resolutions are the answers of questions.ResolutionsFile, by
+	// question id: a person's, like the reviewed rules, never rewritten.
+	Resolutions map[string]questions.Resolution
 }
 
 // Reviewed is a rule file a person owns.
@@ -54,7 +58,11 @@ func LoadPrior(outDir string) (Prior, error) {
 		return Prior{}, fmt.Errorf("glob %s: %w", pattern, err)
 	}
 	sort.Strings(paths)
-	prior := Prior{Reviewed: map[string]Reviewed{}}
+	resolutions, err := questions.Load(outDir)
+	if err != nil {
+		return Prior{}, err
+	}
+	prior := Prior{Reviewed: map[string]Reviewed{}, Resolutions: resolutions}
 	for _, path := range paths {
 		data, readErr := os.ReadFile(filepath.Clean(path))
 		if readErr != nil {
@@ -105,6 +113,28 @@ func recordedHashes(outDir string) (map[string]string, error) {
 		}
 	}
 	return hashes, nil
+}
+
+// LoadActors reads the glossary of actors graph.json records in outDir
+// (Meta.Actors); none when it records none or there is no graph.json.
+func LoadActors(outDir string) (map[string]string, error) {
+	data, err := os.ReadFile(filepath.Clean(filepath.Join(outDir, "graph.json")))
+	if errors.Is(err, fs.ErrNotExist) {
+		return map[string]string{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read graph.json: %w", err)
+	}
+	var doc struct {
+		Actors map[string]string `json:"actors"`
+	}
+	if err = json.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("parse graph.json: %w", err)
+	}
+	if doc.Actors == nil {
+		return map[string]string{}, nil
+	}
+	return doc.Actors, nil
 }
 
 // fileHash is the hash graph.json records for a node file's bytes.

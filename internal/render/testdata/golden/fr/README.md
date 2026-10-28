@@ -21,6 +21,8 @@ Graphe de connaissances des règles métier, extrait du code source par codetosp
 - Ancrage mécanique (valeurs citées présentes dans le code) : 0 ancrées, 1 non ancrées, 0 sans valeur vérifiable
 - Forme EARS : 1 règles n'ont pas la forme de leur type (`ears_issue`)
 - Tests : 1 règles sur 1 ont leur code cité atteint par un test, en 3 appels au plus (`tests`, `tested_by`)
+- Exécution (profil de couverture) : 1 règles sur 1 ont du code cité exécuté par les tests (`executed`)
+- Questions : 3 constats à revoir (`questions.json`), dont 0 résolus dans `resolutions.yaml` (non listés ci-dessous)
 
 ## Règles non ancrées
 

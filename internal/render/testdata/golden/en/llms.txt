@@ -1,0 +1,37 @@
+# codetospec knowledge graph
+
+> Business-rule specification extracted automatically from the source code.
+> Each node is a markdown file with YAML frontmatter carrying typed edges.
+
+Navigation: start at nodes/domains/, then follow the frontmatter edges
+(belongs_to, touches, exposed_by, depends_on). graph.json holds the full graph
+in machine form; `path:lines` citations point into the source repository.
+
+Each rule below carries its citation, its review verdict (crosscheck) and its
+grounding. Rely on it only when it is grounded and supported, repaired or
+mechanical: unchecked is never a pass. A partial domain holds code that produced
+no rule: a rule missing there proves nothing. The confidence field is the
+model's own rating, not a check.
+
+## domain
+
+- nodes/domains/billing.md : Domain billing · partial
+- nodes/domains/crm.md : Domain crm · complete
+
+## entity
+
+- nodes/entities/invoices.md : invoices
+
+## endpoint
+
+- nodes/endpoints/post-api-activate.md : POST /api/activate
+
+## enum
+
+- nodes/enums/models-invoicestatus.md : models.InvoiceStatus
+
+## rule
+
+### billing
+
+- nodes/rules/billing.prorata-activation.md : Prorata on activation · `app/Services/Billing/ProrataCalculator.php:11-24` · supported · ungrounded

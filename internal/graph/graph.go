@@ -53,6 +53,27 @@ func RuleRequirement(body string) string {
 	return first
 }
 
+// CriterionText is an acceptance criterion line ("1. x", RuleCriteria)
+// without its number.
+func CriterionText(line string) string {
+	rest := strings.TrimLeft(line, "0123456789")
+	if after, found := strings.CutPrefix(rest, "."); found && len(rest) < len(line) {
+		return strings.TrimSpace(after)
+	}
+	return line
+}
+
+// RuleDomain is the domain slug a rule belongs to, by its belongs_to
+// edge; "" when it has none.
+func RuleDomain(rule *Node) string {
+	for _, e := range rule.Edges {
+		if e.Type == EdgeBelongsTo {
+			return strings.TrimPrefix(e.To, TypeDomain+".")
+		}
+	}
+	return ""
+}
+
 // RuleCriteria returns the numbered acceptance criteria lines ("1. ...") of
 // a rule body written in any supported language.
 func RuleCriteria(body string) []string {
@@ -398,13 +419,13 @@ func reducedRuleNode(domain string, rule *reducer.Rule, text *locale.Text) Node 
 		Edges:   edges,
 		Title:   rule.Title,
 		Body:    body.String(),
-		Extra: withEARSIssue(map[string]string{
+		Extra: withActions(withEARS(map[string]string{
 			"ears":       rule.EarsKind,
 			"acceptance": strconv.Itoa(len(rule.AcceptanceCriteria)),
 			"nature":     rule.Nature,
 			"origin":     rule.Origin,
 			"confidence": strconv.FormatFloat(rule.Confidence, 'f', 2, 64),
-		}, rule.Requirement),
+		}, rule.Requirement), &rule.EARS),
 	}
 }
 

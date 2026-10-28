@@ -1,0 +1,68 @@
+{
+  "nodes": {
+    "domain.billing": {
+      "type": "domain",
+      "file": "nodes/domains/billing.md",
+      "hash": "68755e4c2fe5b693",
+      "coverage": "partial",
+      "edges": [
+        {
+          "type": "depends_on",
+          "to": "domain.crm"
+        }
+      ]
+    },
+    "domain.crm": {
+      "type": "domain",
+      "file": "nodes/domains/crm.md",
+      "hash": "718b0674c6910951",
+      "coverage": "complete",
+      "edges": []
+    },
+    "endpoint.post-api-activate": {
+      "type": "endpoint",
+      "file": "nodes/endpoints/post-api-activate.md",
+      "hash": "670ccefaf32ed0c2",
+      "edges": []
+    },
+    "entity.invoices": {
+      "type": "entity",
+      "file": "nodes/entities/invoices.md",
+      "hash": "08fdd5958a7c4cc2",
+      "edges": []
+    },
+    "enum.models-invoicestatus": {
+      "type": "enum",
+      "file": "nodes/enums/models-invoicestatus.md",
+      "hash": "0e3e58edd40f4e8a",
+      "edges": []
+    },
+    "rule.billing.prorata-activation": {
+      "type": "rule",
+      "file": "nodes/rules/billing.prorata-activation.md",
+      "hash": "a354331e758109a1",
+      "ears": {
+        "when": "un abonné active en cours de mois",
+        "shall": [
+          {
+            "text": "facturer au prorata des jours restants"
+          }
+        ]
+      },
+      "edges": [
+        {
+          "type": "belongs_to",
+          "to": "domain.billing"
+        },
+        {
+          "type": "touches",
+          "to": "entity.invoices"
+        },
+        {
+          "type": "exposed_by",
+          "to": "endpoint.post-api-activate"
+        }
+      ]
+    }
+  }
+}

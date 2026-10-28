@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -115,6 +117,46 @@ func checkQuality(t *testing.T, outDir string, nodes []graph.Node) {
 	}
 	if technical == 0 {
 		t.Error("the fixture run produced no technical rule to classify")
+	}
+}
+
+// checkExportKiro: export --format kiro writes a requirement per rule, a
+// spec per domain, each criterion in Kiro's capitals.
+func checkExportKiro(t *testing.T, outDir string, nodes []graph.Node) {
+	t.Helper()
+	to := t.TempDir()
+	c := cli{
+		stdout: io.Discard,
+		stderr: t.Output(),
+		logger: slog.New(slog.NewTextHandler(t.Output(), nil)),
+	}
+	cfg := &config.Config{Out: outDir, To: to, Format: config.ExportKiro}
+	if code := c.export(cfg); code != exitOK {
+		t.Fatalf("export exit = %d, want %d", code, exitOK)
+	}
+	written, err := fs.Glob(os.DirFS(to), ".kiro/specs/*/requirements.md")
+	if err != nil || len(written) == 0 {
+		t.Fatalf("no Kiro spec written: %v", err)
+	}
+	requirements := 0
+	for _, rel := range written {
+		data, readErr := os.ReadFile(filepath.Clean(filepath.Join(to, rel)))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		requirements += strings.Count(string(data), "\n### Requirement ")
+		if !strings.Contains(string(data), " SHALL ") && !strings.Contains(string(data), " DOIT ") {
+			t.Errorf("%s: no criterion in Kiro's capitals:\n%s", rel, data)
+		}
+	}
+	rules := 0
+	for _, n := range nodes {
+		if n.Type == graph.TypeRule {
+			rules++
+		}
+	}
+	if requirements != rules {
+		t.Errorf("exported %d requirements, want one per rule (%d)", requirements, rules)
 	}
 }
 

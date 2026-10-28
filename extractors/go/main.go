@@ -9,9 +9,11 @@
 // precise `symbol` facts and `call` facts (who uses whom, for domains),
 // `test` facts (what each test function uses, for the rules tests reach),
 // `enum`, `enum_value` and `transition` facts (enumerations and the state
-// changes the code guards) and `table` facts (SQL CREATE TABLE from schema files, e.g. sqlc).
+// changes the code guards), `table` facts (SQL CREATE TABLE from schema
+// files, e.g. sqlc) and, given a coverage profile, `executed` facts (the
+// lines the profiled tests ran).
 //
-// Usage: extract --root <src> [--sql-glob "sql/schema/*.sql"]
+// Usage: extract --root <src> [--sql-glob "sql/schema/*.sql"] [--cover <profile>]
 package main
 
 import (
@@ -74,6 +76,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		"comma-separated directory names whose route registrations are not entry points "+
 			"(e.g. testutil, where test helpers register mock servers)",
 	)
+	coverProfile := flags.String(
+		"cover",
+		"",
+		"optional coverage profile of the module's tests (go test -coverpkg=./... "+
+			"-coverprofile=FILE): emit the lines each file's tests executed",
+	)
 	var sharedSpecs nameDirs
 	flags.Var(&sharedSpecs, "shared",
 		"name=dir of shared code the module builds on (repeatable): emit a reach fact for "+
@@ -98,25 +106,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	var facts []Fact
 	if m, ok := loadPackages(absRoot, log); ok {
-		pkgs, fset := m.pkgs, m.fset
-		facts = append(facts, routeFacts(pkgs, fset, absRoot, dirSet(*skipDirs), log)...)
-		constants := ConstantFacts(pkgs, fset, absRoot)
-		log("%d constant(s)", len(constants))
-		facts = append(facts, constants...)
-		symbols, calls := SymbolFacts(pkgs, fset, absRoot), CallFacts(pkgs, fset, absRoot)
-		log("%d symbol(s), %d call(s)", len(symbols), len(calls))
-		facts = append(facts, symbols...)
-		facts = append(facts, calls...)
-		enums := EnumFacts(pkgs, fset, absRoot)
-		log("%d enumeration fact(s)", len(enums))
-		facts = append(facts, enums...)
-		tests := TestFacts(&m, absRoot)
-		log("%d test fact(s)", len(tests))
-		facts = append(facts, tests...)
-		for i := range shared {
-			reach := ReachFacts(pkgs, fset, &shared[i])
-			log("%d declaration(s) of %s reached", len(reach), shared[i].Name)
-			facts = append(facts, reach...)
+		facts, err = moduleFacts(&m, absRoot, &options{
+			skipDirs: dirSet(*skipDirs),
+			shared:   shared,
+			cover:    *coverProfile,
+		}, log)
+		if err != nil {
+			log("%v", err)
+			return exitError
 		}
 	}
 	facts = append(facts, tableFacts(absRoot, *sqlGlob, log)...)
@@ -128,6 +125,61 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 	return exitOK
+}
+
+// options are the extraction choices besides the root.
+type options struct {
+	skipDirs map[string]bool // directories whose routes are not entry points
+	shared   []SharedRoot    // shared code to emit reach facts for
+	cover    string          // coverage profile path, "" for none
+}
+
+// moduleFacts extracts the facts of a loaded module, logging their counts.
+func moduleFacts(m *loadedModule, root string, opts *options, log logf) ([]Fact, error) {
+	pkgs, fset := m.pkgs, m.fset
+	facts := routeFacts(pkgs, fset, root, opts.skipDirs, log)
+	constants := ConstantFacts(pkgs, fset, root)
+	log("%d constant(s)", len(constants))
+	facts = append(facts, constants...)
+	symbols, calls := SymbolFacts(pkgs, fset, root), CallFacts(pkgs, fset, root)
+	log("%d symbol(s), %d call(s)", len(symbols), len(calls))
+	facts = append(facts, symbols...)
+	facts = append(facts, calls...)
+	enums := EnumFacts(pkgs, fset, root)
+	log("%d enumeration fact(s)", len(enums))
+	facts = append(facts, enums...)
+	tests := TestFacts(m, root)
+	log("%d test fact(s)", len(tests))
+	facts = append(facts, tests...)
+	if opts.cover != "" {
+		executed, err := executedFacts(opts.cover, m, root, log)
+		if err != nil {
+			return nil, err
+		}
+		facts = append(facts, executed...)
+	}
+	for i := range opts.shared {
+		reach := ReachFacts(pkgs, fset, &opts.shared[i])
+		log("%d declaration(s) of %s reached", len(reach), opts.shared[i].Name)
+		facts = append(facts, reach...)
+	}
+	return facts, nil
+}
+
+// executedFacts reads the coverage profile at path into executed facts,
+// logging the files skipped as changed since the profile.
+func executedFacts(path string, m *loadedModule, root string, log logf) ([]Fact, error) {
+	profiles, stale, err := readProfile(path, root)
+	if err != nil {
+		return nil, err
+	}
+	facts, skipped := ExecutedFacts(profiles, profileFiles(m.pkgs, root), stale)
+	log("%d file(s) with executed lines", len(facts))
+	if len(skipped) > 0 {
+		log("%d file(s) changed since the coverage profile, left out: %s",
+			len(skipped), strings.Join(skipped, ", "))
+	}
+	return facts, nil
 }
 
 func dirSet(list string) map[string]bool {

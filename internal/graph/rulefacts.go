@@ -2,6 +2,7 @@ package graph
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/StevenACoffman/codetospec/internal/ears"
@@ -25,6 +26,22 @@ const ExtraStaleVerdict = "stale_verdict"
 // ExtraEARSIssue is the Extra key holding why a rule's requirement does not
 // have the EARS form its kind names (ears.Check); absent when it does.
 const ExtraEARSIssue = "ears_issue"
+
+// ExtraEARSActions is the Extra key keeping, beside a rule's sentence,
+// the action of each of its responses ("create; sound", ears.Actions): a
+// sentence does not say where a verb ends, so the components the model
+// wrote are read back whole (RuleComponents). Set only when every action
+// is known.
+const ExtraEARSActions = "ears_actions"
+
+// actionsSeparator joins ExtraEARSActions, as Render joins responses: an
+// action opens its response, so it holds no ";".
+const actionsSeparator = "; "
+
+// ExtraEARSPatterns is the Extra key listing the simple EARS patterns a
+// rule's sentence combines ("state, event", ears.Patterns), derived from
+// the sentence; absent unless it combines two or more.
+const ExtraEARSPatterns = "ears_patterns"
 
 // Reviewable reports whether a node is a rule of this spec's LLM output,
 // which the cross-check reviewer may judge: not an extractor's mechanical
@@ -60,11 +77,20 @@ const ExtraQualityAttribute = "quality_attribute"
 // testreach.Annotate): how many, the depth of the nearest (1 when it uses
 // the cited definition itself) and the nearest few, as "path#TestName".
 // Absent when the run had no test facts: unknown, not untested.
+// ExtraTestsViaInterface counts the further tests reaching the cited code
+// only through a call of an interface it implements (set when any).
 const (
-	ExtraTests     = "tests"
-	ExtraTestDepth = "test_depth"
-	ExtraTestedBy  = "tested_by"
+	ExtraTests             = "tests"
+	ExtraTestDepth         = "test_depth"
+	ExtraTestedBy          = "tested_by"
+	ExtraTestsViaInterface = "tests_via_interface"
 )
+
+// ExtraExecuted is the frontmatter key of how many statement lines of a
+// rule's cited code a profiled test run executed, "k/n" (see
+// testreach.Annotate). Absent when the run had no coverage profile for
+// every cited file: unknown, not unexecuted.
+const ExtraExecuted = "executed"
 
 // ValidateRuleFacts drops extract.KindRule facts that do not satisfy the rule
 // fact contract, so an extractor bug cannot put a malformed rule in the
@@ -163,18 +189,51 @@ func mechanicalRuleNode(
 		Edges:   edges,
 		Title:   f.Attrs[extract.AttrTitle],
 		Body:    text.Requirement + f.Attrs[extract.AttrRequirement],
-		Extra:   withEARSIssue(ruleFactExtra(f), f.Attrs[extract.AttrRequirement]),
+		Extra:   withEARS(ruleFactExtra(f), f.Attrs[extract.AttrRequirement]),
 	}
 }
 
-// withEARSIssue sets ExtraEARSIssue on extra, a map its caller has just
-// built, when requirement does not have the form of the EARS kind extra
-// declares, and returns it.
-func withEARSIssue(extra map[string]string, requirement string) map[string]string {
+// withEARS sets, on extra, a map its caller has just built, what the
+// sentence requirement says of its EARS form: ExtraEARSIssue when it does
+// not have the form of the kind extra declares, ExtraEARSPatterns when it
+// combines two or more patterns; and returns extra. Every rule node goes
+// through it, whoever wrote the sentence.
+func withEARS(extra map[string]string, requirement string) map[string]string {
 	if issue := ears.Check(extra["ears"], requirement); issue != "" {
 		extra[ExtraEARSIssue] = issue
 	}
+	if c, err := ears.Parse(requirement); err == nil {
+		if patterns := ears.Patterns(&c); len(patterns) > 1 {
+			extra[ExtraEARSPatterns] = strings.Join(patterns, ", ")
+		}
+	}
 	return extra
+}
+
+// withActions sets ExtraEARSActions on extra from the components a rule
+// was written from, when each response's action is known; and returns
+// extra.
+func withActions(extra map[string]string, c *ears.Components) map[string]string {
+	actions := ears.Actions(c)
+	if len(actions) > 0 && !slices.Contains(actions, "") {
+		extra[ExtraEARSActions] = strings.Join(actions, actionsSeparator)
+	}
+	return extra
+}
+
+// RuleComponents are the EARS components of a rule node: its sentence read
+// back (ears.Parse), with the actions kept beside it where they still
+// open their responses; false when the sentence does not parse.
+func RuleComponents(n *Node) (ears.Components, bool) {
+	c, err := ears.Parse(RuleRequirement(n.Body))
+	if err != nil {
+		return ears.Components{}, false
+	}
+	var actions []string
+	if recorded := n.Extra[ExtraEARSActions]; recorded != "" {
+		actions = strings.Split(recorded, actionsSeparator)
+	}
+	return ears.WithActions(&c, actions), true
 }
 
 // ruleFactExtra is the frontmatter of a rule fact's node: a mechanical

@@ -23,6 +23,11 @@ type Fact struct {
 	Certainty string            `json:"certainty"` // "proved" | "static"
 }
 
+// ViaDispatch reports whether a call or test fact's callee is reached only
+// through an interface (AttrDispatch): each consumer decides whether such
+// a possible use counts.
+func (f *Fact) ViaDispatch() bool { return f.Attrs[AttrDispatch] != "" }
+
 // Fact kinds that external extractors may emit beyond the structural ones
 // ("symbol", "route", "table", "module", "import"). This block is the single
 // authoritative description of their contract.
@@ -67,7 +72,9 @@ const (
 	// KindCall records that the definition at Source (the caller) calls or
 	// uses the definition at AttrCalleePath, AttrCalleeLines (the callee),
 	// both in --src. A definition the callers of one domain alone use is
-	// placed in that domain (see package callers).
+	// placed in that domain (see package callers). A fact marked
+	// AttrDispatch is a call through an interface: package callers and
+	// drift's callees ignore it, package testreach counts it apart.
 	KindCall = "call"
 	// KindTest records that the test function at Source (AttrName, e.g.
 	// TestClose) uses the definition at AttrCalleePath, AttrCalleeLines,
@@ -83,7 +90,20 @@ const (
 	KindEnum       = "enum"
 	KindEnumValue  = "enum_value"
 	KindTransition = "transition"
+	// KindExecuted is what a test run executed in the file at Source.Path,
+	// read from a coverage profile: AttrExecuted lists the lines it ran,
+	// AttrUnexecuted the statement lines it did not, each as
+	// comma-separated "a-b" spans. Observed, unlike the reach of test
+	// facts, and only for the code of the commit the profile was made on:
+	// the extractor leaves out the files changed since.
+	KindExecuted = "executed"
 )
+
+// DispatchInterface is AttrDispatch on a call or test fact whose caller
+// calls a method of an interface of the module, and whose callee is one
+// of the module's implementations of it: a use that may happen, not one
+// that is known to.
+const DispatchInterface = "interface"
 
 // Values of AttrAs.
 const (
@@ -144,6 +164,13 @@ const (
 	// callee.
 	AttrCalleePath  = "callee_path"
 	AttrCalleeLines = "callee_lines"
+	// AttrDispatch, on a call or test fact, says how the callee is reached
+	// when it is not used directly: DispatchInterface, through a method of
+	// an interface the callee implements (see Fact.ViaDispatch).
+	AttrDispatch = "dispatch"
+	// AttrExecuted and AttrUnexecuted, on an executed fact.
+	AttrExecuted   = "executed"
+	AttrUnexecuted = "unexecuted"
 	// AttrEnum, AttrFrom and AttrTo, on enum_value and transition facts.
 	AttrEnum = "enum"
 	AttrFrom = "from"

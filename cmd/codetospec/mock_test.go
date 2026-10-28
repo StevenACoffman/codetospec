@@ -88,15 +88,14 @@ func mockMap(user string) (string, error) {
 			return "", err
 		}
 		payload["rules"] = []any{map[string]any{
-			"title":       "Règle de " + m[1],
-			"ears_kind":   "event",
-			"requirement": mockRequirement(m[1]),
-			"citations":   []any{map[string]any{"path": m[1], "lines": m[2] + "-" + m[3]}},
-			"entities":    entities,
-			"endpoints":   endpoints,
-			"nature":      "business",
-			"origin":      "explicit",
-			"confidence":  0.9,
+			"title":      "Règle de " + m[1],
+			"ears":       mockEARS(m[1]),
+			"citations":  []any{map[string]any{"path": m[1], "lines": m[2] + "-" + m[3]}},
+			"entities":   entities,
+			"endpoints":  endpoints,
+			"nature":     "business",
+			"origin":     "explicit",
+			"confidence": 0.9,
 		}}
 	}
 	data, err := json.Marshal(payload)
@@ -116,14 +115,13 @@ func mockReduce(user string) (string, error) {
 	rules := make([]any, 0, len(candidates))
 	for i, c := range candidates {
 		rules = append(rules, map[string]any{
-			"slug":        "regle-" + string(rune('a'+i)),
-			"title":       c.Title,
-			"ears_kind":   c.EarsKind,
-			"requirement": c.Requirement,
-			"rationale":   "Consolidée depuis le code.",
-			"citations":   c.Citations,
-			"entities":    c.Entities,
-			"endpoints":   c.Endpoints,
+			"slug":      "regle-" + string(rune('a'+i)),
+			"title":     c.Title,
+			"ears":      c.EARS,
+			"rationale": "Consolidée depuis le code.",
+			"citations": c.Citations,
+			"entities":  c.Entities,
+			"endpoints": c.Endpoints,
 			"acceptance_criteria": []string{
 				"Le calcul nominal est correct.",
 				"Le cas limite est couvert.",
@@ -181,12 +179,17 @@ func promptList(prompt, prefix string) ([]string, error) {
 	return nil, nil
 }
 
-// mockRequirement is the requirement the mock map step states for a file.
+// mockEARS are the EARS components the mock map step states for a file.
 // The ProrataCalculator rule carries a planted wrong threshold (15 is not in
 // the code) that the mechanical grounding check must flag.
-func mockRequirement(path string) string {
+func mockEARS(path string) map[string]any {
+	prorata := []map[string]string{{"text": "facturer au prorata", "action": "facturer"}}
 	if strings.HasSuffix(path, "ProrataCalculator.php") {
-		return "SI le jour d'activation dépasse 15, ALORS le systeme doit facturer au prorata."
+		return map[string]any{
+			"if": "le jour d'activation dépasse 15", "shall": prorata,
+		}
 	}
-	return "QUAND un abonné active en cours de mois, le systeme doit facturer au prorata."
+	return map[string]any{
+		"when": "un abonné active en cours de mois", "shall": prorata,
+	}
 }

@@ -1,11 +1,17 @@
 // Package locale holds every fixed string codetospec writes in the output
-// language chosen by --lang: the EARS patterns given to the model, the labels
-// of node bodies and the README/llms.txt text. It is the single place to
-// translate; writers take a Text for one language, while parsers accept the
-// labels of every language (All) so a graph reads back whatever --lang wrote it.
+// language chosen by --lang: the EARS sentence template given to the
+// model, the labels of node bodies and the README/llms.txt text. It is the
+// single place to translate (EARS keywords excepted: package ears owns
+// them, for Render, Parse and Check alike); writers take a Text for one
+// language, while parsers accept the labels of every language (All) so a
+// graph reads back whatever --lang wrote it.
 package locale
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/StevenACoffman/codetospec/internal/ears"
+)
 
 // Text is the fixed output text for one language. Strings ending in "Fmt"
 // are fmt formats; their verbs are listed beside each field.
@@ -13,8 +19,9 @@ type Text struct {
 	Lang string // --lang code: "fr" | "en"
 	Name string // language name substituted into prompts ("French")
 
-	// EARSPatterns lists one template per EARS kind, as given to the model.
-	EARSPatterns string
+	// EARSTemplate is the sentence EARS components make, with placeholders
+	// (ears.Template), as given to the model.
+	EARSTemplate string
 
 	// DecimalSeparator is how requirements in this language write decimals:
 	// ',' in French (1,5 · thousands as 1 000), '.' in English (1.5 ·
@@ -94,7 +101,12 @@ type ReadmeCoverage struct {
 	RejectedRulesFmt                        string // %d malformed extractor rule facts
 	GroundingFmt                            string // %d grounded, ungrounded, unchecked
 	EARSIssuesFmt                           string // %d rules whose EARS form is off
+	UnusedActorsFmt                         string // %s: actors no rule names
 	TestedFmt                               string // %d rules a test reaches, of %d known, within %d calls
+	TestedViaInterfaceFmt                   string // %d more reached only through an interface
+	ExecutedFmt                             string // %d rules with executed cited code, of %d recorded
+	QuestionsFmt                            string // %d questions, %d resolved
+	UnusedResolutionsFmt                    string // %d resolutions matching no question
 }
 
 // ReadmeReview lists rules for review and the domain graph heading.
@@ -142,20 +154,9 @@ func newText(lang string) *Text {
 		decimalSeparator = '.'
 	}
 	return &Text{
-		Lang: lang,
-		Name: tr("French", "English"),
-		EARSPatterns: tr(
-			`  ubiquitous: "Le systeme doit <response>."
-  event: "QUAND <trigger>, le systeme doit <response>."
-  state: "TANT QUE <state>, le systeme doit <response>."
-  unwanted: "SI <condition>, ALORS le systeme doit <response>."
-  optional: "LA OU <feature>, le systeme doit <response>."`,
-			`  ubiquitous: "The system shall <response>."
-  event: "WHEN <trigger>, the system shall <response>."
-  state: "WHILE <state>, the system shall <response>."
-  unwanted: "IF <condition>, THEN the system shall <response>."
-  optional: "WHERE <feature>, the system shall <response>."`,
-		),
+		Lang:             lang,
+		Name:             tr("French", "English"),
+		EARSTemplate:     ears.Template(lang),
 		DecimalSeparator: decimalSeparator,
 		LLMsPreamble: tr(
 			`> Spécification des règles métier extraite automatiquement du code source.
@@ -168,7 +169,8 @@ au format machine ; les citations `+"`path:lines`"+` pointent dans le dépôt so
 Chaque règle ci-dessous porte sa citation, son verdict de revue (crosscheck) et son
 ancrage (grounding). Ne s'y fier que si elle est grounded et supported, repaired ou
 mechanical : unchecked n'est jamais un succès. Un domaine partial contient du code
-qui n'a produit aucune règle : l'absence d'une règle n'y prouve rien.`,
+qui n'a produit aucune règle : l'absence d'une règle n'y prouve rien. Le champ
+confidence est la note que le modèle se donne, pas une vérification.`,
 			`> Business-rule specification extracted automatically from the source code.
 > Each node is a markdown file with YAML frontmatter carrying typed edges.
 
@@ -179,7 +181,8 @@ in machine form; `+"`path:lines`"+` citations point into the source repository.
 Each rule below carries its citation, its review verdict (crosscheck) and its
 grounding. Rely on it only when it is grounded and supported, repaired or
 mechanical: unchecked is never a pass. A partial domain holds code that produced
-no rule: a rule missing there proves nothing.`,
+no rule: a rule missing there proves nothing. The confidence field is the
+model's own rating, not a check.`,
 		),
 		Labels:    newLabels(tr),
 		Readme:    newReadme(tr),
@@ -451,9 +454,29 @@ func newReadmeCoverage(tr translate) ReadmeCoverage {
 			"- Forme EARS : %d règles n'ont pas la forme de leur type (`ears_issue`)",
 			"- EARS form: %d rules do not have the form their kind names (`ears_issue`)",
 		),
+		UnusedActorsFmt: tr(
+			"- Acteurs du glossaire qu'aucune règle ne nomme : %s",
+			"- Glossary actors no rule names: %s",
+		),
 		TestedFmt: tr(
 			"- Tests : %d règles sur %d ont leur code cité atteint par un test, en %d appels au plus (`tests`, `tested_by`)",
 			"- Tests: %d of %d rules have their cited code reached by a test, within %d calls (`tests`, `tested_by`)",
+		),
+		TestedViaInterfaceFmt: tr(
+			" ; %d de plus seulement par un appel d'interface (`tests_via_interface` : peut-être exécuté)",
+			"; %d more only through an interface call (`tests_via_interface`: possibly run)",
+		),
+		QuestionsFmt: tr(
+			"- Questions : %d constats à revoir (`questions.json`), dont %d résolus dans `resolutions.yaml` (non listés ci-dessous)",
+			"- Questions: %d findings to review (`questions.json`), %d of them resolved in `resolutions.yaml` (not listed below)",
+		),
+		UnusedResolutionsFmt: tr(
+			" ; %d résolutions ne correspondent plus à aucune question (code cité modifié, ou constat disparu) : à retirer",
+			"; %d resolutions match no question any more (cited code changed, or the finding is gone): remove them",
+		),
+		ExecutedFmt: tr(
+			"- Exécution (profil de couverture) : %d règles sur %d ont du code cité exécuté par les tests (`executed`)",
+			"- Execution (coverage profile): %d of %d rules have cited code the tests executed (`executed`)",
 		),
 	}
 }
@@ -516,12 +539,12 @@ func newReadmeReview(tr translate) ReadmeReview {
 }
 
 // For returns the text for a --lang code. Config validation restricts --lang
-// to "fr" and "en"; any other code gets French, the historical default.
+// to "en" and "fr"; any other code gets English, the default.
 func For(lang string) *Text {
-	if lang == "en" {
-		return newText("en")
+	if lang == "fr" {
+		return newText("fr")
 	}
-	return newText("fr")
+	return newText("en")
 }
 
 // All returns the text of every supported language, for parsers that must
@@ -531,7 +554,7 @@ func All() []*Text {
 }
 
 // Prompt fills a prompt template's placeholders for this language: <LANG>
-// with the language name and <EARS> with the EARS patterns.
+// with the language name and <EARS> with the EARS sentence template.
 func (t *Text) Prompt(template string) string {
-	return strings.NewReplacer("<LANG>", t.Name, "<EARS>", t.EARSPatterns).Replace(template)
+	return strings.NewReplacer("<LANG>", t.Name, "<EARS>", t.EARSTemplate).Replace(template)
 }

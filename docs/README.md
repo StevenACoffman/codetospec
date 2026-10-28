@@ -29,6 +29,10 @@ you.
 5. **[Honest limits](05-limits.md)** — what static code-to-spec cannot do, and
    why saying so is part of the product.
 
+**[Verification records](verification/README.md)** keep the measurements on
+real code behind the tool's design decisions, with what it takes to repeat
+them.
+
 ## The one-sentence version
 
 The program holds the loop and sets deterministic gates; the LLM only fills

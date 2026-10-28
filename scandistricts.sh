@@ -38,6 +38,10 @@
 #   REDUCE_MODE      merge|full             (default: merge)
 #   SCIP             1|0                    (default: 0 — the Go extractor gives
 #                    precise symbols; 1 also indexes with scip-go)
+#   COVER            coverage profile of the module's tests, made at this
+#                    commit (go test -coverpkg=./... -coverprofile=FILE ./...):
+#                    rules get `executed: k/n`; files of other modules are
+#                    ignored, files changed since the profile left out
 #   DRY_RUN=1        stop before calling the LLM, print the command
 set -euo pipefail
 
@@ -177,7 +181,11 @@ if [ "$module" != pkg ]; then
     fi
 fi
 printf '==> extracting %s → %s\n' "$module_dir" "$facts_file" >&2
-(cd "$module_dir" && "$repo_dir/bin/go-extract" -root . -skip-dirs testutil "${shared_args[@]}" >"$facts_file")
+cover_args=()
+if [ -n "${COVER:-}" ]; then
+    cover_args=(-cover "$(cd "$(dirname "$COVER")" && pwd)/$(basename "$COVER")")
+fi
+(cd "$module_dir" && "$repo_dir/bin/go-extract" -root . -skip-dirs testutil "${shared_args[@]}" "${cover_args[@]}" >"$facts_file")
 count() { grep -o "\"kind\":\"$1\"" "$facts_file" | wc -l | tr -d ' '; }
 printf '    routes %s · constants %s · tables %s · symbols %s · calls %s · pkg declarations reached %s\n' \
     "$(count route)" "$(count constant)" "$(count table)" "$(count symbol)" "$(count call)" "$(count reach)" >&2

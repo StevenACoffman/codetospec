@@ -478,19 +478,19 @@ func quoteAll(values []string) string {
 func addTableTexts(w *wording, tr translate) {
 	w.tableTitleFmt = tr("Table d'accès : %s", "Access table: %s")
 	w.tableSetFmt = tr(
-		"Le systeme doit tenir %s dans %s, que lit %s.",
+		"Le système doit tenir %s dans %s, que lit %s.",
 		"The system shall hold %s in %s, which %s reads.",
 	)
 	w.tableMapFmt = tr(
-		"Le systeme doit associer %s dans %s, que lit %s.",
+		"Le système doit associer %s dans %s, que lit %s.",
 		"The system shall map %s in %s, which %s reads.",
 	)
 	w.pairFmt = tr("%s à %s", "%s to %s")
 	w.tableListFmt = tr(
-		"Le systeme doit tenir %s pour %s dans %s, que lit %s.",
+		"Le système doit tenir %s pour %s dans %s, que lit %s.",
 		"The system shall hold %s for %s in %s, which %s reads.",
 	)
-	w.rateTableFmt = tr("Le systeme doit limiter %s à %s.", "The system shall limit %s to %s.")
+	w.rateTableFmt = tr("Le système doit limiter %s à %s.", "The system shall limit %s to %s.")
 	w.tableLimitFmt = tr("%s %s", "%s %s")
 	w.alsoWord = tr("et à", "and to")
 	w.second = tr("seconde", "second")

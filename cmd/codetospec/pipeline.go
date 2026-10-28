@@ -176,6 +176,7 @@ func (p *pipeline) run(ctx context.Context) error {
 		models:   models,
 	})
 	meta.Reviewed = reviewedFiles
+	meta.Resolutions = prior.Resolutions
 	written, err := p.domainModel(models, nodes, tablesOf(ext.facts, domainOf))
 	if err != nil {
 		return err
@@ -467,6 +468,7 @@ func (p *pipeline) mapChunks(
 		Reground:     p.cfg.Reground,
 		OutDir:       filepath.Join(p.cfg.Out, ".codetospec", "map"),
 		Entities:     idx.entities,
+		Actors:       allowedActors(&p.cfg.Actors),
 		EndpointsFor: func(path string) []string { return idx.endpointsByPath[path] },
 		SymbolsFor:   func(path string) []mapper.SymbolContext { return idx.symbols[path] },
 		RulesFor:     func(path string) []mapper.Note { return idx.mechanical[path] },
@@ -575,6 +577,7 @@ func (p *pipeline) reduce(
 		OutDir:    filepath.Join(p.cfg.Out, ".codetospec", "reduce"),
 		Entities:  idx.entities,
 		Endpoints: idx.allEndpoints,
+		Actors:    allowedActors(&p.cfg.Actors),
 		BatchSize: p.cfg.ReduceBatch,
 		Mode:      p.cfg.ReduceMode,
 		Workers:   p.cfg.Workers,
@@ -656,6 +659,7 @@ func buildMeta(cfg *config.Config, ext *extraction, in *metaInputs) render.Meta 
 		SharedEntities:        graph.SharedEntities(in.nodes),
 		Lang:                  cfg.Lang,
 		RuleFactsRejected:     len(ext.rejected),
+		Actors:                cfg.Actors.Descriptions,
 	}
 	for _, name := range sortedKeys(ext.status) {
 		if ext.status[name] != "ok" {
@@ -890,4 +894,10 @@ func writeModelFiles(dir string, written *domainmodel.Enhanced) error {
 		return fmt.Errorf("encode model provenance: %w", err)
 	}
 	return os.WriteFile(filepath.Join(dir, "provenance.json"), append(provenance, '\n'), 0o600)
+}
+
+// allowedActors are the actors of the glossary a rule may name, as the
+// map and the reduce check them.
+func allowedActors(a *config.Actors) mapper.Actors {
+	return mapper.Actors{Names: slices.Sorted(maps.Keys(a.Descriptions)), Aliases: a.Aliases}
 }

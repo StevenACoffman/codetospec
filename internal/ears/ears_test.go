@@ -61,10 +61,6 @@ func TestCheck(t *testing.T) {
 			"SI le montant est négatif, ALORS le systeme doit le rejeter.",
 			true,
 		},
-		"unwanted after a clause": {
-			ears.Unwanted,
-			"WHEN converting rows, IF a row fails, THEN the system shall abort.", true,
-		},
 		"no modal": {
 			ears.Ubiquitous, "The system does not check access to `Query.x` yet.", false,
 		},
@@ -83,13 +79,95 @@ func TestCheck(t *testing.T) {
 		"unwanted without THEN": {
 			ears.Unwanted, "IF the amount is negative, the system shall reject it.", false,
 		},
-		"unknown kind": {"complex", "The system shall round amounts.", false},
+		"unknown kind": {"compound", "The system shall round amounts.", false},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			got := ears.Check(tc.kind, tc.requirement)
 			if (got == "") != tc.ok {
 				t.Errorf("Check(%q, %q) = %q, want ok=%v", tc.kind, tc.requirement, got, tc.ok)
+			}
+		})
+	}
+}
+
+// TestCheckComplex: a complex requirement reads as components of two or
+// more patterns — two triggers included, a precondition before or after
+// the trigger, IF … THEN last — and its actor may be any "the <system
+// name>".
+func TestCheckComplex(t *testing.T) {
+	cases := map[string]struct {
+		kind, requirement string
+		ok                bool
+	}{
+		"WHEN and IF, declared as before the complex kind": {
+			ears.Unwanted,
+			"WHEN converting rows, IF a row fails, THEN the system shall abort.", true,
+		},
+		"WHEN and IF, complex": {
+			ears.Complex,
+			"WHEN converting rows, IF a row fails, THEN the system shall abort.", true,
+		},
+		"actor": {ears.Event, "WHEN mute is selected, the laptop shall mute.", true},
+		"complex": {
+			ears.Complex,
+			"WHILE the queue is paused, WHEN a job arrives, the system shall hold it.", true,
+		},
+		"complex with one keyword": {
+			ears.Complex, "WHEN a job arrives, the system shall hold it.", false,
+		},
+		"complex, trigger first": {
+			ears.Complex,
+			"WHEN a job arrives, WHILE the queue is paused, the system shall hold it.", true,
+		},
+		"complex, IF not last": {
+			ears.Complex,
+			"IF a job fails, WHEN it is retried, THEN the system shall log it.", false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := ears.Check(tc.kind, tc.requirement)
+			if (got == "") != tc.ok {
+				t.Errorf("Check(%q, %q) = %q, want ok=%v", tc.kind, tc.requirement, got, tc.ok)
+			}
+		})
+	}
+}
+
+// TestCheckStacked: stacked clauses declared as the kind they open with
+// (graphs written before the complex kind) keep passing, and a condition
+// after "shall" passes: a defining predicate or a restriction is a
+// legitimate response (see the package doc).
+func TestCheckStacked(t *testing.T) {
+	cases := map[string]struct {
+		kind, requirement string
+	}{
+		"unwanted after a state": {
+			ears.Unwanted,
+			"WHILE a sync runs, IF a row fails, THEN the system shall abort.",
+		},
+		"unwanted after a feature": {
+			ears.Unwanted,
+			"WHERE audits are on, IF a write fails, THEN the system shall log it.",
+		},
+		"event after a state": {
+			ears.State,
+			"WHILE the queue is paused, WHEN a job arrives, the system shall hold it.",
+		},
+		"defining predicate": {
+			ears.Ubiquitous,
+			"The system shall consider a lock expired when it is over 50 hours old.",
+		},
+		"restriction": {
+			ears.Ubiquitous,
+			"The system shall serve / only when the request is authenticated.",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := ears.Check(tc.kind, tc.requirement); got != "" {
+				t.Errorf("Check(%q, %q) = %q, want ok", tc.kind, tc.requirement, got)
 			}
 		})
 	}

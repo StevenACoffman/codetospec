@@ -28,8 +28,17 @@ func call(callerPath, callerLines, calleePath, calleeLines string) extract.Fact 
 	}
 }
 
+// viaInterface marks facts as uses through an interface.
+func viaInterface(facts ...extract.Fact) []extract.Fact {
+	for i := range facts {
+		facts[i].Attrs[extract.AttrDispatch] = extract.DispatchInterface
+	}
+	return facts
+}
+
 // TestCallees: one hop from the cited lines, sorted, deduplicated, never
-// code the rule already cites, never through a shared root.
+// code the rule already cites, never through a shared root or an
+// interface.
 func TestCallees(t *testing.T) {
 	cited := []extract.Ref{{Path: handlerFile, Lines: "10-20"}}
 	cases := []struct {
@@ -55,6 +64,9 @@ func TestCallees(t *testing.T) {
 		{"not a call fact", []extract.Fact{
 			{Kind: extract.KindSymbol, Source: extract.Ref{Path: handlerFile, Lines: "10-20"}},
 		}, nil},
+		{"a call through an interface", viaInterface(
+			call(handlerFile, "10-20", helperFile, "3-9"),
+		), nil},
 		{"two hops are not followed", []extract.Fact{
 			call(handlerFile, "10-20", helperFile, "3-9"),
 			call(helperFile, "3-9", "w.go", "1-2"),

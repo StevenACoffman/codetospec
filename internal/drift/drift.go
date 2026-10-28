@@ -227,7 +227,9 @@ func abs(x int) int {
 // Callees returns the code the cited sources call, one hop: the callee of
 // every call fact whose caller overlaps a cited range, minus code a source
 // already cites. One hop, because a rule's closure would reach most of the
-// module and flag every rule on any edit.
+// module and flag every rule on any edit. Calls through an interface
+// (Fact.ViaDispatch) are left out: the implementations include test
+// doubles of non-test packages, whose every edit would flag the rule.
 //
 // Requires: calls are call facts (others are ignored).
 // Ensures:  sorted by file then lines, no duplicates; nil when none. Only
@@ -238,7 +240,8 @@ func Callees(sources []extract.Ref, calls []extract.Fact) []extract.Ref {
 	var callees []extract.Ref
 	for i := range calls {
 		f := &calls[i]
-		if f.Kind != extract.KindCall || f.Source.Root != "" || !overlapsAny(sources, f.Source) {
+		if f.Kind != extract.KindCall || f.ViaDispatch() || f.Source.Root != "" ||
+			!overlapsAny(sources, f.Source) {
 			continue
 		}
 		callee := extract.Ref{

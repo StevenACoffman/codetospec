@@ -90,6 +90,7 @@ func asIs(c *mapper.Rule) Rule {
 	return Rule{
 		Slug:        normalizeSlug(c.Title),
 		Title:       c.Title,
+		EARS:        c.EARS,
 		EarsKind:    c.EarsKind,
 		Requirement: c.Requirement,
 		Citations:   c.Citations,

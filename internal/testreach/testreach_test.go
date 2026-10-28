@@ -2,6 +2,7 @@ package testreach_test
 
 import (
 	"maps"
+	"slices"
 	"testing"
 
 	"github.com/StevenACoffman/codetospec/internal/extract"
@@ -40,6 +41,14 @@ func use(name, callee string) extract.Fact {
 	}
 }
 
+// viaInterface marks facts as uses through an interface.
+func viaInterface(facts ...extract.Fact) []extract.Fact {
+	for i := range facts {
+		facts[i].Attrs[extract.AttrDispatch] = extract.DispatchInterface
+	}
+	return facts
+}
+
 // rule cites refs.
 func rule(refs ...extract.Ref) graph.Node {
 	return graph.Node{ID: "rule.billing.r", Type: graph.TypeRule, Sources: refs}
@@ -47,7 +56,8 @@ func rule(refs ...extract.Ref) graph.Node {
 
 // TestAnnotate: a rule counts the tests reaching its cited code within
 // testreach.MaxDepth definitions, names the nearest first, and says 0
-// when none does; a rule citing another root, or a run without test
+// when none does; the tests reaching it only through an interface are
+// counted apart; a rule citing another root, or a run without test
 // facts, gets nothing.
 func TestAnnotate(t *testing.T) {
 	// TestTotal uses 1-5, which calls 10-15, which calls 20-25, which
@@ -77,6 +87,25 @@ func TestAnnotate(t *testing.T) {
 			rule:  rule(at("30-35")),
 			want:  reach("1", "2", testFile+"#TestRound"),
 		},
+		"only through an interface": {
+			facts: append(
+				slices.Clone(chain),
+				viaInterface(call("10-15", "50-55"), use("TestStore", "50-55"))...,
+			),
+			rule: rule(at("50-55")),
+			want: map[string]string{
+				graph.ExtraTests:             "0",
+				graph.ExtraTestsViaInterface: "2", // TestTotal (depth 3), TestStore
+			},
+		},
+		"directly and through an interface": {
+			facts: append(slices.Clone(chain), viaInterface(call("1-5", "30-35"))...),
+			rule:  rule(at("30-35")),
+			want: with(
+				reach("1", "2", testFile+"#TestRound"),
+				graph.ExtraTestsViaInterface, "1", // TestTotal, beyond the depth directly
+			),
+		},
 		"untested": {
 			facts: chain,
 			rule:  rule(extract.Ref{Path: "other.go", Lines: "1-2"}),
@@ -105,6 +134,12 @@ func TestAnnotate(t *testing.T) {
 	}
 }
 
+// with is extra with key set to value.
+func with(extra map[string]string, key, value string) map[string]string {
+	extra[key] = value
+	return extra
+}
+
 // reach is the Extra of a rule reached by count tests, the nearest at
 // depth, named in testedBy.
 func reach(count, depth, testedBy string) map[string]string {
@@ -112,5 +147,50 @@ func reach(count, depth, testedBy string) map[string]string {
 		graph.ExtraTests:     count,
 		graph.ExtraTestDepth: depth,
 		graph.ExtraTestedBy:  testedBy,
+	}
+}
+
+// ran is an executed fact of codeFile.
+func ran(executed, unexecuted string) extract.Fact {
+	return extract.Fact{
+		Kind:   extract.KindExecuted,
+		Source: extract.Ref{Path: codeFile, Lines: "1-99"},
+		Attrs: map[string]string{
+			extract.AttrExecuted:   executed,
+			extract.AttrUnexecuted: unexecuted,
+		},
+	}
+}
+
+// TestAnnotateExecuted: a rule gets how many statement lines of its cited
+// code the profiled run executed, a line two citations share counted
+// once; a citation in a file the run has no record of, or holding no
+// statement, leaves it unknown; executed facts alone are enough.
+func TestAnnotateExecuted(t *testing.T) {
+	facts := []extract.Fact{ran("3-4,7-7", "5-6")}
+	at := func(lines string) extract.Ref { return extract.Ref{Path: codeFile, Lines: lines} }
+	cases := map[string]struct {
+		rule graph.Node
+		want string // "" for no field
+	}{
+		"partly executed":   {rule(at("1-9")), "3/5"},
+		"shared lines once": {rule(at("3-5"), at("4-6")), "2/4"},
+		"no statement":      {rule(at("8-9")), ""},
+		"file without a record": {
+			rule(at("3-4"), extract.Ref{Path: "other.go", Lines: "1-2"}),
+			"",
+		},
+		"another root is skipped": {
+			rule(at("7-7"), extract.Ref{Path: codeFile, Lines: "1-9", Root: "pkg"}),
+			"1/1",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := testreach.Annotate([]graph.Node{tc.rule}, facts)[0].Extra[graph.ExtraExecuted]
+			if got != tc.want {
+				t.Errorf("executed = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

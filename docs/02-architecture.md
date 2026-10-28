@@ -30,7 +30,11 @@ usable:
 - **A constrained grammar.** Emit requirements in a fixed form — EARS (Easy
   Approach to Requirements Syntax: `WHEN <trigger>, the system shall
   <response>`, plus four other patterns). A constrained grammar is one you can
-  validate.
+  validate; better still, the model writes the grammar's components (JSON
+  after EARS's generic syntax: features, preconditions, a trigger and an
+  unwanted condition, the actor, responses) and the program writes the
+  sentence, so the form
+  cannot be wrong and only the content is the model's.
 - **Mandatory citations.** Every rule must cite exact source lines. A rule
   without a resolvable citation is not admitted. This is the single most
   important design choice: it turns "the model claims X" into "the model
@@ -62,6 +66,10 @@ No LLM output enters the graph unchecked:
 - **Drift detection** — each rule stores a digest of its cited code; when the
   source evolves, the spec reports which rules went stale. The spec stays
   honest over time, which is what lets it live in CI.
+- **Observed apart from derived** — what a test run executed (a coverage
+  profile) is recorded beside what the code lets a test reach, never in
+  its place; a call through an interface is a possible use, counted
+  apart from a direct one.
 
 ## The pipeline
 

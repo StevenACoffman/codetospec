@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/StevenACoffman/codetospec/internal/ears"
 	"github.com/StevenACoffman/codetospec/internal/llm"
 	"github.com/StevenACoffman/codetospec/internal/mapper"
 	"github.com/StevenACoffman/codetospec/internal/sitter"
@@ -52,8 +53,8 @@ func newMapper(t *testing.T, chat llm.Chatter) *mapper.Mapper {
 	}
 }
 
-const validMapReply = `{"chunk_summary": "un calcul", "rules": [{"title": "T", "ears_kind": "event",
-"requirement": "QUAND x, le systeme doit y.",
+const validMapReply = `{"chunk_summary": "un calcul", "rules": [{"title": "T",
+"ears": {"when": "x", "shall": [{"text": "y", "action": "y"}]},
 "citations": [{"path": "app/X.php", "lines": "12-15"}],
 "entities": ["entity.invoices"], "endpoints": [], "nature": "business", "origin": "explicit", "confidence": 0.9}]}`
 
@@ -85,6 +86,86 @@ func TestMapNominal(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Join(m.OutDir, "abcdef0123456789.json")); statErr != nil {
 		t.Fatalf("map output file not written: %v", statErr)
+	}
+}
+
+// TestMapDerivesText: the model writes components, slips included; the
+// kind and sentence are derived, the same from a cached output, which
+// stores the components only.
+func TestMapDerivesText(t *testing.T) {
+	calls := 0
+	m := newMapper(t, chatFunc(func(context.Context, []llm.Message) (string, llm.Usage, error) {
+		calls++
+		return strings.ReplaceAll(
+			validMapReply,
+			`{"when": "x", "shall": [{"text": "y", "action": "y"}]}`,
+			`{"when": "QUAND x,", "shall": [{"text": "le système doit y.", "action": "y"}]}`,
+		), llm.Usage{}, nil
+	}))
+	const want = "QUAND x, le système doit y."
+	for run := range 2 {
+		outputs, err := m.Run(context.Background(), []sitter.Chunk{testChunk()})
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		rule := outputs[0].Rules[0]
+		if rule.Requirement != want || rule.EarsKind != ears.Event || calls != 1 {
+			t.Fatalf("run %d: requirement %q, kind %q, calls %d; want %q, event, 1",
+				run, rule.Requirement, rule.EarsKind, calls, want)
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(m.OutDir, "abcdef0123456789.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"requirement"`) {
+		t.Errorf("cache stores the derived sentence:\n%s", data)
+	}
+}
+
+// planner is the actor TestMapActors lists.
+const planner = "le planificateur"
+
+// TestMapActors: a reply naming an actor by an alias states its listed
+// name, without a correction; a cached rule follows a rename that keeps
+// the old name as an alias, and states the system once the glossary
+// drops the actor — without a new call.
+func TestMapActors(t *testing.T) {
+	calls := 0
+	m := newMapper(
+		t,
+		chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+			calls++
+			if !strings.Contains(msgs[1].Content, `ALLOWED_ACTORS: ["`+planner+`"]`) {
+				t.Errorf("prompt does not list the actors (names only):\n%s", msgs[1].Content)
+			}
+			return strings.ReplaceAll(validMapReply, `"when": "x"`,
+				`"when": "x", "system": "le minuteur"`), llm.Usage{}, nil
+		}),
+	)
+	for _, tc := range []struct {
+		name   string
+		actors mapper.Actors
+		want   string
+	}{
+		{"alias in the reply", mapper.Actors{
+			Names:   []string{planner},
+			Aliases: map[string]string{"le minuteur": planner},
+		}, "QUAND x, le planificateur doit y."},
+		{"renamed", mapper.Actors{
+			Names:   []string{"l'ordonnanceur"},
+			Aliases: map[string]string{planner: "l'ordonnanceur"},
+		}, "QUAND x, l'ordonnanceur doit y."},
+		{"dropped", mapper.Actors{}, "QUAND x, le système doit y."},
+	} {
+		m.Actors = tc.actors
+		outputs, err := m.Run(context.Background(), []sitter.Chunk{testChunk()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := outputs[0].Rules[0].Requirement; got != tc.want || calls != 1 {
+			t.Errorf("%s: requirement %q (calls %d), want %q", tc.name, got, calls, tc.want)
+		}
 	}
 }
 
@@ -231,8 +312,8 @@ func TestMapPromptNumbersCodeLines(t *testing.T) {
 			if !strings.Contains(msgs[0].Content, "absolute line number") {
 				t.Error("system prompt must instruct to copy the shown line numbers")
 			}
-			return `{"chunk_summary": "s", "rules": [{"title": "T", "ears_kind": "event",
-"requirement": "QUAND x, le systeme doit y.", "citations": [{"path": "app/X.php", "lines": "659-661"}],
+			return `{"chunk_summary": "s", "rules": [{"title": "T",
+"ears": {"when": "x", "shall": [{"text": "y", "action": "y"}]}, "citations": [{"path": "app/X.php", "lines": "659-661"}],
 "entities": [], "endpoints": [], "nature": "business", "origin": "explicit", "confidence": 0.9}]}`, llm.Usage{}, nil
 		}),
 	)
@@ -248,8 +329,23 @@ func TestMapValidationRejectsBadValues(t *testing.T) {
 		reply   string
 		wantErr string
 	}{
-		"bad ears kind": {
-			strings.ReplaceAll(validMapReply, `"event"`, `"whenever"`), "ears_kind",
+		"no response": {
+			strings.ReplaceAll(validMapReply, `[{"text": "y", "action": "y"}]`, `[]`), "ears.shall",
+		},
+		"unlisted actor": {
+			strings.ReplaceAll(
+				validMapReply,
+				`"when": "x"`,
+				`"when": "x", "system": "le planificateur"`,
+			),
+			"ALLOWED_ACTORS",
+		},
+		"actor without article": {
+			strings.ReplaceAll(validMapReply, `"when": "x"`, `"when": "x", "system": "logiciel"`),
+			"ears.system",
+		},
+		"two clauses in one": {
+			strings.ReplaceAll(validMapReply, `"when": "x"`, `"when": "x, if z"`), "ears.when",
 		},
 		"foreign path": {
 			strings.ReplaceAll(validMapReply, chunkPath, "other.php"), "cites path",
@@ -327,12 +423,12 @@ func TestMapCacheKeyedByModelAndPrompt(t *testing.T) {
 	}
 }
 
-func TestMapPromptUsesLanguageEARSPatterns(t *testing.T) {
+func TestMapPromptUsesLanguageEARSTemplate(t *testing.T) {
 	cases := map[string]struct {
 		lang, want, notWant string
 	}{
-		"french":  {lang: "fr", want: "QUAND <trigger>", notWant: "WHEN <trigger>"},
-		"english": {lang: "en", want: "WHEN <trigger>", notWant: "QUAND <trigger>"},
+		"french":  {lang: "fr", want: "QUAND <when>", notWant: "WHEN <when>"},
+		"english": {lang: "en", want: "WHEN <when>", notWant: "QUAND <when>"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

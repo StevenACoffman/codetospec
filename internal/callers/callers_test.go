@@ -44,6 +44,14 @@ func callAcross(callerPath, caller, calleePath, callee string) extract.Fact {
 	}
 }
 
+// viaInterface marks facts as uses through an interface.
+func viaInterface(facts ...extract.Fact) []extract.Fact {
+	for i := range facts {
+		facts[i].Attrs[extract.AttrDispatch] = extract.DispatchInterface
+	}
+	return facts
+}
+
 func domains(chunks []sitter.Chunk) []string {
 	out := make([]string, len(chunks))
 	for i := range chunks {
@@ -80,6 +88,11 @@ func TestReassign(t *testing.T) {
 		"no caller": {
 			chunks: []sitter.Chunk{chunk(1, 9, user), chunk(20, 29, "helpers")},
 			want:   []string{user, "helpers"},
+		},
+		"a call through an interface is no caller": {
+			chunks: []sitter.Chunk{chunk(1, 9, user), chunk(20, 29, "lib")},
+			calls:  viaInterface(call("1-9", "20-29")),
+			want:   []string{user, "lib"},
 		},
 		"helper of a helper follows the top caller": {
 			chunks: []sitter.Chunk{

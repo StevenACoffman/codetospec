@@ -1,8 +1,31 @@
 // Package ears knows the EARS requirement patterns a rule is written in:
-// the kinds a rule may declare, and whether its sentence has the form its
-// kind names. The prompts give the model the patterns (locale.EARSPatterns);
-// this package checks what comes back, in every output language, since a
-// graph is read back whatever --lang wrote it.
+// the kinds a rule may declare, the components the models write
+// (Components), the sentence and kind they make (Render, KindOf), how a
+// sentence reads back into components (Parse), and whether a sentence has
+// the form its kind names (Check), in every output language, since a graph
+// is read back whatever --lang wrote it. The keywords of every language
+// live here only (wordings). Render and RenderCapitals (Kiro's style)
+// write a sentence; a response's action is not in it, so callers keep it
+// beside the sentence (Actions, WithActions).
+//
+// The map and reduce models write components, so their sentences pass
+// Check by construction (FuzzRenderParse); Check remains for the sentences
+// nobody wrote as components: extractor rule facts, inherited rules, rules
+// a person edited (docs/verification/ears-components-2026-10-27.md).
+//
+// A requirement with two or more keywords is complex — several triggers
+// (WHEN and IF), preconditions before or after the trigger, features —
+// with any actor "the <system name>"
+// (docs/verification/ears-generic-syntax-2026-10-27.md); a sentence from
+// a graph written before that kind, declared as the kind it opens with
+// (or unwanted, IF … THEN after another clause), still passes: it is
+// correct EARS. A condition
+// after "shall" is not flagged: on real graphs most are defining
+// predicates ("shall consider X expired when …") or restrictions
+// ("shall serve / only when …", the webapp extractor's own templates,
+// whose rule facts a failing check would drop), and only about a quarter
+// are a guard that belongs in a clause
+// (docs/verification/ears-clauses-2026-10-27.md).
 package ears
 
 import (
@@ -18,12 +41,15 @@ const (
 	State      = "state"      // WHILE <state>, the system shall <response>.
 	Unwanted   = "unwanted"   // IF <condition>, THEN the system shall <response>.
 	Optional   = "optional"   // WHERE <feature>, the system shall <response>.
+	// Complex combines two or more of the above: WHILE <state>, WHEN
+	// <trigger>, the system shall <response>.
+	Complex = "complex"
 )
 
 // IsKind reports whether kind is an EARS kind.
 func IsKind(kind string) bool {
 	switch kind {
-	case Ubiquitous, Event, State, Unwanted, Optional:
+	case Ubiquitous, Event, State, Unwanted, Optional, Complex:
 		return true
 	}
 	return false
@@ -32,29 +58,49 @@ func IsKind(kind string) bool {
 // Check returns why requirement does not have the EARS form its kind names,
 // or "" when it does. French and English are both accepted, accents and
 // case ignored. One modal ("shall" / "doit") per rule, since two are two
-// behaviors; its subject is the system. Event, state and optional open with
-// their keyword; ubiquitous opens on the system itself; unwanted holds
-// IF … THEN, after an optional leading clause (WHEN x, IF y, THEN …: the
-// complex form real rules use).
+// behaviors; its subject is an actor with its article. Event, state and
+// optional open with their keyword; ubiquitous opens on the actor; unwanted holds
+// IF … THEN, after an optional leading clause (WHILE x, IF y, THEN …);
+// complex reads as components (Parse) of two or more patterns. The actor
+// is any "the <system name>" (actorSpan), not only "the system".
 func Check(kind, requirement string) string {
 	if !IsKind(kind) {
 		return fmt.Sprintf("unknown EARS kind %q", kind)
 	}
-	words := strings.FieldsFunc(fold(requirement), func(r rune) bool {
-		return !unicode.IsLetter(r)
-	})
-	switch modals := count(words, "shall") + count(words, "doit"); {
-	case modals == 0:
-		return `no "shall": not an EARS requirement`
-	case modals > 1:
-		return `more than one "shall": one behavior per rule`
+	w, at, err := findModal(strings.TrimSpace(requirement))
+	if err != nil {
+		return err.Error()
 	}
-	text := strings.Join(words, " ")
-	if !containsAny(text, "the system shall", "le systeme doit", "le systeme ne doit") {
-		return `"shall" without "the system" as its subject`
+	if !hasSubject(&w, strings.TrimSpace(requirement)[:at]) {
+		return `"shall" without "the <system name>" as its subject`
 	}
-	if !opensAs(kind, text) {
+	if kind == Complex {
+		components, parseErr := Parse(requirement)
+		return checkComplex(&components, parseErr)
+	}
+	if !opensAs(kind, requirement) {
 		return kind + " requirement does not open with " + opening(kind)
+	}
+	return ""
+}
+
+// hasSubject reports whether before, a sentence up to its modal, names
+// an actor with an article where Parse looks for one (actorSpan), as
+// Parse requires.
+func hasSubject(w *wording, before string) bool {
+	before, _ = subjectText(w, before)
+	start, err := actorSpan(w, before)
+	return err == nil && startsWithArticle(before[start:])
+}
+
+// checkComplex returns why a complex requirement, read as components (or
+// not, parseErr), does not combine two or more patterns.
+func checkComplex(components *Components, parseErr error) string {
+	switch {
+	case parseErr != nil:
+		return "complex requirement: " + parseErr.Error()
+	case len(Patterns(components)) <= 1:
+		return "complex requirement with fewer than two EARS keywords"
 	}
 	return ""
 }
@@ -75,20 +121,42 @@ func opening(kind string) string {
 	}
 }
 
-// opensAs reports whether text, folded to words, opens the way kind does.
-func opensAs(kind, text string) bool {
-	switch kind {
-	case Ubiquitous:
-		return hasAnyPrefix(text, "the system shall", "le systeme doit", "le systeme ne doit")
-	case Event:
-		return hasAnyPrefix(text, "when ", "quand ", "lorsque ")
-	case State:
-		return hasAnyPrefix(text, "while ", "tant que ")
-	case Optional:
-		return hasAnyPrefix(text, "where ", "la ou ")
-	default: // Unwanted
-		return hasCondition(text, "if", "then") || hasCondition(text, "si", "alors")
+// opensAs reports whether requirement opens the way kind does.
+func opensAs(kind, requirement string) bool {
+	if kind == Ubiquitous {
+		return startsWithArticle(strings.TrimSpace(requirement))
 	}
+	text := strings.Join(words(requirement), " ")
+	for _, w := range wordings() {
+		switch kind {
+		case Event:
+			if hasAnyPrefix(text, spaced(w.when)...) {
+				return true
+			}
+		case State:
+			if hasAnyPrefix(text, spaced(w.while)...) {
+				return true
+			}
+		case Optional:
+			if hasAnyPrefix(text, spaced(w.where)...) {
+				return true
+			}
+		default: // Unwanted
+			if hasCondition(text, fold(w.ifs[0]), fold(w.then[0])) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// spaced are keywords folded, each followed by a space.
+func spaced(keywords []string) []string {
+	out := make([]string, len(keywords))
+	for i, kw := range keywords {
+		out[i] = fold(kw) + " "
+	}
+	return out
 }
 
 // hasCondition reports whether text holds the word cond and, after it, the
@@ -100,42 +168,27 @@ func hasCondition(text, cond, then string) bool {
 
 // fold lowercases s and strips the French accents, so "LÀ OÙ" reads "la ou".
 func fold(s string) string {
-	return strings.Map(func(r rune) rune {
-		switch r = unicode.ToLower(r); r {
-		case 'à', 'â', 'ä':
-			return 'a'
-		case 'é', 'è', 'ê', 'ë':
-			return 'e'
-		case 'î', 'ï':
-			return 'i'
-		case 'ô', 'ö':
-			return 'o'
-		case 'ù', 'û', 'ü':
-			return 'u'
-		case 'ç':
-			return 'c'
-		}
-		return r
-	}, s)
+	return strings.Map(foldRune, s)
 }
 
-func count(words []string, word string) int {
-	n := 0
-	for _, w := range words {
-		if w == word {
-			n++
-		}
+// foldRune is fold of one rune: a rune always folds to one rune, so a
+// folded match is a match rune for rune.
+func foldRune(r rune) rune {
+	switch r = unicode.ToLower(r); r {
+	case 'à', 'â', 'ä':
+		return 'a'
+	case 'é', 'è', 'ê', 'ë':
+		return 'e'
+	case 'î', 'ï':
+		return 'i'
+	case 'ô', 'ö':
+		return 'o'
+	case 'ù', 'û', 'ü':
+		return 'u'
+	case 'ç':
+		return 'c'
 	}
-	return n
-}
-
-func containsAny(s string, subs ...string) bool {
-	for _, sub := range subs {
-		if strings.Contains(s, sub) {
-			return true
-		}
-	}
-	return false
+	return r
 }
 
 func hasAnyPrefix(s string, prefixes ...string) bool {

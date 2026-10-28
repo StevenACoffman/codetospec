@@ -1149,7 +1149,7 @@
       "domain": "roles",
       "ears": "ubiquitous",
       "nature": "business",
-      "requirement": "Le systeme doit accorder au rôle `supporter` (Can view and edit users and access Devadmin support functions.) les capacités `CanViewUserIdentity`, `CanChangeUserData`.",
+      "requirement": "Le système doit accorder au rôle `supporter` (Can view and edit users and access Devadmin support functions.) les capacités `CanViewUserIdentity`, `CanChangeUserData`.",
       "role": "supporter",
       "slug": "role-supporter",
       "title": "Rôle : supporter"
@@ -1169,7 +1169,7 @@
       "domain": "roles",
       "ears": "ubiquitous",
       "nature": "business",
-      "requirement": "Le systeme ne doit accorder aucune capacité au rôle `observer`.",
+      "requirement": "Le système ne doit accorder aucune capacité au rôle `observer`.",
       "role": "observer",
       "slug": "role-observer",
       "title": "Rôle : observer"
@@ -1188,7 +1188,7 @@
       "domain": "federation",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI l'appelant n'est pas connecté, ALORS le systeme doit rejeter AIProfile.summary avec l'erreur `Unauthorized`.",
+      "requirement": "SI l'appelant n'est pas connecté, ALORS le système doit rejeter AIProfile.summary avec l'erreur `Unauthorized`.",
       "slug": "authz-aiprofile-summary",
       "title": "Contrôle d'accès : AIProfile.summary"
     },
@@ -1206,7 +1206,7 @@
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI l'appelant n'est pas connecté, ALORS le systeme doit rejeter Entity.findManyUserByKaids avec l'erreur `Unauthorized`.",
+      "requirement": "SI l'appelant n'est pas connecté, ALORS le système doit rejeter Entity.findManyUserByKaids avec l'erreur `Unauthorized`.",
       "route": "route.graphql.entity.findManyUserByKaids",
       "slug": "authz-entity-findmanyuserbykaids",
       "title": "Contrôle d'accès : Entity.findManyUserByKaids"
@@ -1225,7 +1225,7 @@
       "domain": "federation",
       "ears": "ubiquitous",
       "nature": "business",
-      "requirement": "Le systeme doit autoriser tout appelant à appeler Entity.findManyRowByTeacherByTeacherIDAndKaLocales.",
+      "requirement": "Le système doit autoriser tout appelant à appeler Entity.findManyRowByTeacherByTeacherIDAndKaLocales.",
       "route": "route.graphql.entity.findManyRowByTeacherByTeacherIDAndKaLocales",
       "slug": "authz-entity-findmanyrowbyteacherbyteacheridandkalocales",
       "title": "Contrôle d'accès : Entity.findManyRowByTeacherByTeacherIDAndKaLocales"
@@ -1244,7 +1244,7 @@
       "domain": "federation",
       "ears": "ubiquitous",
       "nature": "business",
-      "requirement": "Le systeme doit laisser tout appelant appeler Entity.findAIProfileByID sans contrôle de permission (`acl.TODO()` : le contrôle manque encore).",
+      "requirement": "Le système doit laisser tout appelant appeler Entity.findAIProfileByID sans contrôle de permission (`acl.TODO()` : le contrôle manque encore).",
       "route": "route.graphql.entity.findAIProfileByID",
       "slug": "unchecked-entity-findaiprofilebyid",
       "title": "Accès non vérifié : Entity.findAIProfileByID"
@@ -1263,7 +1263,7 @@
       "domain": "federation",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI l'appelant n'a pas la permission `CanManageBlockList` pour `acl.GlobalScope`, ALORS le systeme doit rejeter Mutation.blockEmail avec l'erreur `Unauthorized`.",
+      "requirement": "SI l'appelant n'a pas la permission `CanManageBlockList` pour `acl.GlobalScope`, ALORS le système doit rejeter Mutation.blockEmail avec l'erreur `Unauthorized`.",
       "route": "route.graphql.mutation.blockEmail",
       "slug": "authz-mutation-blockemail-via-blockemail",
       "title": "Contrôle d'accès : Mutation.blockEmail (via _blockEmail)"
@@ -1282,7 +1282,7 @@
       "domain": "resolvers",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI l'appelant n'est pas connecté, ALORS le systeme doit rejeter Mutation._unused avec l'erreur `Unauthorized`.",
+      "requirement": "SI l'appelant n'est pas connecté, ALORS le système doit rejeter Mutation._unused avec l'erreur `Unauthorized`.",
       "slug": "authz-mutation-unused",
       "title": "Contrôle d'accès : Mutation._unused"
     },
@@ -1300,7 +1300,7 @@
       "domain": "user",
       "ears": "ubiquitous",
       "nature": "business",
-      "requirement": "Le systeme doit vérifier l'accès à Entity.findUserByKaid avec `r.FindManyUserByKaids`.",
+      "requirement": "Le système doit vérifier l'accès à Entity.findUserByKaid avec `r.FindManyUserByKaids`.",
       "route": "route.graphql.entity.findUserByKaid",
       "slug": "authzcheck-entity-finduserbykaid",
       "title": "Vérification d'accès : Entity.findUserByKaid"
@@ -1319,7 +1319,7 @@
       "domain": "federation",
       "ears": "ubiquitous",
       "nature": "business",
-      "requirement": "Le systeme doit vérifier l'accès à Mutation.devadminAddAuthEmail avec `(\u0026mutationResolver{e.Resolver}).AddAuthEmail`.",
+      "requirement": "Le système doit vérifier l'accès à Mutation.devadminAddAuthEmail avec `(\u0026mutationResolver{e.Resolver}).AddAuthEmail`.",
       "route": "route.graphql.mutation.devadminAddAuthEmail",
       "slug": "authzcheck-mutation-devadminaddauthemail",
       "title": "Vérification d'accès : Mutation.devadminAddAuthEmail"
@@ -1338,7 +1338,7 @@
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI la requête n'est pas une requête service-admin, ALORS le systeme doit rejeter Mutation.addAuthEmail avec l'erreur `Unauthorized`.",
+      "requirement": "SI la requête n'est pas une requête service-admin, ALORS le système doit rejeter Mutation.addAuthEmail avec l'erreur `Unauthorized`.",
       "route": "route.graphql.mutation.addAuthEmail",
       "slug": "authz-mutation-addauthemail",
       "title": "Contrôle d'accès : Mutation.addAuthEmail"
@@ -1357,7 +1357,7 @@
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI l'appelant n'est pas l'utilisateur `kaid` ET la requête n'est pas une requête service-admin, ALORS le systeme doit rejeter Mutation.addCoachRole avec l'erreur `Unauthorized`.",
+      "requirement": "SI l'appelant n'est pas l'utilisateur `kaid` ET la requête n'est pas une requête service-admin, ALORS le système doit rejeter Mutation.addCoachRole avec l'erreur `Unauthorized`.",
       "route": "route.graphql.mutation.addCoachRole",
       "slug": "authz-mutation-addcoachrole",
       "title": "Contrôle d'accès : Mutation.addCoachRole"
@@ -1376,7 +1376,7 @@
       "domain": "user",
       "ears": "ubiquitous",
       "nature": "business",
-      "requirement": "Le systeme doit autoriser tout appelant à appeler Query.checkUsername.",
+      "requirement": "Le système doit autoriser tout appelant à appeler Query.checkUsername.",
       "route": "route.graphql.query.checkUsername",
       "slug": "authz-query-checkusername",
       "title": "Contrôle d'accès : Query.checkUsername"
@@ -1395,7 +1395,7 @@
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI l'appelant n'est pas connecté avec un compte non fantôme, ALORS le systeme doit rejeter Query.deviceAuthRequestInfo avec l'erreur `Unauthorized`.",
+      "requirement": "SI l'appelant n'est pas connecté avec un compte non fantôme, ALORS le système doit rejeter Query.deviceAuthRequestInfo avec l'erreur `Unauthorized`.",
       "route": "route.graphql.query.deviceAuthRequestInfo",
       "slug": "authz-query-deviceauthrequestinfo",
       "title": "Contrôle d'accès : Query.deviceAuthRequestInfo"
@@ -1414,7 +1414,7 @@
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI l'appelant n'est pas l'utilisateur `user.Kaid` ET l'appelant n'a pas la permission `CanViewUserIdentity` pour l'utilisateur `user.Kaid`, ALORS le systeme doit ne renvoyer aucune donnée pour User.pendingEmailVerifications.",
+      "requirement": "SI l'appelant n'est pas l'utilisateur `user.Kaid` ET l'appelant n'a pas la permission `CanViewUserIdentity` pour l'utilisateur `user.Kaid`, ALORS le système doit ne renvoyer aucune donnée pour User.pendingEmailVerifications.",
       "slug": "authz-user-pendingemailverifications",
       "title": "Contrôle d'accès : User.pendingEmailVerifications"
     },
@@ -1432,7 +1432,7 @@
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI l'appelant n'a pas la permission `CanChangeUserData` pour tout utilisateur OU (`customCheck(ktx)` est vrai ET l'appelant est coach de l'utilisateur `user.Kaid`), ALORS le systeme doit rejeter User.pendingEmailVerifications avec l'erreur `NotAllowed`.",
+      "requirement": "SI l'appelant n'a pas la permission `CanChangeUserData` pour tout utilisateur OU (`customCheck(ktx)` est vrai ET l'appelant est coach de l'utilisateur `user.Kaid`), ALORS le système doit rejeter User.pendingEmailVerifications avec l'erreur `NotAllowed`.",
       "slug": "authz-user-pendingemailverifications-2",
       "title": "Contrôle d'accès : User.pendingEmailVerifications (2)"
     },
@@ -1450,7 +1450,7 @@
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI `permissions.UserCanViewEmails(ctx, *user.Kaid)` est faux, ALORS le systeme doit ne renvoyer aucune donnée pour User.emails.",
+      "requirement": "SI `permissions.UserCanViewEmails(ctx, *user.Kaid)` est faux, ALORS le système doit ne renvoyer aucune donnée pour User.emails.",
       "slug": "authz-user-emails",
       "title": "Contrôle d'accès : User.emails"
     },
@@ -1468,7 +1468,7 @@
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI `err != nil` est vrai OU `canView` est faux, ALORS le systeme doit rejeter User.nickname avec l'erreur `Unauthorized`.",
+      "requirement": "SI `err != nil` est vrai OU `canView` est faux, ALORS le système doit rejeter User.nickname avec l'erreur `Unauthorized`.",
       "slug": "authz-user-nickname",
       "title": "Contrôle d'accès : User.nickname"
     },
@@ -1486,7 +1486,7 @@
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI `acl.ActorHasPermissionErr(ctx, capabilities.CanViewUserIdentity, acl.AnyScope)` échoue OU l'appelant n'a pas la permission `CanViewUserIdentity` pour tout utilisateur, ALORS le systeme doit rejeter User.nickname avec l'erreur `Unauthorized`.",
+      "requirement": "SI `acl.ActorHasPermissionErr(ctx, capabilities.CanViewUserIdentity, acl.AnyScope)` échoue OU l'appelant n'a pas la permission `CanViewUserIdentity` pour tout utilisateur, ALORS le système doit rejeter User.nickname avec l'erreur `Unauthorized`.",
       "slug": "authz-user-nickname-2",
       "title": "Contrôle d'accès : User.nickname (2)"
     },
@@ -1504,7 +1504,7 @@
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI la requête n'est pas une requête service-admin ET l'appelant n'est pas l'utilisateur `actor.Kaid`, lui-même (jamais vrai), ALORS le systeme doit ne renvoyer aucune donnée pour User.bio.",
+      "requirement": "SI la requête n'est pas une requête service-admin ET l'appelant n'est pas l'utilisateur `actor.Kaid`, lui-même (jamais vrai), ALORS le système doit ne renvoyer aucune donnée pour User.bio.",
       "slug": "authz-user-bio",
       "title": "Contrôle d'accès : User.bio"
     },
@@ -1522,7 +1522,7 @@
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI `user.Kaid != nil` est vrai ET l'appelant n'est pas connecté, ALORS le systeme doit rejeter User.bio avec l'erreur `Unauthorized`.",
+      "requirement": "SI `user.Kaid != nil` est vrai ET l'appelant n'est pas connecté, ALORS le système doit rejeter User.bio avec l'erreur `Unauthorized`.",
       "slug": "authz-user-bio-2",
       "title": "Contrôle d'accès : User.bio (2)"
     },
@@ -1540,7 +1540,7 @@
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI `user.Kaid != nil` est vrai ET `ktx.RequestUser()` échoue, ALORS le systeme doit rejeter User.partner avec l'erreur `Unauthorized`.",
+      "requirement": "SI `user.Kaid != nil` est vrai ET `ktx.RequestUser()` échoue, ALORS le système doit rejeter User.partner avec l'erreur `Unauthorized`.",
       "slug": "authz-user-partner",
       "title": "Contrôle d'accès : User.partner"
     },
@@ -1558,7 +1558,7 @@
       "domain": "user",
       "ears": "ubiquitous",
       "nature": "business",
-      "requirement": "Le systeme doit limiter User.notes aux `notes` que `permissions.VisibleNotes(ctx)` laisse voir à l'appelant.",
+      "requirement": "Le système doit limiter User.notes aux `notes` que `permissions.VisibleNotes(ctx)` laisse voir à l'appelant.",
       "slug": "visibility-user-notes",
       "title": "Visibilité : User.notes"
     },
@@ -1576,7 +1576,7 @@
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI `permissions.RequireEditor(ctx)` échoue, ALORS le systeme doit rejeter User.notes.",
+      "requirement": "SI `permissions.RequireEditor(ctx)` échoue, ALORS le système doit rejeter User.notes.",
       "slug": "authz-user-notes",
       "title": "Contrôle d'accès : User.notes"
     },
@@ -1594,7 +1594,7 @@
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI `_canEditDrafts(ctx)` échoue, ALORS le systeme doit rejeter User.drafts.",
+      "requirement": "SI `_canEditDrafts(ctx)` échoue, ALORS le système doit rejeter User.drafts.",
       "slug": "authz-user-drafts",
       "title": "Contrôle d'accès : User.drafts"
     },
@@ -1612,7 +1612,7 @@
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI l'appelant dépasse la limite de débit `Signup` par adresse IP (200 requêtes par 600 secondes), ALORS le systeme doit rejeter Mutation.signup.",
+      "requirement": "SI l'appelant dépasse la limite de débit `Signup` par adresse IP (200 requêtes par 600 secondes), ALORS le système doit rejeter Mutation.signup.",
       "route": "route.graphql.mutation.signup",
       "slug": "ratelimit-mutation-signup",
       "title": "Limite de débit : Mutation.signup"
@@ -1631,7 +1631,7 @@
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI l'appelant dépasse la limite de débit `SignupAccount` par compte (5 requêtes par 10 minutes), ALORS le systeme doit rejeter Mutation.signup.",
+      "requirement": "SI l'appelant dépasse la limite de débit `SignupAccount` par compte (5 requêtes par 10 minutes), ALORS le système doit rejeter Mutation.signup.",
       "route": "route.graphql.mutation.signup",
       "slug": "ratelimit-mutation-signup-2",
       "title": "Limite de débit : Mutation.signup (2)"
@@ -1650,7 +1650,7 @@
       "domain": "guards",
       "ears": "ubiquitous",
       "nature": "business",
-      "requirement": "Le systeme doit autoriser tout appelant à appeler Query.serverTime.",
+      "requirement": "Le système doit autoriser tout appelant à appeler Query.serverTime.",
       "route": "route.graphql.query.serverTime",
       "slug": "authz-query-servertime",
       "title": "Contrôle d'accès : Query.serverTime"
@@ -1669,7 +1669,7 @@
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI la requête n'est pas une requête service-admin ET l'appelant n'est pas l'utilisateur `user.Kaid`, ALORS le systeme doit ne renvoyer aucune donnée pour User.grants.",
+      "requirement": "SI la requête n'est pas une requête service-admin ET l'appelant n'est pas l'utilisateur `user.Kaid`, ALORS le système doit ne renvoyer aucune donnée pour User.grants.",
       "slug": "authz-user-grants",
       "title": "Contrôle d'accès : User.grants"
     },
@@ -1687,7 +1687,7 @@
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI l'appelant n'est pas connecté ET la requête n'est pas une requête service-admin, ALORS le systeme doit rejeter User.badges avec l'erreur `Unauthorized`.",
+      "requirement": "SI l'appelant n'est pas connecté ET la requête n'est pas une requête service-admin, ALORS le système doit rejeter User.badges avec l'erreur `Unauthorized`.",
       "slug": "authz-user-badges",
       "title": "Contrôle d'accès : User.badges"
     },
@@ -1705,7 +1705,7 @@
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI la requête n'est pas une requête service-admin ET l'appelant n'a pas la permission `CanViewUserIdentity` pour tout utilisateur, ALORS le systeme doit ne renvoyer aucune donnée pour Query.search.",
+      "requirement": "SI la requête n'est pas une requête service-admin ET l'appelant n'a pas la permission `CanViewUserIdentity` pour tout utilisateur, ALORS le système doit ne renvoyer aucune donnée pour Query.search.",
       "route": "route.graphql.query.search",
       "slug": "authz-query-search",
       "title": "Contrôle d'accès : Query.search"
@@ -1724,7 +1724,7 @@
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI l'appelant n'a pas la permission `CanEditDrafts` pour tout utilisateur, ALORS le systeme doit rejeter User.avatar avec l'erreur `Unauthorized`.",
+      "requirement": "SI l'appelant n'a pas la permission `CanEditDrafts` pour tout utilisateur, ALORS le système doit rejeter User.avatar avec l'erreur `Unauthorized`.",
       "slug": "authz-user-avatar",
       "title": "Contrôle d'accès : User.avatar"
     },
@@ -1742,7 +1742,7 @@
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI l'appelant n'est pas l'utilisateur `kaid`, ALORS le systeme doit rejeter cet élément `kaid` de Mutation.merge avec l'erreur `Unauthorized`.",
+      "requirement": "SI l'appelant n'est pas l'utilisateur `kaid`, ALORS le système doit rejeter cet élément `kaid` de Mutation.merge avec l'erreur `Unauthorized`.",
       "route": "route.graphql.mutation.merge",
       "slug": "authz-mutation-merge",
       "title": "Contrôle d'accès : Mutation.merge"
@@ -1761,7 +1761,7 @@
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI pour un `kaid` de `kaids`, l'appelant n'est pas coach de l'utilisateur `kaid`, ALORS le systeme doit ne renvoyer aucune donnée pour User.peek.",
+      "requirement": "SI pour un `kaid` de `kaids`, l'appelant n'est pas coach de l'utilisateur `kaid`, ALORS le système doit ne renvoyer aucune donnée pour User.peek.",
       "slug": "authz-user-peek",
       "title": "Contrôle d'accès : User.peek"
     },
@@ -1779,7 +1779,7 @@
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI la requête n'est pas une requête service-admin ET l'appelant n'a pas la permission `CanRosterDistrict` pour tout utilisateur ET l'appelant n'a pas la permission `CanAccessDevadmin` pour tout utilisateur, ALORS le systeme doit rejeter Mutation.roster avec l'erreur `Unauthorized`.",
+      "requirement": "SI la requête n'est pas une requête service-admin ET l'appelant n'a pas la permission `CanRosterDistrict` pour tout utilisateur ET l'appelant n'a pas la permission `CanAccessDevadmin` pour tout utilisateur, ALORS le système doit rejeter Mutation.roster avec l'erreur `Unauthorized`.",
       "route": "route.graphql.mutation.roster",
       "slug": "authz-mutation-roster",
       "title": "Contrôle d'accès : Mutation.roster"
@@ -1798,7 +1798,7 @@
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI `kaid == nil` est vrai ET l'appelant n'est pas connecté, ALORS le systeme doit rejeter Mutation.optOut avec l'erreur `Unauthorized`.",
+      "requirement": "SI `kaid == nil` est vrai ET l'appelant n'est pas connecté, ALORS le système doit rejeter Mutation.optOut avec l'erreur `Unauthorized`.",
       "route": "route.graphql.mutation.optOut",
       "slug": "authz-mutation-optout",
       "title": "Contrôle d'accès : Mutation.optOut"
@@ -1817,7 +1817,7 @@
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI `kaid == nil` est faux ET l'appelant n'est pas l'utilisateur `kaid`, ALORS le systeme doit rejeter Mutation.optOut avec l'erreur `Unauthorized`.",
+      "requirement": "SI `kaid == nil` est faux ET l'appelant n'est pas l'utilisateur `kaid`, ALORS le système doit rejeter Mutation.optOut avec l'erreur `Unauthorized`.",
       "route": "route.graphql.mutation.optOut",
       "slug": "authz-mutation-optout-2",
       "title": "Contrôle d'accès : Mutation.optOut (2)"
@@ -1836,7 +1836,7 @@
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI `cross_service.InKhanmigoDistrict(ctx, kaid)` échoue OU `cross_service.InKhanmigoDistrict(ctx, kaid)` est faux, ALORS le systeme doit rejeter Mutation.cooldown avec l'erreur `Unauthorized`.",
+      "requirement": "SI `cross_service.InKhanmigoDistrict(ctx, kaid)` échoue OU `cross_service.InKhanmigoDistrict(ctx, kaid)` est faux, ALORS le système doit rejeter Mutation.cooldown avec l'erreur `Unauthorized`.",
       "route": "route.graphql.mutation.cooldown",
       "slug": "authz-mutation-cooldown",
       "title": "Contrôle d'accès : Mutation.cooldown"
@@ -1855,7 +1855,7 @@
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI `validateRename(ctx, name)` échoue, ALORS le systeme doit rejeter Mutation.rename.",
+      "requirement": "SI `validateRename(ctx, name)` échoue, ALORS le système doit rejeter Mutation.rename.",
       "route": "route.graphql.mutation.rename",
       "slug": "authz-mutation-rename",
       "title": "Contrôle d'accès : Mutation.rename"
@@ -1874,7 +1874,7 @@
       "domain": "auth-emails",
       "ears": "ubiquitous",
       "nature": "business",
-      "requirement": "Le systeme doit vérifier l'accès à Mutation.login avec `permissions.LoginWithRateLimit`.",
+      "requirement": "Le système doit vérifier l'accès à Mutation.login avec `permissions.LoginWithRateLimit`.",
       "route": "route.graphql.mutation.login",
       "slug": "authzcheck-mutation-login",
       "title": "Vérification d'accès : Mutation.login"
@@ -1893,7 +1893,7 @@
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI la requête n'est pas une requête service-admin ET l'appelant n'est pas l'utilisateur `kaid`, lui-même (jamais vrai), ALORS le systeme doit ne renvoyer aucune donnée pour Query.tools.",
+      "requirement": "SI la requête n'est pas une requête service-admin ET l'appelant n'est pas l'utilisateur `kaid`, lui-même (jamais vrai), ALORS le système doit ne renvoyer aucune donnée pour Query.tools.",
       "route": "route.graphql.query.tools",
       "slug": "authz-query-tools",
       "title": "Contrôle d'accès : Query.tools"
@@ -1912,7 +1912,7 @@
       "domain": "user",
       "ears": "ubiquitous",
       "nature": "business",
-      "requirement": "Le systeme doit limiter User.coachees aux `coached` que `acl.ManyCoachedByActor(ctx, kaids)` laisse voir à l'appelant.",
+      "requirement": "Le système doit limiter User.coachees aux `coached` que `acl.ManyCoachedByActor(ctx, kaids)` laisse voir à l'appelant.",
       "slug": "visibility-user-coachees",
       "title": "Visibilité : User.coachees"
     },
@@ -1930,7 +1930,7 @@
       "domain": "user",
       "ears": "ubiquitous",
       "nature": "business",
-      "requirement": "Le systeme doit laisser tout appelant appeler User.legacy sans contrôle de permission (`acl.TODO()` : le contrôle manque encore).",
+      "requirement": "Le système doit laisser tout appelant appeler User.legacy sans contrôle de permission (`acl.TODO()` : le contrôle manque encore).",
       "slug": "unchecked-user-legacy",
       "title": "Accès non vérifié : User.legacy"
     },
@@ -1948,7 +1948,7 @@
       "domain": "resolvers",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI l'appelant n'est pas connecté, ALORS le systeme doit rejeter Query.orphan avec l'erreur `Unauthorized`.",
+      "requirement": "SI l'appelant n'est pas connecté, ALORS le système doit rejeter Query.orphan avec l'erreur `Unauthorized`.",
       "slug": "authz-query-orphan",
       "title": "Contrôle d'accès : Query.orphan"
     },
@@ -1966,7 +1966,7 @@
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI `_isActor(ctx, kaid)` est faux, ALORS le systeme doit ne renvoyer aucune donnée pour Query.recoveryCodes.",
+      "requirement": "SI `_isActor(ctx, kaid)` est faux, ALORS le système doit ne renvoyer aucune donnée pour Query.recoveryCodes.",
       "route": "route.graphql.query.recoveryCodes",
       "slug": "authz-query-recoverycodes",
       "title": "Contrôle d'accès : Query.recoveryCodes"
@@ -1985,7 +1985,7 @@
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI `age.IsUnderAgeGateByKaid(ctx, kaid)` est vrai, ALORS le systeme doit rejeter Mutation.enableTotp avec l'erreur `Unauthorized`.",
+      "requirement": "SI `age.IsUnderAgeGateByKaid(ctx, kaid)` est vrai, ALORS le système doit rejeter Mutation.enableTotp avec l'erreur `Unauthorized`.",
       "route": "route.graphql.mutation.enableTotp",
       "slug": "authz-mutation-enabletotp",
       "title": "Contrôle d'accès : Mutation.enableTotp"
@@ -2006,7 +2006,7 @@
       "ears": "ubiquitous",
       "header": "X-Ka-Gateway-Secret",
       "nature": "business",
-      "requirement": "Le systeme doit envoyer le secret web.GatewayToBackendSecret (backend_to_gateway_secret) dans l'en-tête `X-Ka-Gateway-Secret` des requêtes qu'il émet.",
+      "requirement": "Le système doit envoyer le secret web.GatewayToBackendSecret (backend_to_gateway_secret) dans l'en-tête `X-Ka-Gateway-Secret` des requêtes qu'il émet.",
       "secret": "backend_to_gateway_secret",
       "slug": "contract-sends-x-ka-gateway-secret",
       "title": "Contrat d'en-tête : X-Ka-Gateway-Secret"
@@ -2026,7 +2026,7 @@
       "domain": "shared-serve",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI `r.Header.Get(\"X-Ka-Gateway-Secret\")` vaut `\"\"`, ALORS le systeme doit rejeter les requêtes passant par `ValidateGraphqlSecretMiddleware` avec l'erreur `StatusUnauthorized`.",
+      "requirement": "SI `r.Header.Get(\"X-Ka-Gateway-Secret\")` vaut `\"\"`, ALORS le système doit rejeter les requêtes passant par `ValidateGraphqlSecretMiddleware` avec l'erreur `StatusUnauthorized`.",
       "slug": "authz-les-requ-tes-passant-par-validategraphqlsecretmiddleware",
       "title": "Contrôle d'accès : les requêtes passant par `ValidateGraphqlSecretMiddleware`"
     },
@@ -2045,7 +2045,7 @@
       "domain": "shared-serve",
       "ears": "unwanted",
       "nature": "business",
-      "requirement": "SI `ctx.Secrets().Get(ctx, web.GatewayToBackendSecret)` échoue OU `r.Header.Get(\"X-Ka-Gateway-Secret\")` ne vaut pas `expected`, ALORS le systeme doit rejeter les requêtes passant par `ValidateGraphqlSecretMiddleware` avec l'erreur `StatusUnauthorized`.",
+      "requirement": "SI `ctx.Secrets().Get(ctx, web.GatewayToBackendSecret)` échoue OU `r.Header.Get(\"X-Ka-Gateway-Secret\")` ne vaut pas `expected`, ALORS le système doit rejeter les requêtes passant par `ValidateGraphqlSecretMiddleware` avec l'erreur `StatusUnauthorized`.",
       "slug": "authz-les-requ-tes-passant-par-validategraphqlsecretmiddleware-2",
       "title": "Contrôle d'accès : les requêtes passant par `ValidateGraphqlSecretMiddleware` (2)"
     },
@@ -2066,7 +2066,7 @@
       "ears": "ubiquitous",
       "header": "X-Ka-Gateway-Secret",
       "nature": "business",
-      "requirement": "Le systeme doit accepter l'en-tête `X-Ka-Gateway-Secret` seulement s'il correspond au secret `web.GatewayToBackendSecret` (backend_to_gateway_secret).",
+      "requirement": "Le système doit accepter l'en-tête `X-Ka-Gateway-Secret` seulement s'il correspond au secret `web.GatewayToBackendSecret` (backend_to_gateway_secret).",
       "secret": "backend_to_gateway_secret",
       "slug": "contract-requires-x-ka-gateway-secret",
       "title": "Contrat d'en-tête : X-Ka-Gateway-Secret"
@@ -2088,7 +2088,7 @@
       "ears": "ubiquitous",
       "header": "X-Ka-Service-Admin-Query",
       "nature": "business",
-      "requirement": "Le systeme doit accepter l'en-tête `serviceAdminQueryHeaderName` (X-Ka-Service-Admin-Query) seulement s'il correspond au secret `ServiceAdminQuerySecret` (service_admin_query_secret).",
+      "requirement": "Le système doit accepter l'en-tête `serviceAdminQueryHeaderName` (X-Ka-Service-Admin-Query) seulement s'il correspond au secret `ServiceAdminQuerySecret` (service_admin_query_secret).",
       "secret": "service_admin_query_secret",
       "slug": "contract-requires-x-ka-service-admin-query",
       "title": "Contrat d'en-tête : X-Ka-Service-Admin-Query"

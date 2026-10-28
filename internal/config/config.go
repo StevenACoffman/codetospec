@@ -57,6 +57,9 @@ type fileConfig struct {
 	DomainModels        []string          `yaml:"domain_models"`
 	DomainModelEntities map[string]string `yaml:"domain_model_entities"`
 	WriteDomainModel    bool              `yaml:"write_domain_model"`
+	// Actors are the actors a rule may name instead of "the system": a
+	// glossary, as Kiro specs have one.
+	Actors Actors `yaml:"actors"`
 }
 
 // Config is the resolved configuration for one command invocation.
@@ -91,13 +94,15 @@ type Config struct {
 	Reground       bool
 	ReduceBatch    int
 	ReduceMode     string // "full" or "merge" (see reducer.ModeMerge)
-	Format         string // drift and diff output format: "text" | "json"
+	Format         string // drift and diff output: "text" | "json"; export: ExportQuire | ExportKiro
 	// DomainModels are human modelith models (*.modelith.yaml) the graph is
 	// compared with (--domain-model, then domain_models resolved against
 	// --src); DomainModelEntities maps a model entity to the code entity it
 	// is, for names that differ (see domainmodel.Options).
 	DomainModels        []string
 	DomainModelEntities map[string]string
+	// Actors is the glossary of the actors a rule may name (fileConfig).
+	Actors Actors
 	// WriteDomainModel writes modelith models under <out>/models: the human
 	// models enhanced with what the code shows, and generated ones for the
 	// entities they do not name (--write-domain-model).
@@ -202,7 +207,7 @@ func ParseRun(args []string) (*Config, error) {
 		"API key (empty accepted for local vLLM)",
 	)
 	flags.StringVar(&cfg.Model, "model", os.Getenv("LLM_MODEL"), "model name")
-	flags.StringVar(&cfg.Lang, "lang", "fr", "requirements language (fr or en)")
+	flags.StringVar(&cfg.Lang, "lang", "en", "requirements language (en or fr)")
 	flags.IntVar(&cfg.Workers, "workers", defaultWorkers, "map parallelism")
 	flags.IntVar(&cfg.MaxTokens, "max-tokens", defaultMaxTokens, "generation cap per LLM call")
 	flags.StringVar(
@@ -283,6 +288,7 @@ func (c *Config) merge(fileCfg *fileConfig, explicit map[string]bool, lists *cli
 		}
 	}
 	c.DomainModelEntities = fileCfg.DomainModelEntities
+	c.Actors = fileCfg.Actors
 	if !explicit["write-domain-model"] && fileCfg.WriteDomainModel {
 		c.WriteDomainModel = true
 	}
@@ -359,6 +365,12 @@ func ParseDiff(args []string) (*Config, error) {
 	return cfg, nil
 }
 
+// The export formats (export --format).
+const (
+	ExportQuire = "quire" // ISO 29148 FRs (internal/quire)
+	ExportKiro  = "kiro"  // Kiro specs (internal/kiro)
+)
+
 // ParseExport resolves the export command configuration.
 func ParseExport(args []string) (*Config, error) {
 	flags := flag.NewFlagSet("export", flag.ContinueOnError)
@@ -368,14 +380,18 @@ func ParseExport(args []string) (*Config, error) {
 		&cfg.To,
 		"to",
 		"",
-		"new or empty directory to write the Quire spec to (required)",
+		"new or empty directory to write the spec to (required)",
 	)
+	flags.StringVar(&cfg.Format, "format", ExportQuire, "spec format: quire or kiro")
 	flags.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
 	if err := flags.Parse(args); err != nil {
 		return nil, err
 	}
 	if cfg.Out == "" || cfg.To == "" {
 		return nil, errors.New("export requires --out and --to")
+	}
+	if cfg.Format != ExportQuire && cfg.Format != ExportKiro {
+		return nil, fmt.Errorf("--format %q must be %s or %s", cfg.Format, ExportQuire, ExportKiro)
 	}
 	return cfg, nil
 }
@@ -430,7 +446,13 @@ func (c *Config) validateRun() error {
 	if c.Model == "" {
 		return errors.New("missing LLM model: set --model or LLM_MODEL")
 	}
-	for _, e := range c.Extractors {
+	return validateExtractors(c.Extractors)
+}
+
+// validateExtractors returns why an extractor entry cannot run: no name
+// or command, or an unreadable timeout.
+func validateExtractors(extractors []Extractor) error {
+	for _, e := range extractors {
 		if e.Name == "" || e.Cmd == "" {
 			return fmt.Errorf(
 				"extractor entries need both name and cmd (got name=%q cmd=%q)",

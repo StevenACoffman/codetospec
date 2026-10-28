@@ -1,8 +1,8 @@
-# Extracteur PHP natif
+# Native PHP extractor
 
-Premier extracteur natif de codetospec, preuve du protocole `codetospec/facts/v1`.
-Il utilise [nikic/php-parser](https://github.com/nikic/PHP-Parser) v5, le parser
-AST de l'écosystème PHP (socle de PHPStan et Rector).
+codetospec's first native extractor, proof of the `codetospec/facts/v1` protocol.
+It uses [nikic/php-parser](https://github.com/nikic/PHP-Parser) v5, the AST
+parser of the PHP ecosystem (the foundation of PHPStan and Rector).
 
 ## Installation
 
@@ -11,22 +11,22 @@ cd extractors/php
 composer install
 ```
 
-## Ce qu'il extrait
+## What it extracts
 
-1. **AST statique** (toujours) : namespaces, classes (extends, implements,
-   méthodes publiques, lignes exactes), appels `Route::<verb>(...)` (facts
-   `route`, certainty `static`), blocs `Schema::create('<table>', ...)` avec
-   colonnes `$table-><type>('<name>')` (facts `table`).
-2. **Introspection runtime** (option `--boot`, si un `artisan` exécutable est
-   présent) : `php artisan route:list --json` ; les routes obtenues remplacent
-   les routes statiques (certainty `proved`). En cas d'échec du boot, warning
-   sur stderr et conservation du statique.
+1. **Static AST** (always): namespaces, classes (extends, implements,
+   public methods, exact lines), `Route::<verb>(...)` calls (`route`
+   facts, certainty `static`), `Schema::create('<table>', ...)` blocks with
+   `$table-><type>('<name>')` columns (`table` facts).
+2. **Runtime introspection** (option `--boot`, if an executable `artisan` is
+   present): `php artisan route:list --json`; the routes obtained replace
+   the static routes (certainty `proved`). If the boot fails, a warning
+   on stderr and the static routes are kept.
 
-Sortie stdout : `{"schema": "codetospec/facts/v1", "facts": [...]}`.
+Stdout output: `{"schema": "codetospec/facts/v1", "facts": [...]}`.
 
-## Configuration codetospec
+## codetospec configuration
 
-Dans `codetospec.yaml` du dépôt analysé :
+In the analyzed repository's `codetospec.yaml`:
 
 ```yaml
 extractors:
@@ -36,5 +36,5 @@ extractors:
     timeout: 300s
 ```
 
-Ajouter `--boot` aux args pour activer l'introspection runtime.
-Le binaire Go ignore tout de ce script : il ne connaît que le protocole.
+Add `--boot` to the args to enable runtime introspection.
+The Go binary knows nothing of this script: it knows only the protocol.

@@ -89,6 +89,7 @@ func TestEndToEndRunOnFixture(t *testing.T) {
 	checkDiffSelf(t, outDir, nodes)
 	checkQuality(t, outDir, nodes)
 	checkExport(t, outDir, nodes)
+	checkExportKiro(t, outDir, nodes)
 }
 
 // checkNodes: at least one node of each type, a graph that re-verifies

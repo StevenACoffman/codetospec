@@ -67,7 +67,9 @@ func Reassign(
 }
 
 // callerSets maps each chunk to the chunks of its directory calling into
-// it, itself excluded.
+// it, itself excluded. A call through an interface (Fact.ViaDispatch) is
+// not a caller: which implementation runs is not known, and placing code
+// by a possible caller would move domains on a guess.
 func callerSets(chunks []sitter.Chunk, facts []extract.Fact) map[int]map[int]bool {
 	byPath := map[string][]int{}
 	for i := range chunks {
@@ -76,7 +78,7 @@ func callerSets(chunks []sitter.Chunk, facts []extract.Fact) map[int]map[int]boo
 	sets := map[int]map[int]bool{}
 	for i := range facts {
 		f := &facts[i]
-		if f.Kind != extract.KindCall || f.Source.Root != "" {
+		if f.Kind != extract.KindCall || f.ViaDispatch() || f.Source.Root != "" {
 			continue
 		}
 		callerStart, _, err := extract.ParseLines(f.Source.Lines)

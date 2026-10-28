@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/StevenACoffman/codetospec/internal/ears"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/locale"
@@ -149,6 +150,80 @@ func TestBuildProducesAllNodeTypes(t *testing.T) {
 // graph.TestBuildDomainDependsOnGoStyleImports covers the suffix fallback: Go
 // imports carry a path ("app/internal/billing") while module facts carry the
 // bare package name ("billing").
+// TestBuildEARSPatterns: a rule's sentence names the patterns it
+// combines, whatever kind it declares and whoever its actor is.
+func TestBuildEARSPatterns(t *testing.T) {
+	cases := map[string]struct {
+		kind, requirement string
+		patterns, issue   string
+	}{
+		"complex": {
+			ears.Complex, "TANT QUE a, QUAND b, le système doit c.", "state, event", "",
+		},
+		"declared as its opening": {
+			ears.State, "TANT QUE a, QUAND b, le système doit c.", "state, event", "",
+		},
+		"one pattern": {ears.Event, "QUAND b, le système doit c.", "", ""},
+		"not parseable": {
+			ears.Event,
+			"QUAND b, le système doit c ; le système doit d.",
+			"",
+			"more than one",
+		},
+		"two triggers, another actor": {
+			ears.Complex, "QUAND a, SI b, ALORS le logiciel doit c.", "event, unwanted", "",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			reduced := fixtureReduced()[:1]
+			reduced[0].Rules[0].EarsKind = tc.kind
+			reduced[0].Rules[0].Requirement = tc.requirement
+			var rule graph.Node
+			for _, n := range graph.Build(nil, reduced, extract.DomainResolver{}, "fr", nil) {
+				if n.Type == graph.TypeRule {
+					rule = n
+				}
+			}
+			if got := rule.Extra[graph.ExtraEARSPatterns]; got != tc.patterns {
+				t.Errorf("ears_patterns = %q, want %q", got, tc.patterns)
+			}
+			if got := rule.Extra[graph.ExtraEARSIssue]; !strings.Contains(got, tc.issue) ||
+				(tc.issue == "") != (got == "") {
+				t.Errorf("ears_issue = %q, want one holding %q", got, tc.issue)
+			}
+		})
+	}
+}
+
+// TestRuleActions: the actions the model wrote are kept beside the
+// sentence and read back whole; once an edit moves one, it is unknown.
+func TestRuleActions(t *testing.T) {
+	reduced := fixtureReduced()[:1]
+	rule := &reduced[0].Rules[0]
+	rule.EARS = ears.Components{
+		When:  "x",
+		Shall: []ears.Response{{Text: "create an invoice", Action: "create"}},
+	}
+	rule.Requirement = ears.Render(&rule.EARS, "fr")
+	var node graph.Node
+	for _, n := range graph.Build(nil, reduced, extract.DomainResolver{}, "fr", nil) {
+		if n.Type == graph.TypeRule {
+			node = n
+		}
+	}
+	if got := node.Extra[graph.ExtraEARSActions]; got != "create" {
+		t.Fatalf("ears_actions = %q, want create", got)
+	}
+	if c, ok := graph.RuleComponents(&node); !ok || !reflect.DeepEqual(c, rule.EARS) {
+		t.Errorf("RuleComponents = %+v, %v; want %+v", c, ok, rule.EARS)
+	}
+	node.Body = strings.Replace(node.Body, "create an invoice", "issue an invoice", 1)
+	if c, ok := graph.RuleComponents(&node); !ok || c.Shall[0].Action != "" {
+		t.Errorf("edited rule's action = %q, want unknown", c.Shall[0].Action)
+	}
+}
+
 func TestBuildDomainDependsOnGoStyleImports(t *testing.T) {
 	facts := []extract.Fact{
 		{

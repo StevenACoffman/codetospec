@@ -119,7 +119,7 @@ func document(id string, rule *graph.Node) ([]byte, error) {
 	requirement := graph.RuleRequirement(rule.Body)
 	criteria := graph.RuleCriteria(rule.Body)
 	for k := range criteria {
-		criteria[k] = unnumbered(criteria[k])
+		criteria[k] = graph.CriterionText(criteria[k])
 	}
 	front := frontmatter{
 		ID:         id,
@@ -149,7 +149,7 @@ func document(id string, rule *graph.Node) ([]byte, error) {
 		fmt.Fprintf(&b, "| %s-AC-%d | %s | Test |\n", id, k+1, cell(criterion))
 	}
 	b.WriteString("\n## Dependencies\n\n")
-	if domain := domainOf(rule); domain != "" {
+	if domain := graph.RuleDomain(rule); domain != "" {
 		fmt.Fprintf(&b, "- **Domain**: `%s`\n", domain)
 	}
 	var code []string
@@ -161,25 +161,6 @@ func document(id string, rule *graph.Node) ([]byte, error) {
 		fmt.Fprintf(&b, "- **Tests**: `%s`\n", strings.ReplaceAll(tests, ", ", "`, `"))
 	}
 	return []byte(b.String()), nil
-}
-
-// unnumbered is a criterion line without its "1. " prefix.
-func unnumbered(line string) string {
-	rest := strings.TrimLeft(line, "0123456789")
-	if after, found := strings.CutPrefix(rest, "."); found && len(rest) < len(line) {
-		return strings.TrimSpace(after)
-	}
-	return line
-}
-
-// domainOf is the domain a rule belongs to, by its belongs_to edge.
-func domainOf(rule *graph.Node) string {
-	for _, e := range rule.Edges {
-		if e.Type == graph.EdgeBelongsTo {
-			return strings.TrimPrefix(e.To, graph.TypeDomain+".")
-		}
-	}
-	return ""
 }
 
 // cell makes text safe in a table cell: one line, pipes escaped.

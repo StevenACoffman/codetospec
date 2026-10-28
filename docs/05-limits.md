@@ -30,6 +30,11 @@ There are three levels of spec↔code coherence, and only one is 100%:
 The value is not pretending the semantic level is 100% — it's **telling the
 reviewer which third is uncertain** so attention goes where it's needed.
 
+Structured EARS moves the *form* of a rule to the structural level — the
+model writes components, the program writes the sentence — but not its
+*content*: a component can still leave out a condition the code has, or
+state one it lacks. Only the reviewer and the grounding check see that.
+
 ## 5.3 Completeness is not measured — yet
 
 The tool reports what it *found*. It does not, by default, tell you how much
@@ -45,12 +50,24 @@ file), with the gaps listed. That tells a reader where a missing rule proves
 nothing. It says nothing about code that was mapped and simply yielded no
 rule; that is still the frontier.
 
+Which rules the tests verify is estimated two ways, and neither proves an
+assertion. Static reach (`tests`) follows direct uses up to three calls
+deep: it misses code run through reflection, deeper chains and other
+modules' interfaces, and a call through one of the module's own interfaces
+only counts as possible (`tests_via_interface`). A coverage profile
+(`executed`) is observed, but it is one run at one commit, and it says
+neither which test ran a line nor whether anything checked the result. On
+roster the two disagree on 26 of 558 rules
+([record](verification/test-reach-2026-10-26.md)).
+
 ## 5.4 The human referent is not optional
 
 The output is *for* a domain expert to validate — the person who knows that
 "the Gol tonnages include Grand Pourpier." The tool's job is to make that
 validation *possible and fast*: named rules, exact citations, a flagged
-uncertain subset. It is not to remove the human. The engineering time doesn't
+uncertain subset, and a place (`resolutions.yaml`) to record that a flagged
+finding was checked, which holds until the cited code changes. It is not to
+remove the human. The engineering time doesn't
 vanish; it moves — from deciphering period code to deciding what the product
 must do.
 

@@ -48,6 +48,9 @@
 #                    gives precise symbols; 1 also indexes with scip-go)
 #   PKG_GRAPH        pkg spec to inherit from   (default: <OUT_DIR>/../pkg
 #                    when it exists; empty disables inheriting)
+#   COVER            coverage profile of the service's tests, made at this
+#                    commit (go test -coverpkg=./... -coverprofile=FILE ./...):
+#                    rules get `executed: k/n`; files changed since are left out
 #   DRY_RUN=1        stop before calling the LLM, print the command
 #
 # Note: codetospec counts prompt+completion tokens only; Gemini also bills
@@ -178,7 +181,11 @@ fi
 # constants, precise symbols and who calls whom (for domains). Optional: a
 # failed package load only loses those facts.
 go_file=$out_dir/.codetospec/go.facts.json
-if (cd "$service_dir" && "$repo_dir/bin/go-extract" -root . -skip-dirs testutil >"$go_file" 2>"$go_file.log"); then
+cover_args=()
+if [ -n "${COVER:-}" ]; then
+    cover_args=(-cover "$(cd "$(dirname "$COVER")" && pwd)/$(basename "$COVER")")
+fi
+if (cd "$service_dir" && "$repo_dir/bin/go-extract" -root . -skip-dirs testutil "${cover_args[@]}" >"$go_file" 2>"$go_file.log"); then
     gcount() { grep -o "\"kind\":\"$1\"" "$go_file" | wc -l | tr -d ' '; }
     printf '    routes %s · constants %s · precise symbols %s · calls %s\n' \
         "$(gcount route)" "$(gcount constant)" "$(gcount symbol)" "$(gcount call)" >&2

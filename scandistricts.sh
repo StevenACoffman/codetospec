@@ -149,7 +149,7 @@ fi
 if has_cmd go; then
     :
 else
-    die "go is not on PATH; install Go >= 1.27 first"
+    die "go is not on PATH; install Go >= 1.27.3 first"
 fi
 case "$spec_lang" in fr | en) ;; *) die "SPEC_LANG must be fr or en, got '$spec_lang'" ;; esac
 case "$reduce_mode" in full | merge) ;; *) die "REDUCE_MODE must be full or merge, got '$reduce_mode'" ;; esac

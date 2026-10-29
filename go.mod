@@ -1,6 +1,6 @@
 module github.com/StevenACoffman/codetospec
 
-go 1.27
+go 1.27.3
 
 require (
 	github.com/StevenACoffman/indomain v0.3.0

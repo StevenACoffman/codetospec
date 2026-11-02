@@ -268,13 +268,18 @@ examples) land before the remap. Decided 2026-11-02:
   texts); 116 of 116 examples hold
   (`docs/verification/conditions-acceptance-2026-11-02.md`).
 
-- [ ] Grow the condition vocabulary for Go services. On districts-jobs,
+- [x] Grow the condition vocabulary for Go services. On districts-jobs,
       66 of 69 condition variables were coined under `local.`: those
       modules have no tables, no domain model, and the Go extractor states
       no rule conditions, so map rules cannot hash equal across chunks.
       Candidate source: the Go extractor's types (struct fields as
       `Type.field`), as the enumerations already are (`moa.State` was
       used where offered). Measure the coined share before and after.
+  - Done: `struct` facts (module types, and with `-shared` the shared
+    types the module reaches), offered as `pkg.Type.Field` where the
+    struct is named. Coined variables 62/64 → 39/66, variables shared by
+    two rules 7 → 13; 20 of 21 vocabulary uses right
+    (`docs/verification/condition-vocabulary-go-structs-2026-11-02.md`).
 - [ ] Measure conditions on webapp after the remap: its extractor
       conditions (34 in the goldens) are the vocabulary's richest source,
       and how often map conditions reuse them is unmeasured.

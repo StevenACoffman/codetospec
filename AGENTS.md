@@ -150,10 +150,14 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   0 and "" are implicit in prose) → `condition_mismatch` question.
 - `internal/vocabulary` — the condition variables offered to each map
   chunk, no LLM: extractor rule-condition variables (scoped to their
-  file), then schema facts (`table.column`, enums with values), then
+  file), then schema facts (`table.column`, enums with values, struct
+  fields `pkg.Type.Field` from the Go extractor's `struct` facts), then
   `--domain-model` attributes and enums; a term is offered when its last
-  part is a word of the chunk (case, `_`, camelCase ignored), at most
-  `MaxTerms`. `Coined` moves other variables under `local.`. Injected as
+  part is a word of the chunk (case, `_`, camelCase ignored), a struct
+  field only when its struct's name or that name's last part is one too
+  (else every `Status` everywhere), at most `MaxTerms`. Measured: coined
+  variables 97 % → 59 % on districts-jobs
+  (`docs/verification/condition-vocabulary-go-structs-2026-11-02.md`). `Coined` moves other variables under `local.`. Injected as
   `Mapper.VocabularyFor`, outside `promptKey` like the entities.
 - `internal/acceptance` — `--acceptance`: per LLM rule not refuted, one
   call (cited code via `extract.Roots` + the two nearest tests) writes the

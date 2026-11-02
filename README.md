@@ -401,8 +401,11 @@ thing the same way, however they are worded. An extractor states it on its
 rule facts (the webapp extractor does for its access and rate-limit
 guards: `caller.loggedIn`, `caller.hasPermission.<P>`…); the map writes it
 for its own rules, offered a **vocabulary** per chunk: the variables of the
-extractor rules of its file, the tables' columns and enumerations it
-mentions, then the attributes of `--domain-model` models; a variable outside
+extractor rules of its file, the tables' columns, enumerations and Go
+struct fields it mentions (`shop.Order.Status`, offered where the chunk
+also names the struct: the Go extractor's `struct` facts, the shared
+`-shared` types the module reaches included), then the attributes of
+`--domain-model` models; a variable outside
 it is kept under `local.`. A condition that does not parse, or compares with
 a value its cited lines lack, gets the map's one repair exchange, and is
 dropped if still wrong (`condition_dropped`), never its rule. The reduce

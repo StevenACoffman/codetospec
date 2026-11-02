@@ -2,7 +2,7 @@
 // that the map's conditions and the extractors' name the same check the
 // same way and hash equal (see package condition). It reads, in order of
 // preference: the variables of the extractors' rule conditions, the schema
-// facts (tables and their columns, enumerations), and the human domain
+// facts (tables and their columns, enumerations, struct fields), and the human domain
 // models (entities and their attributes, enumerations). Each chunk is
 // offered only the terms that appear in it; a variable outside them is
 // coined under Local. No LLM, no I/O.
@@ -35,7 +35,7 @@ type Source int
 // The sources of terms, most preferred first.
 const (
 	FromRule   Source = iota // a variable of an extractor rule's condition
-	FromSchema               // a table column or an enumeration of the code
+	FromSchema               // a table column, an enumeration or a struct field of the code
 	FromModel                // an attribute or enumeration of a domain model
 )
 
@@ -51,6 +51,12 @@ type Term struct {
 	// key is the normalized last part of Name, matched against the words
 	// of a chunk.
 	key string
+	// owners gate a struct field: one of them must be a word of the chunk
+	// too, or every struct's Status would be offered wherever "status"
+	// occurs. They are the struct's name and its last camelCase part, as a
+	// variable usually names its type (job for RosterJob). Empty for the
+	// other terms.
+	owners []string
 }
 
 // Vocabulary is every term of a run, sorted by source then name.
@@ -125,8 +131,30 @@ func factTerms(facts []extract.Fact, i int) []Term {
 		return []Term{
 			{Name: f.Attrs[extract.AttrName], Source: FromSchema, Values: enumValues(facts, f.ID)},
 		}
+	case extract.KindStruct:
+		return structTerms(f)
 	}
 	return nil
+}
+
+// structTerms are a struct fact's fields, each gated by the struct's name.
+func structTerms(f *extract.Fact) []Term {
+	name := f.Attrs[extract.AttrName]
+	parts := splitIdentifier(lastPart(name))
+	owners := []string{normalize(lastPart(name))}
+	if tail := normalize(parts[len(parts)-1]); tail != owners[0] {
+		owners = append(owners, tail)
+	}
+	var terms []Term
+	for field := range strings.SplitSeq(f.Attrs[extract.AttrFields], ",") {
+		if field = strings.TrimSpace(field); field != "" {
+			terms = append(
+				terms,
+				Term{Name: name + "." + field, Source: FromSchema, owners: owners},
+			)
+		}
+	}
+	return terms
 }
 
 // enumValues lists the values of the enumeration whose fact id is enum,
@@ -161,7 +189,8 @@ func modelTerms(m *model.Model) []Term {
 
 // For returns the terms offered to a chunk of file whose code is content:
 // the rule variables of file, and every term whose last part occurs as a
-// word of content (case, _ and - ignored; camelCase split), in vocabulary
+// word of content (case, _ and - ignored; camelCase split) — for a struct
+// field, with its struct's name or that name's last part —, in vocabulary
 // order, at most MaxTerms.
 func (v *Vocabulary) For(file, content string) []Term {
 	words := wordsOf(content)
@@ -170,11 +199,18 @@ func (v *Vocabulary) For(file, content string) []Term {
 		if len(out) == MaxTerms {
 			break
 		}
-		if t.file == file || (t.file == "" && words[t.key]) {
+		if t.file == file || (t.file == "" && words[t.key] && ownedIn(&t, words)) {
 			out = append(out, t)
 		}
 	}
 	return out
+}
+
+// ownedIn reports whether t has no owner, or one of its owners is one of
+// words.
+func ownedIn(t *Term, words map[string]bool) bool {
+	return len(t.owners) == 0 ||
+		slices.ContainsFunc(t.owners, func(o string) bool { return words[o] })
 }
 
 // Names lists the names of terms.

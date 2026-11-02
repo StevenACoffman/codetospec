@@ -104,6 +104,39 @@ func TestFor(t *testing.T) {
 	}
 }
 
+// TestForStructFields: a struct field is offered only where its struct is
+// named too, by its whole name or the last part a variable takes after.
+func TestForStructFields(t *testing.T) {
+	v := vocabulary.Build([]extract.Fact{{
+		Kind: extract.KindStruct, ID: "struct.jobs/job.go#RosterJob",
+		Attrs: map[string]string{
+			extract.AttrName:   "jobs.RosterJob",
+			extract.AttrFields: "Attempts,ExpiresAt",
+		},
+	}}, nil)
+	cases := map[string]struct {
+		content string
+		want    []string
+	}{
+		"the type named": {
+			"func (r *RosterJob) Run() { if r.Attempts > 3 {} }",
+			[]string{"jobs.RosterJob.Attempts"},
+		},
+		"a variable after it": {
+			"if job.ExpiresAt.Before(now) {}",
+			[]string{"jobs.RosterJob.ExpiresAt"},
+		},
+		"the field alone": {"if task.Attempts > 3 {}", nil},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := vocabulary.Names(v.For(otherFile, tc.content)); !slices.Equal(got, tc.want) {
+				t.Errorf("For = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestBuildPrefersSources: a name two sources give is kept once, at the
 // most preferred source; an enumeration carries its values.
 func TestBuildPrefersSources(t *testing.T) {

@@ -77,6 +77,11 @@ const ExtraQualityAttribute = "quality_attribute"
 // its journey applies, in order (see withJourneys).
 const ExtraJourney = "journey"
 
+// ExtraNatureByPosition is the frontmatter key of the nature the cited
+// code's layer gives a rule, set only when it differs from the rule's
+// nature (see package position).
+const ExtraNatureByPosition = "nature_by_position"
+
 // ExtraThreshold is the frontmatter key of the threshold a
 // non-functional rule's code states: the quantities of its requirement,
 // each found in the cited code (see quality.AnnotateThresholds).

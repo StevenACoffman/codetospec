@@ -60,6 +60,11 @@ type fileConfig struct {
 	// Actors are the actors a rule may name instead of "the system": a
 	// glossary, as Kiro specs have one.
 	Actors Actors `yaml:"actors"`
+	// NatureByPath gives, per nature, the package patterns of its layers
+	// ("internal/middleware", "cmd/..."); NatureByLayer the nature of each
+	// layer of the target's anarch.json. See package position.
+	NatureByPath  map[string][]string `yaml:"nature_by_path"`
+	NatureByLayer map[string]string   `yaml:"nature_by_layer"`
 }
 
 // Config is the resolved configuration for one command invocation.
@@ -107,6 +112,10 @@ type Config struct {
 	// models enhanced with what the code shows, and generated ones for the
 	// entities they do not name (--write-domain-model).
 	WriteDomainModel bool
+	// NatureByPath and NatureByLayer place the code in layers of a nature
+	// (fileConfig), for the positional nature of each rule.
+	NatureByPath  map[string][]string
+	NatureByLayer map[string]string
 }
 
 // DefaultExclude lists the names and globs ignored by default: dependency
@@ -294,6 +303,7 @@ func (c *Config) merge(fileCfg *fileConfig, explicit map[string]bool, lists *cli
 	}
 	c.DomainModelEntities = fileCfg.DomainModelEntities
 	c.Actors = fileCfg.Actors
+	c.NatureByPath, c.NatureByLayer = fileCfg.NatureByPath, fileCfg.NatureByLayer
 	if !explicit["write-domain-model"] && fileCfg.WriteDomainModel {
 		c.WriteDomainModel = true
 	}

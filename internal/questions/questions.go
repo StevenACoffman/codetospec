@@ -8,7 +8,8 @@
 // lacks the form of its EARS kind (KindEARSIssue), one the crosscheck
 // refuted (KindRefuted), an inherited rule whose shared code changed since
 // its verdict (KindStaleVerdict), a non-functional rule whose code states
-// no threshold (KindNFRTarget: the target is the person's to set), and code
+// no threshold (KindNFRTarget: the target is the person's to set), a rule
+// whose nature its code's layer contradicts (KindNatureMismatch), and code
 // of a domain that produced no rule (KindCoverageGap). Pair findings (near-duplicates) and the
 // domain-model gaps are not questions yet.
 package questions
@@ -27,12 +28,13 @@ import (
 
 // Question kinds.
 const (
-	KindUngrounded   = "ungrounded"
-	KindEARSIssue    = "ears_issue"
-	KindRefuted      = "refuted"
-	KindStaleVerdict = "stale_verdict"
-	KindNFRTarget    = "nfr_target"
-	KindCoverageGap  = "coverage_gap"
+	KindUngrounded     = "ungrounded"
+	KindEARSIssue      = "ears_issue"
+	KindRefuted        = "refuted"
+	KindStaleVerdict   = "stale_verdict"
+	KindNFRTarget      = "nfr_target"
+	KindNatureMismatch = "nature_mismatch"
+	KindCoverageGap    = "coverage_gap"
 )
 
 // Question is one finding a person may resolve.
@@ -79,6 +81,10 @@ func List(nodes []graph.Node, gaps []graph.CoverageGap) []Question {
 		}
 		if stale := n.Extra[graph.ExtraStaleVerdict]; stale != "" {
 			add(KindStaleVerdict, n.ID, stale, stale, digest)
+		}
+		if positional := n.Extra[graph.ExtraNatureByPosition]; positional != "" {
+			detail := positional + " by position, " + n.Extra["nature"] + " by text"
+			add(KindNatureMismatch, n.ID, detail, positional, digest)
 		}
 		if quality.IsNFR(n) && n.Extra[graph.ExtraThreshold] == "" {
 			attribute := n.Extra[graph.ExtraQualityAttribute]

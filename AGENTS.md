@@ -330,6 +330,17 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   `servicetest` (the real callers are in other modules).
 - `internal/consistency` — detection of near-duplicate rules (Jaccard on
   the requirements), listed in the output README.
+- `internal/position` — positional nature, no LLM: codetospec.yaml
+  `nature_by_path` (per nature, Go-style package patterns relative to
+  `--src`: `internal/http` = that directory, `cmd/...` = the tree; most
+  specific wins) or `nature_by_layer` (nature of each layer of
+  `<src>/anarch.json`, import paths cut by `go.mod`'s module; the two keys
+  exclude each other, checked before any LLM call, `cmd/.../position.go`).
+  A rule whose every citation under `--src` is in layers of one nature,
+  different from its own, gets `nature_by_position` and a
+  `nature_mismatch` question; its `nature` never changes (measured: the
+  text is the better reading more often,
+  `docs/verification/positional-nature-2026-11-01.md`).
 - `graph.SharedEntities` — entities touched by rules of several domains
   (`touches` links from the reduce), "Shared entities" section of the
   output README: shared kernel or misplaced boundary.

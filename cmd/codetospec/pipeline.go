@@ -28,6 +28,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/llm"
 	"github.com/StevenACoffman/codetospec/internal/locale"
 	"github.com/StevenACoffman/codetospec/internal/mapper"
+	"github.com/StevenACoffman/codetospec/internal/position"
 	"github.com/StevenACoffman/codetospec/internal/reducer"
 	"github.com/StevenACoffman/codetospec/internal/render"
 	"github.com/StevenACoffman/codetospec/internal/sitter"
@@ -86,17 +87,11 @@ type extraction struct {
 // run is the phase sequence; runPipeline reports its outcome.
 func (p *pipeline) run(ctx context.Context) error {
 	cfg := p.cfg
-	// Human domain models, linted first: an invalid one fails the run
-	// before any LLM call.
-	var (
-		models *domainmodel.Set
-		err    error
-	)
-	if len(cfg.DomainModels) > 0 {
-		if models, err = domainmodel.Load(cfg.DomainModels); err != nil {
-			return err
-		}
+	human, err := loadHumanInputs(cfg)
+	if err != nil {
+		return err
 	}
+	models := human.models
 
 	ext, err := p.start(ctx)
 	if err != nil {
@@ -161,6 +156,7 @@ func (p *pipeline) run(ctx context.Context) error {
 		return err
 	}
 	nodes, tally, reviewedFiles := result.nodes, result.tally, result.reviewedFiles
+	nodes = position.Annotate(nodes, &human.positions)
 	if err = p.verify(ctx, nodes); err != nil {
 		return err
 	}

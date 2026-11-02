@@ -416,6 +416,22 @@ extractor links to rules, not behavior to map), `--facts extra.facts.json` (inje
 `--ref-root name=dir` (repeatable; also on `verify` and `drift`: an extra
 source tree extractor rules may cite, see below).
 
+**Layers.** `nature_by_path:` in `codetospec.yaml` places the code in
+layers of a nature, as Go package patterns relative to `--src`:
+
+```yaml
+nature_by_path:
+  technical: [handlers/..., cmd/..., internal/middleware]
+  business: [rostering/..., models/...]
+```
+
+(`nature_by_layer: {adapter: technical, domain: business}` reads the layers
+of the target's anarch-lint `anarch.json` instead.) A rule whose cited
+code lies in layers of another nature than the one its text was given
+gets `nature_by_position` in its frontmatter and a `nature_mismatch`
+question; its `nature` is never changed: a layer says where code lives,
+not what a rule is about.
+
 **Human domain models.** `--domain-model billing.modelith.yaml` (repeatable;
 or `domain_models:` in `codetospec.yaml`, relative to `--src`) compares the
 graph with a [modelith](https://github.com/stacklok/modelith) model that

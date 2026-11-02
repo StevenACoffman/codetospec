@@ -178,6 +178,7 @@ func frontmatterExtras() []extraField {
 		{key: graph.ExtraEARSActions, quoted: true},
 		{key: "acceptance"},
 		{key: "nature"},
+		{key: graph.ExtraNatureByPosition},
 		{key: graph.ExtraQualityAttribute},
 		{key: graph.ExtraThreshold, quoted: true},
 		{key: "origin"},

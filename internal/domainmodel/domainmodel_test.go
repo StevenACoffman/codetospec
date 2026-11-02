@@ -279,3 +279,62 @@ func TestCompareIgnoresNodeOrder(t *testing.T) {
 		t.Fatalf("reversed nodes changed the report:\n%+v\n%+v", got, want)
 	}
 }
+
+// ruleWithActions is a rule whose EARS actions are recorded beside its
+// sentence, as a rendered rule file keeps them.
+func ruleWithActions(id, requirement, actions string, touches ...string) graph.Node {
+	n := rule(id, requirement, touches...)
+	n.Extra = map[string]string{graph.ExtraEARSActions: actions}
+	return n
+}
+
+// TestCompareActions: each model action of Visit is paired with the rules
+// on visits whose response performs it (negation skipped, camelCase split),
+// and the verbs of those rules no model action names are listed; a rule
+// whose actions are unknown is never guessed from.
+func TestCompareActions(t *testing.T) {
+	nodes := []graph.Node{
+		entity(visitID, "Visit"),
+		ruleWithActions("rule.visits.close",
+			"WHEN the vehicle leaves the garage, the system shall close the visit.",
+			"close", visitID),
+		ruleWithActions("rule.visits.no-reopen-paid",
+			"The system shall not reopen a paid visit.", "not reopen", visitID),
+		ruleWithActions("rule.visits.audit-log",
+			"WHEN a visit closes, the system shall append an audit log record.",
+			"append", visitID),
+		rule("rule.visits.unknown",
+			"WHEN a visit closes, the system shall archive the visit.", visitID),
+	}
+	report := domainmodel.Compare(load(t), nodes, domainmodel.Options{})
+	var visit domainmodel.Entity
+	for _, e := range report.Entities {
+		if e.Name == visitEntity {
+			visit = e
+		}
+	}
+	cases := map[string]struct {
+		got, want any
+	}{
+		"model actions and the rules performing them": {
+			got: visit.Actions,
+			want: []domainmodel.Action{
+				{Name: "close", Rules: []string{"rule.visits.close"}},
+				{Name: "reopenVisit", Rules: []string{"rule.visits.no-reopen-paid"}},
+			},
+		},
+		"rule verbs no model action names": {
+			got: visit.UnmodeledActions,
+			want: []domainmodel.RuleAction{
+				{Verb: "append", Rules: []string{"rule.visits.audit-log"}},
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if !reflect.DeepEqual(tc.got, tc.want) {
+				t.Errorf("got %+v, want %+v", tc.got, tc.want)
+			}
+		})
+	}
+}

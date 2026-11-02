@@ -4,6 +4,10 @@ title: Garage
 entities:
   Visit:
     definition: One stay of a vehicle in the garage, from entry to exit.
+    actions:
+      - close
+      - name: reopenVisit
+        description: Undo a close made by mistake.
     invariants:
       - id: exit-after-entry
         statement: A visit exit time is never before its entry time.

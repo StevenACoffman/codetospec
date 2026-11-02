@@ -429,6 +429,10 @@ README then gets a **Domain model** section listing:
 - code entities that no model names
 - invariants that no rule states
 - rules about modeled entities that state no invariant
+- model actions that no rule of their entity performs, and the verbs of
+  rules about modeled entities that no model action names (an EARS
+  response's recorded action, first word, negation skipped: `not reopen`
+  performs `reopenVisit`; a response whose action is unknown is skipped)
 
 Invariants are matched to the rules that touch their entity by word
 similarity (Jaccard ≥ 0.3, EARS keywords ignored). A pairing is a lead to

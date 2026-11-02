@@ -341,7 +341,16 @@ func TestWriteEnglish(t *testing.T) {
 	meta.DomainModel = &domainmodel.Report{
 		Models: []string{"billing.modelith.yaml"},
 		Entities: []domainmodel.Entity{
-			{Name: "billing.Invoice", Code: domainmodel.CodeEntity{ID: "entity.invoice"}},
+			{
+				Name: "billing.Invoice", Code: domainmodel.CodeEntity{ID: "entity.invoice"},
+				Actions: []domainmodel.Action{
+					{Name: "issue", Rules: []string{ruleID}},
+					{Name: "void"},
+				},
+				UnmodeledActions: []domainmodel.RuleAction{
+					{Verb: "prorate", Rules: []string{ruleID}},
+				},
+			},
 			{Name: "billing.Customer"},
 		},
 	}
@@ -362,6 +371,10 @@ func TestWriteEnglish(t *testing.T) {
 				"## Shared entities", "- `Invoice` (`entity.invoice`): `billing`, `tax`",
 				"## Domain model", "- Model entities found in the code: 1/2",
 				"- `billing.Customer`",
+				"- Model actions a rule performs (same verb): 1/2",
+				"1 model actions are performed by no rule of their entity",
+				"- `billing.Invoice` · `void`",
+				"- `billing.Invoice` · prorate (`rule.billing.prorata-activation`)",
 				"- Generated files (not mapped, \"Code generated … DO NOT EDIT.\" header): 4",
 			},
 			notWant: []string{"Spécification", "Couverture", "Domaines", "non vérifiées"},

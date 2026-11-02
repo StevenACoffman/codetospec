@@ -1,8 +1,9 @@
 // Package domainmodel compares human-written modelith domain models
 // (*.modelith.yaml) with the graph codetospec built, without an LLM: which
-// model entities the code has, which invariants a rule states, and which
-// rules about modeled entities the model does not state. It only reads the
-// models; nothing is written back.
+// model entities the code has, which invariants a rule states, which
+// rules about modeled entities the model does not state, and which model
+// actions the rules perform (by the verbs of their EARS responses). It
+// only reads the models; nothing is written back.
 package domainmodel
 
 import (
@@ -121,6 +122,11 @@ type Entity struct {
 	// Unstated lists the rules touching Code that no invariant of the
 	// entity, nor of its model, matches.
 	Unstated []string
+	// Actions pairs each of the entity's model actions with the rules
+	// touching Code that perform it (see verb); UnmodeledActions lists
+	// the verbs of those rules no model action names.
+	Actions          []Action
+	UnmodeledActions []RuleAction
 }
 
 // CodeEntity is an entity node of the graph.
@@ -155,6 +161,7 @@ type rule struct {
 	id      string
 	words   map[string]bool
 	touches []string // entity node ids
+	verbs   []string // of its EARS responses whose action is known
 }
 
 // Compare matches the models' entities to the graph's entity nodes by
@@ -198,10 +205,8 @@ func Compare(set *Set, nodes []graph.Node, opts Options) Report {
 			default:
 				e.Ambiguous = candidates
 			}
-			own := words(m.Model.Entities[name].Invariants)
-			touching := rulesTouching(rules, e.Code.ID)
-			e.Invariants = closest(e.Name, own, touching, threshold)
-			e.Unstated = unstated(touching, slices.Concat(own, modelLevel), threshold)
+			entity := m.Model.Entities[name]
+			compareRules(&e, &entity, modelLevel, rules, threshold)
 			report.Entities = append(report.Entities, e)
 		}
 		report.Invariants = append(
@@ -228,6 +233,26 @@ func Compare(set *Set, nodes []graph.Node, opts Options) Report {
 	return report
 }
 
+// compareRules sets what the rules touching e's code entity say of the
+// model entity: the invariants they state, the rules stating none, and the
+// actions they perform. An entity with no code entity has no rule to
+// compare, so no action finding: the entity itself is reported missing.
+func compareRules(
+	e *Entity,
+	entity *model.Entity,
+	modelLevel []statement,
+	rules []rule,
+	threshold float64,
+) {
+	own := words(entity.Invariants)
+	touching := rulesTouching(rules, e.Code.ID)
+	e.Invariants = closest(e.Name, own, touching, threshold)
+	e.Unstated = unstated(touching, slices.Concat(own, modelLevel), threshold)
+	if e.Code.ID != "" {
+		e.Actions, e.UnmodeledActions = matchActions(entity.Actions, touching)
+	}
+}
+
 // index returns the graph's entity nodes, sorted by id, and its rules.
 func index(nodes []graph.Node) ([]CodeEntity, []rule) {
 	var code []CodeEntity
@@ -237,7 +262,11 @@ func index(nodes []graph.Node) ([]CodeEntity, []rule) {
 		case graph.TypeEntity:
 			code = append(code, CodeEntity{ID: n.ID, Title: n.Title})
 		case graph.TypeRule:
-			r := rule{id: n.ID, words: contentWords(graph.RuleRequirement(n.Body))}
+			r := rule{
+				id:    n.ID,
+				words: contentWords(graph.RuleRequirement(n.Body)),
+				verbs: ruleVerbs(&n),
+			}
 			for _, e := range n.Edges {
 				if e.Type == graph.EdgeTouches {
 					r.touches = append(r.touches, e.To)

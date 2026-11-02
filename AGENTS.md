@@ -339,7 +339,10 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   admitted into the main module). Lint first: an error stops the run
   before any LLM call. Entities matched by name (normalized, regular plural
   accepted, or `domain_model_entities`), invariants ↔ rules that touch the
-  entity by Jaccard (threshold 0.3, EARS template words removed); section
+  entity by Jaccard (threshold 0.3, EARS template words removed), model
+  actions ↔ the rules' recorded EARS actions by first verb
+  (`domainmodel/actions.go`; negation and "only" skipped, camelCase split,
+  an unknown action never guessed); section
   of the output README. Outside `promptKey`: no cache invalidated.
   `--write-domain-model`: `domainmodel.Enhance` (pure, returns the files)
   writes under `<out>/models/` the enriched human models (yaml.v3 nodes:

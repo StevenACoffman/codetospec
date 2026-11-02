@@ -791,9 +791,10 @@ func ruleDomain(ruleID string) string {
 // modelListing is what the README says of a domain-model comparison: the
 // counts, and each kind of gap as Markdown list items.
 type modelListing struct {
-	found, invariants, stated                     int
+	found, invariants, stated, actions, performed int
 	missing, ambiguous, stale                     []string
 	unmatchedInvariants, unstatedRules, unmodeled []string
+	unperformed, ruleActions                      []string
 }
 
 // listModel turns a comparison into README list items.
@@ -819,6 +820,7 @@ func listModel(r *domainmodel.Report, text *locale.Text) modelListing {
 		for _, id := range e.Unstated {
 			l.unstatedRules = append(l.unstatedRules, fmt.Sprintf("`%s` (`%s`)", id, e.Name))
 		}
+		l.addActions(&e)
 	}
 	l.addInvariants(r.Invariants, text)
 	for _, c := range r.Unmodeled {
@@ -828,6 +830,23 @@ func listModel(r *domainmodel.Report, text *locale.Text) modelListing {
 		l.stale = append(l.stale, "`"+m+"`")
 	}
 	return l
+}
+
+// addActions counts e's model actions and lists those no rule performs,
+// and the rule verbs no model action names, with their rules.
+func (l *modelListing) addActions(e *domainmodel.Entity) {
+	for _, a := range e.Actions {
+		l.actions++
+		if len(a.Rules) > 0 {
+			l.performed++
+			continue
+		}
+		l.unperformed = append(l.unperformed, fmt.Sprintf("`%s` · `%s`", e.Name, a.Name))
+	}
+	for _, a := range e.UnmodeledActions {
+		l.ruleActions = append(l.ruleActions, fmt.Sprintf("`%s` · %s (`%s`)",
+			e.Name, a.Verb, strings.Join(a.Rules, "`, `")))
+	}
 }
 
 // addInvariants counts invariants and lists those no rule states, with the
@@ -861,6 +880,9 @@ func modelSection(r *domainmodel.Report, text *locale.Text) string {
 		int(domainmodel.DefaultThreshold*percentScale))
 	fmt.Fprintf(&b, text.ModelEntitiesFmt+"\n", l.found, len(r.Entities))
 	fmt.Fprintf(&b, text.ModelInvariantsFmt+"\n", l.stated, l.invariants)
+	if l.actions > 0 {
+		fmt.Fprintf(&b, text.ModelActionsFmt+"\n", l.performed, l.actions)
+	}
 	for _, list := range []struct {
 		intro string
 		items []string
@@ -870,6 +892,8 @@ func modelSection(r *domainmodel.Report, text *locale.Text) string {
 		{text.ModelStaleMappingsFmt, l.stale},
 		{text.ModelUnmatchedFmt, l.unmatchedInvariants},
 		{text.ModelUnstatedRulesFmt, l.unstatedRules},
+		{text.ModelUnperformedFmt, l.unperformed},
+		{text.ModelRuleActionsFmt, l.ruleActions},
 		{text.ModelUnmodeledFmt, l.unmodeled},
 	} {
 		b.WriteString(itemList(list.intro, list.items, text))

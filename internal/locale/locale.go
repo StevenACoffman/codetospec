@@ -138,6 +138,9 @@ type ReadmeModel struct {
 	ModelUnmatchedFmt     string // %d invariants no rule states
 	ModelClosestFmt       string // %s rule id, %d similarity percent
 	ModelUnstatedRulesFmt string // %d rules stating no invariant
+	ModelActionsFmt       string // %d/%d model actions a rule performs
+	ModelUnperformedFmt   string // %d model actions no rule performs
+	ModelRuleActionsFmt   string // %d rule verbs no model action names
 	ModelFilesHeading     string
 	ModelFilesIntroFmt    string // %d files written
 	ModelUndefinedFmt     string // %d entities without a definition
@@ -356,6 +359,18 @@ func newReadmeModel(tr translate) ReadmeModel {
 		ModelUnstatedRulesFmt: tr(
 			"%d règles sur des entités modélisées n'énoncent aucun invariant du modèle : à ajouter au modèle ?",
 			"%d rules about modeled entities state no invariant of the model: worth adding to it?",
+		),
+		ModelActionsFmt: tr(
+			"- Actions du modèle qu'une règle accomplit (même verbe) : %d/%d",
+			"- Model actions a rule performs (same verb): %d/%d",
+		),
+		ModelUnperformedFmt: tr(
+			"%d actions du modèle ne sont accomplies par aucune règle de leur entité : pas implémentées, ou décrites avec un autre verbe ?",
+			"%d model actions are performed by no rule of their entity: not implemented, or described with another verb?",
+		),
+		ModelRuleActionsFmt: tr(
+			"%d verbes de règles sur des entités modélisées ne sont nommés par aucune action du modèle : actions à ajouter au modèle ?",
+			"%d verbs of rules about modeled entities are named by no model action: actions worth adding to the model?",
 		),
 	}
 }

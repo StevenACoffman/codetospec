@@ -399,7 +399,7 @@ func (r renderer) check(call *ast.CallExpr, negate bool) string {
 		return positive
 	}
 	switch sel.Sel.Name {
-	case "IsLoggedIn":
+	case isLoggedIn:
 		phrase := pick(r.w.loggedIn, r.w.notLoggedIn)
 		if r.hasArg(call, "PhantomProhibited") {
 			phrase += r.w.nonPhantom

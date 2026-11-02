@@ -640,6 +640,9 @@ func ruleFacts(
 		if op.route != "" {
 			attrs[attrRoute] = op.route
 		}
+		if cond := conditionOf(fset, g); cond != "" {
+			attrs[attrCondition] = cond
+		}
 		facts = append(facts, Fact{
 			Kind:      kindRule,
 			ID:        fmt.Sprintf("rule.webapp.%s.%s:%d-%d", k.id, file, g.start, g.end),

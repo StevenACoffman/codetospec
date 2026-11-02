@@ -70,6 +70,15 @@ func TestValidateRuleFacts(t *testing.T) {
 			},
 			wantReason: "requirement: no \"shall\"",
 		},
+		"with a condition": {
+			mutate: func(f *extract.Fact) { f.Attrs[extract.AttrCondition] = notSelf },
+		},
+		"bad condition": {
+			mutate: func(f *extract.Fact) {
+				f.Attrs[extract.AttrCondition] = `{"var": "caller.isSubject", "op": "is"}`
+			},
+			wantReason: "condition.op",
+		},
 		"inherited, not EARS": { // another spec's LLM wrote it: kept, flagged by Build
 			mutate: func(f *extract.Fact) {
 				f.Attrs[extract.AttrRequirement] = notEARS
@@ -133,6 +142,44 @@ func TestBuildMechanicalRules(t *testing.T) {
 	}
 	if !strings.Contains(domain.Body, "(../rules/role.authz-mutation-addcoachrole.md)") {
 		t.Errorf("domain body does not link the rule:\n%s", domain.Body)
+	}
+}
+
+// notSelf is the condition of ruleFact's requirement: the caller is not
+// the user named.
+const notSelf = `{"var": "caller.isSubject", "op": "equal", "value": false}`
+
+// TestMechanicalRuleCondition: a rule fact's condition reaches its node in
+// canonical form with its hash, and reads back; without one, neither key.
+func TestMechanicalRuleCondition(t *testing.T) {
+	cases := map[string]struct {
+		raw       string
+		canonical string
+	}{
+		"with":    {notSelf, `{"var":"caller.isSubject","op":"equal","value":false}`},
+		"without": {"", ""},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := ruleFact("rule.x")
+			if tc.raw != "" {
+				f.Attrs[extract.AttrCondition] = tc.raw
+			}
+			var rule graph.Node
+			for _, n := range graph.Build([]extract.Fact{f}, nil, extract.DomainResolver{}, "en", nil) {
+				if n.ID == mechRule {
+					rule = n
+				}
+			}
+			if got := rule.Extra[graph.ExtraCondition]; got != tc.canonical {
+				t.Errorf("condition = %q, want %q", got, tc.canonical)
+			}
+			c := graph.RuleCondition(&rule)
+			if (rule.Extra[graph.ExtraConditionHash] != "") != (tc.raw != "") ||
+				c.Hash() != rule.Extra[graph.ExtraConditionHash] {
+				t.Errorf("hash = %q, read back %q", rule.Extra[graph.ExtraConditionHash], c.Hash())
+			}
+		})
 	}
 }
 

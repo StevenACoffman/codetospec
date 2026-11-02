@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/condition"
 	"github.com/StevenACoffman/codetospec/internal/ears"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/locale"
@@ -81,6 +82,24 @@ const ExtraJourney = "journey"
 // code's layer gives a rule, set only when it differs from the rule's
 // nature (see package position).
 const ExtraNatureByPosition = "nature_by_position"
+
+// ExtraCondition is the frontmatter key of a rule's condition, in the
+// canonical compact notation (condition.Condition.Canonical), and
+// ExtraConditionHash that of its hash: two rules checking the same thing
+// the same way carry the same hash, whatever their wording.
+const (
+	ExtraCondition     = "condition"
+	ExtraConditionHash = "condition_hash"
+)
+
+// ExtraConditionDropped is the frontmatter key of the values a rule's
+// condition compared with that its cited lines do not hold: the condition
+// was removed. ExtraConditionDisagreement is that of how a kept condition
+// and the rule's EARS conditions differ (see grounding.Annotate).
+const (
+	ExtraConditionDropped      = "condition_dropped"
+	ExtraConditionDisagreement = "condition_disagreement"
+)
 
 // ExtraThreshold is the frontmatter key of the threshold a
 // non-functional rule's code states: the quantities of its requirement,
@@ -160,6 +179,9 @@ func invalidRuleFact(f *extract.Fact) string {
 	if _, _, err := extract.ParseLines(f.Source.Lines); err != nil {
 		return err.Error()
 	}
+	if _, err := condition.Parse([]byte(a[extract.AttrCondition])); err != nil {
+		return err.Error()
+	}
 	// An extractor derives its rules deterministically: a malformed one is
 	// its bug to fix. An inherited rule was written by another spec's model
 	// and keeps its form, flagged like that spec's own rules.
@@ -203,8 +225,35 @@ func mechanicalRuleNode(
 		Edges:   edges,
 		Title:   f.Attrs[extract.AttrTitle],
 		Body:    text.Requirement + f.Attrs[extract.AttrRequirement],
-		Extra:   withEARS(ruleFactExtra(f), f.Attrs[extract.AttrRequirement]),
+		Extra: withCondition(
+			withEARS(ruleFactExtra(f), f.Attrs[extract.AttrRequirement]),
+			f.Attrs[extract.AttrCondition],
+		),
 	}
+}
+
+// withCondition sets, on extra, a map its caller has just built, the
+// condition raw states (ExtraCondition, ExtraConditionHash) when it is one;
+// and returns extra. A raw condition that does not parse sets nothing:
+// every producer validates its own before building a node.
+func withCondition(extra map[string]string, raw string) map[string]string {
+	c, err := condition.Parse([]byte(raw))
+	if err != nil || c.IsZero() {
+		return extra
+	}
+	extra[ExtraCondition] = c.Canonical()
+	extra[ExtraConditionHash] = c.Hash()
+	return extra
+}
+
+// RuleCondition is the condition a rule node carries; the zero Condition
+// when it has none, or when a person's edit left one that does not parse.
+func RuleCondition(n *Node) condition.Condition {
+	c, err := condition.Parse([]byte(n.Extra[ExtraCondition]))
+	if err != nil {
+		return condition.Condition{}
+	}
+	return c
 }
 
 // withEARS sets, on extra, a map its caller has just built, what the

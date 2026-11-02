@@ -106,6 +106,12 @@ const (
 	// facts, and only for the code of the commit the profile was made on:
 	// the extractor leaves out the files changed since.
 	KindExecuted = "executed"
+	// KindStruct is a struct type at Source (AttrName, e.g. "shop.Order")
+	// and AttrFields, the comma-separated names of its fields a condition
+	// can compare or test for presence. Only the condition vocabulary reads
+	// it (see package vocabulary): a rule about an order's status names
+	// shop.Order.Status as the code does.
+	KindStruct = "struct"
 )
 
 // DispatchInterface is AttrDispatch on a call or test fact whose caller
@@ -134,6 +140,7 @@ const (
 	AttrNamespace   = "namespace" // the namespace a fact sits in
 	AttrTarget      = "target"    // what an import names
 	AttrColumns     = "columns"   // a table's "name:type" columns, comma-separated
+	AttrFields      = "fields"    // a struct's field names, comma-separated
 	AttrValue       = "value"
 	AttrRoute       = "route"
 	AttrCondition   = "condition" // a rule's condition (see KindRule)

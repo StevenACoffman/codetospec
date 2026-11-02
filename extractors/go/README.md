@@ -47,6 +47,10 @@ Native codetospec extractor for the Go ecosystem, on the
 - **Enumerations** (`enum`, `enum_value`, `transition`): a named string
   or integer type with at least two constants (generated files excluded),
   its values, and the guarded state changes (`x = B` under `x == A`).
+- **Structs** (`struct`): each struct type (generated files excluded)
+  with the fields a rule condition can compare or test for presence
+  (booleans, numbers, strings, enumerations over them, times, pointers to
+  those), for the condition vocabulary (`shop.Order.Status`).
 - **Executed lines** (`executed`, with `-cover profile`): for each
   file of the module, the lines the profiled test run executed
   and those it did not (`go test -coverpkg=./...

@@ -145,6 +145,9 @@ func moduleFacts(m *loadedModule, root string, opts *options, log logf) ([]Fact,
 	log("%d symbol(s), %d call(s)", len(symbols), len(calls))
 	facts = append(facts, symbols...)
 	facts = append(facts, calls...)
+	structs := StructFacts(pkgs, fset, root)
+	log("%d struct(s)", len(structs))
+	facts = append(facts, structs...)
 	enums := EnumFacts(pkgs, fset, root)
 	log("%d enumeration fact(s)", len(enums))
 	facts = append(facts, enums...)
@@ -162,6 +165,7 @@ func moduleFacts(m *loadedModule, root string, opts *options, log logf) ([]Fact,
 		reach := ReachFacts(pkgs, fset, &opts.shared[i])
 		log("%d declaration(s) of %s reached", len(reach), opts.shared[i].Name)
 		facts = append(facts, reach...)
+		facts = append(facts, SharedStructFacts(pkgs, fset, &opts.shared[i])...)
 	}
 	return facts, nil
 }

@@ -112,6 +112,9 @@ const TypeDomain = "domain"
 // TypeEntity is the node type of a data entity (a table fact).
 const TypeEntity = "entity"
 
+// TypeEndpoint is the node type of an endpoint (route facts).
+const TypeEndpoint = "endpoint"
+
 // StatusGenerated is the status of every node a run writes.
 const StatusGenerated = "generated"
 
@@ -142,6 +145,7 @@ func Build(
 
 	ruleNodes, domainNodes := ruleAndDomainNodes(reduced, facts, prior, text)
 	linkHandlers(ruleNodes, facts)
+	nodes = withJourneys(nodes, ruleNodes, facts, text)
 	domainDeps := domainDependencies(facts, resolver, domainNodes)
 	namespaces := namespaceByPath(facts)
 	services, serviceDeps := serviceNodes(facts, func(path string) string {
@@ -288,7 +292,7 @@ func endpointNodes(facts []extract.Fact, text *locale.Text) []Node {
 		})
 		nodes = append(nodes, Node{
 			ID:      id,
-			Type:    "endpoint",
+			Type:    TypeEndpoint,
 			Status:  StatusGenerated,
 			Sources: d.sources,
 			Title:   d.verb + " " + strings.Join(paths, ", "),
@@ -614,7 +618,7 @@ func ComputeCoverage(nodes []Node) Coverage {
 	}
 	for _, n := range nodes {
 		switch n.Type {
-		case "endpoint":
+		case TypeEndpoint:
 			cov.EndpointsTotal++
 			if referenced[n.ID] {
 				cov.EndpointsReferenced++

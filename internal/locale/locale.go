@@ -63,6 +63,7 @@ type Labels struct {
 	DomainTitleFmt          string // %s: domain slug
 	ServiceTitleFmt         string // %s: external service slug
 	OperationsCalled        string // heading over a service's called operations
+	Journey                 string // label over an endpoint's journey
 	EnumValues              string // label over an enumeration's values
 	EnumTransitions         string // label over its transitions
 	EnumTransitionHeader    string // their table's header and separator rows
@@ -229,6 +230,10 @@ func newLabels(tr translate) Labels {
 		Handler: tr(
 			"**Handler** : ",
 			"**Handler**: ",
+		),
+		Journey: tr(
+			"**Parcours** (règles que le handler applique, puis celles de ce qu'il appelle) :",
+			"**Journey** (the rules the handler applies, then those of what it calls):",
 		),
 		ServiceTitleFmt:  tr("Service %s", "Service %s"),
 		OperationsCalled: tr("## Opérations appelées", "## Operations called"),

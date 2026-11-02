@@ -73,6 +73,10 @@ const ExtraSourceHashes = "source_hashes"
 // characteristic a rule serves (see package quality).
 const ExtraQualityAttribute = "quality_attribute"
 
+// ExtraJourney is the frontmatter key listing, on an endpoint, the rules
+// its journey applies, in order (see withJourneys).
+const ExtraJourney = "journey"
+
 // ExtraThreshold is the frontmatter key of the threshold a
 // non-functional rule's code states: the quantities of its requirement,
 // each found in the cited code (see quality.AnnotateThresholds).

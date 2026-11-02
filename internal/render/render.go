@@ -198,6 +198,7 @@ func frontmatterExtras() []extraField {
 		{key: graph.ExtraTestsViaInterface},
 		{key: graph.ExtraExecuted},
 		{key: graph.ExtraTransitions},
+		{key: graph.ExtraJourney, quoted: true},
 		{key: graph.ExtraCoverage},
 		{key: graph.ExtraCoverageGaps, quoted: true},
 	}

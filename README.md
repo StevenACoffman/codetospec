@@ -376,7 +376,14 @@ file). It also lists **shared entities**: entities that rules of several
 domains touch, either a shared kernel to name as such or a sign a domain
 boundary runs through one concept. A route fact may carry its handler's code span (`handler_path`,
 `handler_lines`): any rule citing that span is linked to the endpoint
-(`exposed_by`) without the LLM, so the link holds on a warm cache.
+(`exposed_by`) without the LLM, so the link holds on a warm cache. With
+`call` facts (Go extractor), the endpoint also gets its **journey**: the
+rules its handler applies, then those of what it calls (at most three
+calls deep, calls through an interface left out), in the order a request
+meets them — frontmatter `journey`, and a numbered list with each
+requirement in the body: the start of an acceptance test of that endpoint.
+Which endpoint a person calls next is not in the code, so a journey never
+spans two endpoints.
 
 `--reduce-mode merge` makes reduce much cheaper: only candidates with a
 near-duplicate (similar requirement or overlapping citation) go to the LLM;

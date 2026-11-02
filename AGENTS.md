@@ -291,7 +291,12 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   (`exposed_by`) when a citation overlaps the handler's code
   (`handler_path` + `handler_lines` of a `route` fact): holds on a warm
   cache, where the map is never asked again (the allowed endpoint lists
-  are not in `promptKey`).
+  are not in `promptKey`). `graph/journeys.go`: from the same handler
+  spans and the direct `call` facts (≤ 3 deep, `dispatch: interface`
+  ignored as for drift), each endpoint lists the rules reached, by depth
+  then first citation then id: frontmatter `journey`, numbered body list.
+  An endpoint field, not a node type: a journey has one entry point, and
+  the code shows no sequence of endpoints.
 - `extract.Roots` — the only reader of cited files: `--src`, plus the
   `--ref-root name=dir` trees a citation names (`Ref.Root`: the shared
   code, `pkg` for webapp and districts-jobs). A cited root without

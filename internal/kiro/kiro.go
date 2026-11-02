@@ -28,6 +28,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/acceptance"
 	"github.com/StevenACoffman/codetospec/internal/crosscheck"
 	"github.com/StevenACoffman/codetospec/internal/ears"
 	"github.com/StevenACoffman/codetospec/internal/graph"
@@ -110,7 +111,7 @@ func newRequirement(n *graph.Node) requirement {
 	}
 	// The acceptance pass's observable checks the rule like its criteria:
 	// it joins them in the property (requirements.md takes EARS only).
-	if observable := graph.RuleObservable(n.Body); observable != "" {
+	if observable := acceptance.ExportedObservable(n); observable != "" {
 		r.criteria = append(r.criteria, "Observable: "+observable)
 	}
 	if c, ok := graph.RuleComponents(n); ok {

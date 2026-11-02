@@ -170,6 +170,13 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   `observable_source`, `observable_grounding`, `examples: k/n`,
   `examples_contradicted` → `example_contradicted` question). Runs in
   `judge` after the stamps (an ungrounded condition is gone by then).
+  With `--crosscheck` (`Writer.Review`), a blind review of each
+  observable (`review.go`: rule, observable, code, tests; nothing of the
+  writing conversation), cached in the rule's file under its own hash
+  and kept through runs without it: `observable_crosscheck`, and when
+  unsupported `observable_refuted` (the reason) → `observable_refuted`
+  question; `acceptance.ExportedObservable` is what Quire and Kiro take
+  (none when refuted).
   Exports: Quire one more criterion (`codetospec_observable`) and
   `codetospec_non_claims`; Kiro the property's criteria and the trace
   comment (requirements.md takes EARS only).
@@ -461,7 +468,8 @@ repository-specific code in the core: all webapp knowledge lives in
 - `reduce/<domain>.json` — reused if the hash of the candidates (`candidates_hash`) matches.
 - `crosscheck/<ruleID>.json` — key = hash (prompt key + rule + cited lines).
 - `acceptance/<ruleID>.json` — key = hash of the model and the whole
-  conversation (prompt templates, rule, condition, cited code, tests).
+  conversation (prompt templates, rule, condition, cited code, tests); the
+  observable's review (`--crosscheck`) under its own such hash.
 - `quality.json` — a single file, answer by hash (prompt key + title +
   requirement); keeps only the run's rules.
 

@@ -173,8 +173,9 @@ func (p *pipeline) quality(ctx context.Context, nodes []graph.Node) ([]graph.Nod
 }
 
 // acceptance writes each LLM rule's acceptance facts when --acceptance is
-// set, the nearest tests of each rule (testsFor) shown as evidence;
-// without it, the nodes unchanged.
+// set, the nearest tests of each rule (testsFor) shown as evidence, and
+// with --crosscheck has each observable reviewed; without it, the nodes
+// unchanged.
 func (p *pipeline) acceptance(
 	ctx context.Context,
 	nodes []graph.Node,
@@ -197,6 +198,7 @@ func (p *pipeline) acceptance(
 		Roots:     p.cfg.Roots(),
 		Grounding: groundingOpts,
 		TestsFor:  testsFor,
+		Review:    p.cfg.Crosscheck,
 		OnUnit: func(usage llm.Usage) {
 			p.record(ctx, func(s *state.State) {
 				s.AddTokens("acceptance", usage.PromptTokens, usage.CompletionTokens)

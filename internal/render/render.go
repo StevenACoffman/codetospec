@@ -187,6 +187,8 @@ func frontmatterExtras() []extraField {
 		{key: graph.ExtraObservable},
 		{key: graph.ExtraObservableSource},
 		{key: graph.ExtraObservableGrounding},
+		{key: graph.ExtraObservableCrosscheck},
+		{key: graph.ExtraObservableRefuted, quoted: true},
 		{key: graph.ExtraExamples},
 		{key: graph.ExtraExamplesContradicted, quoted: true},
 		{key: "nature"},

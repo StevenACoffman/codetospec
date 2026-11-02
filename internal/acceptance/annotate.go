@@ -12,16 +12,20 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/locale"
 )
 
-// Result is one rule's acceptance facts and their assessment.
+// Result is one rule's acceptance facts, their assessment and, when the
+// pass ran with Writer.Review, the review of the observable (nil without,
+// or when the review failed).
 type Result struct {
 	Facts      Facts
 	Assessment Assessment
+	Review     *Review
 }
 
 // Annotate writes each rule's acceptance facts into its node: the body
 // sections (observable, non-claims, examples, labelled in text's
 // language) and the frontmatter (graph.ExtraObservable and the keys after
-// it). A rule without a result is left as is.
+// it, the review's verdict, and its reason when it refuted the
+// observable). A rule without a result is left as is.
 //
 // Requires: results keyed by rule id.
 // Ensures:  nodes is not modified.
@@ -50,6 +54,12 @@ func Annotate(nodes []graph.Node, results map[string]Result, text *locale.Text) 
 				numbers[j] = strconv.Itoa(n)
 			}
 			extra[graph.ExtraExamplesContradicted] = strings.Join(numbers, ", ")
+		}
+		if r.Review != nil {
+			extra[graph.ExtraObservableCrosscheck] = r.Review.Verdict
+		}
+		if r.Review.Refuted() {
+			extra[graph.ExtraObservableRefuted] = r.Review.Reason
 		}
 	}
 	return out

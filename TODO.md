@@ -175,8 +175,10 @@ rest.
     that Kiro's observable joins the `design.md` property (its
     `requirements.md` takes EARS sentences only). Facts derived from test
     assertions come from the model reading the tests (`source: test`),
-    not from a mechanical parser. The crosscheck does not refute the
-    observable yet. On three districts-jobs modules, 66 observables, 27
+    not from a mechanical parser. With `--crosscheck`, a blind review
+    tries to refute each observable (`observable_crosscheck`); a refuted
+    one gets a question and leaves the exports. On three districts-jobs
+    modules, 66 observables, 27
     grounded (`docs/verification/conditions-acceptance-2026-11-02.md`).
 
 ## Domain Models

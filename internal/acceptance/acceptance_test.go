@@ -24,7 +24,12 @@ const (
 	retryTest = "func TestGiveUp(t *testing.T) {\n\tif got := call(); got != 429 {\n\t\tt.Fail()\n\t}\n}\n"
 	attempts  = `{"var":"attempts","op":"less_than","value":3}`
 	ruleID    = "rule.billing.retry"
+	ruleBody  = "**Requirement (EARS)**: x"
+	retryFile = "retry.go"
 )
+
+// retrySource cites the whole retry code.
+func retrySource() []extract.Ref { return []extract.Ref{{Path: retryFile, Lines: "1-5"}} }
 
 // reply is a valid reply with the examples given (JSON array).
 func reply(source, check, examples string) string {
@@ -133,7 +138,7 @@ func citations(path, text string) []grounding.Citation {
 // from; examples hold, are contradicted, or decide nothing.
 func TestAssess(t *testing.T) {
 	c := mustCondition(t, attempts)
-	code, tests := citations("retry.go", retryCode), citations("retry_test.go", retryTest)
+	code, tests := citations(retryFile, retryCode), citations("retry_test.go", retryTest)
 	cases := map[string]struct {
 		reply        string
 		wantStatus   grounding.Status
@@ -220,7 +225,7 @@ func TestAnnotateReadsBack(t *testing.T) {
 	for _, lang := range []string{"en", "fr"} {
 		t.Run(lang, func(t *testing.T) {
 			in := []graph.Node{
-				{ID: ruleID, Type: graph.TypeRule, Body: "**Requirement (EARS)**: x"},
+				{ID: ruleID, Type: graph.TypeRule, Body: ruleBody},
 			}
 			got := acceptance.Annotate(in, results, locale.For(lang))[0]
 			if graph.RuleObservable(got.Body) != "answers 429" {
@@ -273,8 +278,8 @@ func (s *script) Chat(context.Context, []llm.Message) (string, llm.Usage, error)
 func TestRun(t *testing.T) {
 	rule := func(id string, extra map[string]string) graph.Node {
 		return graph.Node{
-			ID: id, Type: graph.TypeRule, Body: "**Requirement (EARS)**: x",
-			Sources: []extract.Ref{{Path: "retry.go", Lines: "1-5"}},
+			ID: id, Type: graph.TypeRule, Body: ruleBody,
+			Sources: retrySource(),
 			Extra:   extra,
 		}
 	}
@@ -294,7 +299,7 @@ func TestRun(t *testing.T) {
 		Lang:      "en",
 		Workers:   2,
 		OutDir:    t.TempDir(),
-		Roots:     extract.Roots{Src: fstest.MapFS{"retry.go": {Data: []byte(retryCode)}}},
+		Roots:     extract.Roots{Src: fstest.MapFS{retryFile: {Data: []byte(retryCode)}}},
 		Grounding: grounding.Options{DecimalSeparator: '.'},
 	}
 	var runs []map[string]acceptance.Result
@@ -313,5 +318,109 @@ func TestRun(t *testing.T) {
 	}
 	if model.calls != 1 {
 		t.Errorf("%d calls over two runs, want 1 (the second from the cache)", model.calls)
+	}
+}
+
+// byPrompt replies to a facts prompt and to a review prompt, and counts
+// the calls of each.
+type byPrompt struct {
+	facts, review       string
+	factCalls, reviewed int
+}
+
+func (b *byPrompt) Chat(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+	if strings.Contains(msgs[0].Content, "OBSERVABLE of one business rule") {
+		b.reviewed++
+		return b.review, llm.Usage{}, nil
+	}
+	b.factCalls++
+	return b.facts, llm.Usage{}, nil
+}
+
+// reviewingWriter is a Writer with Review on, asking model, over the
+// retry code.
+func reviewingWriter(t *testing.T, model llm.Chatter) *acceptance.Writer {
+	t.Helper()
+	return &acceptance.Writer{
+		LLM: model, Log: slog.New(slog.NewTextHandler(t.Output(), nil)),
+		Lang: "en", Workers: 1, OutDir: t.TempDir(), Review: true,
+		Roots:     extract.Roots{Src: fstest.MapFS{retryFile: {Data: []byte(retryCode)}}},
+		Grounding: grounding.Options{DecimalSeparator: '.'},
+	}
+}
+
+// runOnce runs w over nodes and returns the rule's result.
+func runOnce(t *testing.T, w *acceptance.Writer, nodes []graph.Node) acceptance.Result {
+	t.Helper()
+	results, err := w.Run(t.Context(), nodes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok := results[ruleID]
+	if !ok {
+		t.Fatalf("no facts for %s", ruleID)
+	}
+	return r
+}
+
+// TestRunReview: with Review, each observable is reviewed once, the
+// review cached beside the facts; a refuted observable is annotated with
+// the reason, kept in the body and left out of the exports; a run without
+// Review reports none but keeps the cached one.
+func TestRunReview(t *testing.T) {
+	nodes := []graph.Node{
+		{ID: ruleID, Type: graph.TypeRule, Body: ruleBody, Sources: retrySource()},
+	}
+	model := &byPrompt{
+		facts:  reply("code", "answers 429", "[]"),
+		review: `{"verdict": "unsupported", "reason": "The code answers 503."}`,
+	}
+	w := reviewingWriter(t, model)
+	runOnce(t, w, nodes)
+	r := runOnce(t, w, nodes)
+	if !r.Review.Refuted() {
+		t.Fatalf("review %+v, want the refutation", r.Review)
+	}
+	got := acceptance.Annotate(nodes, map[string]acceptance.Result{ruleID: r}, locale.For("en"))[0]
+	if got.Extra[graph.ExtraObservableCrosscheck] != "unsupported" ||
+		got.Extra[graph.ExtraObservableRefuted] != "The code answers 503." {
+		t.Errorf("extra = %v, want the verdict and its reason", got.Extra)
+	}
+	if graph.RuleObservable(got.Body) != "answers 429" ||
+		acceptance.ExportedObservable(&got) != "" {
+		t.Error("a refuted observable should stay in the body and out of the exports")
+	}
+
+	w.Review = false
+	if r = runOnce(t, w, nodes); r.Review != nil {
+		t.Error("a run without Review reported a review")
+	}
+	w.Review = true
+	runOnce(t, w, nodes)
+	if model.factCalls != 1 || model.reviewed != 1 {
+		t.Errorf("%d facts calls and %d reviews over four runs, want 1 and 1",
+			model.factCalls, model.reviewed)
+	}
+}
+
+// TestRunReviewFails: a review that never gives a known verdict leaves the
+// facts without a review, asked again on the next run.
+func TestRunReviewFails(t *testing.T) {
+	nodes := []graph.Node{
+		{ID: ruleID, Type: graph.TypeRule, Body: ruleBody, Sources: retrySource()},
+	}
+	model := &byPrompt{
+		facts:  reply("code", "answers 429", "[]"),
+		review: `{"verdict": "maybe", "reason": "unsure"}`,
+	}
+	w := reviewingWriter(t, model)
+	for range 2 {
+		if r := runOnce(t, w, nodes); r.Review != nil {
+			t.Fatalf("review %+v, want none", r.Review)
+		}
+	}
+	if model.factCalls != 1 || model.reviewed != 6 {
+		t.Errorf("%d facts calls, %d review calls; want 1, and 3 per run",
+			model.factCalls, model.reviewed)
 	}
 }

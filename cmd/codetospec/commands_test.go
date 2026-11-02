@@ -86,8 +86,8 @@ func checkDiffSelf(t *testing.T, outDir string, nodes []graph.Node) {
 }
 
 // checkAcceptance: with --acceptance, each rule the pass asks about
-// carries the mock's observable and non-claim, read back from its file;
-// no other rule does.
+// carries the mock's observable and non-claim, read back from its file,
+// and with --crosscheck its observable's review; no other rule does.
 func checkAcceptance(t *testing.T, nodes []graph.Node) {
 	t.Helper()
 	asked := 0
@@ -103,6 +103,9 @@ func checkAcceptance(t *testing.T, nodes []graph.Node) {
 		}
 		if got := n.Extra[graph.ExtraObservable]; got != want {
 			t.Errorf("rule %s: observable = %q, want %q", n.ID, got, want)
+		}
+		if got := n.Extra[graph.ExtraObservableCrosscheck]; (got != "") != (want != "") {
+			t.Errorf("rule %s: observable review %q, want one exactly when observed", n.ID, got)
 		}
 		if got := len(graph.RuleNonClaims(n.Body)); got != wantClaims {
 			t.Errorf("rule %s: %d non-claims read back, want %d", n.ID, got, wantClaims)

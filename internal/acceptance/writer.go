@@ -69,15 +69,21 @@ type Writer struct {
 	// TestsFor returns the nearest tests exercising a rule's cited code
 	// (testreach.NearestTests); nil when no test is known. Optional.
 	TestsFor func(rule *graph.Node) []extract.Ref
+	// Review sends each observable to a blind adversarial review (with
+	// --crosscheck): one more call per rule, cached beside its facts.
+	Review bool
 	// OnUnit is called after each rule (cached or live) with its usage.
 	OnUnit func(usage llm.Usage)
 }
 
-// cached is one rule's cache file.
+// cached is one rule's cache file: its facts, or the error that left it
+// without, and the review of its observable. A review is kept while the
+// pass runs without Review, so turning it back on asks nothing again.
 type cached struct {
-	InputHash string `json:"input_hash"`
-	Facts     *Facts `json:"facts,omitempty"`
-	Error     string `json:"error,omitempty"`
+	InputHash string        `json:"input_hash"`
+	Facts     *Facts        `json:"facts,omitempty"`
+	Error     string        `json:"error,omitempty"`
+	Review    *cachedReview `json:"review,omitempty"`
 }
 
 // Asked reports whether the pass writes facts for a rule: one an LLM
@@ -133,72 +139,131 @@ type unit struct {
 	err    error
 }
 
-// rule writes one rule's facts, reusing the cached ones while the rule,
-// its condition, its code and its tests are unchanged. ok is false when
-// the rule gets none this run; err only on cancellation or a cache that
-// cannot be written.
+// rule writes one rule's facts, and with Review the review of its
+// observable, each reusing the cached one while its conversation is
+// unchanged (the rule, its condition, its code, its tests and, for the
+// review, the observable). ok is false when the rule gets no facts this
+// run; err only on cancellation or a cache that cannot be written.
 func (w *Writer) rule(ctx context.Context, rule *graph.Node) (Result, bool, llm.Usage, error) {
 	code, err := grounding.Load(w.Roots, rule.Sources)
 	if err != nil {
 		w.Log.WarnContext(ctx, "acceptance: cited code unreadable", "rule", rule.ID, "err", err)
 		return Result{}, false, llm.Usage{}, nil
 	}
-	var tests []grounding.Citation
-	if w.TestsFor != nil {
-		if tests, err = grounding.Load(w.Roots, w.TestsFor(rule)); err != nil {
-			w.Log.WarnContext(ctx, "acceptance: tests unreadable, written without them",
-				"rule", rule.ID, "err", err)
-			tests = nil
-		}
-	}
+	tests := w.tests(ctx, rule)
 	c := graph.RuleCondition(rule)
-	msgs := w.prompt(rule, &c, code, tests)
-	hash := inputHash(msgs, w.Model)
 	outPath := filepath.Join(w.OutDir, rule.ID+".json")
-	if data, readErr := os.ReadFile(filepath.Clean(outPath)); readErr == nil {
-		// Numbers kept as written, as Validate reads a live reply: a cached
-		// run renders the same examples as the run that cached them.
-		dec := json.NewDecoder(bytes.NewReader(data))
-		dec.UseNumber()
-		var prior cached
-		if dec.Decode(&prior) == nil && prior.InputHash == hash && prior.Facts != nil {
-			return w.result(ctx, prior.Facts, &c, code, tests), true, llm.Usage{}, nil
+	prior, priorData := readCached(outPath)
+
+	entry, usage, err := w.facts(ctx, rule, &c, code, tests, &prior)
+	if err != nil {
+		return Result{}, false, usage, err
+	}
+	// The review of the observable, when asked; else the one cached stays.
+	entry.Review = prior.Review
+	if w.Review && entry.Facts != nil {
+		var reviewUsage llm.Usage
+		entry.Review, reviewUsage, err = w.review(ctx, rule, entry.Facts, code, tests, prior.Review)
+		usage.Add(reviewUsage)
+		if err != nil {
+			return Result{}, false, usage, err
 		}
 	}
-	var usage llm.Usage
-	facts, err := llm.ChatJSON(ctx, w.LLM, msgs, corrections, func(u llm.Usage) { usage.Add(u) },
-		func(reply string) (Facts, error) { return Validate(reply, &c, len(tests) > 0) })
-	entry := cached{InputHash: hash}
-	switch {
-	case err == nil:
-		entry.Facts = &facts
-	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
+	if err = writeCached(outPath, &entry, priorData); err != nil {
 		return Result{}, false, usage, err
-	default:
-		w.Log.WarnContext(ctx, "acceptance failed", "rule", rule.ID, "err", err)
-		entry.Error = err.Error()
-	}
-	data, err := json.MarshalIndent(entry, "", "  ")
-	if err != nil {
-		return Result{}, false, usage, fmt.Errorf("encode acceptance: %w", err)
-	}
-	if err = atomicfs.WriteFile(outPath, append(data, '\n')); err != nil {
-		return Result{}, false, usage, fmt.Errorf("write acceptance: %w", err)
 	}
 	if entry.Facts == nil {
 		return Result{}, false, usage, nil
 	}
-	return w.result(ctx, entry.Facts, &c, code, tests), true, usage, nil
+	result := Result{
+		Facts:      *entry.Facts,
+		Assessment: Assess(ctx, entry.Facts, &c, code, tests, w.Grounding),
+	}
+	if w.Review && entry.Review != nil {
+		result.Review = &entry.Review.Review
+	}
+	return result, true, usage, nil
 }
 
-// result assesses facts against the code and tests read this run.
-func (w *Writer) result(
+// tests reads the nearest tests of rule; none when TestsFor is unset or
+// they cannot be read.
+func (w *Writer) tests(ctx context.Context, rule *graph.Node) []grounding.Citation {
+	if w.TestsFor == nil {
+		return nil
+	}
+	tests, err := grounding.Load(w.Roots, w.TestsFor(rule))
+	if err != nil {
+		w.Log.WarnContext(ctx, "acceptance: tests unreadable, written without them",
+			"rule", rule.ID, "err", err)
+		return nil
+	}
+	return tests
+}
+
+// facts returns the cache entry of rule's facts: prior's while the
+// conversation asking for them is unchanged, else the model's reply, or
+// the error that left the rule without facts. err only on cancellation.
+func (w *Writer) facts(
 	ctx context.Context,
-	facts *Facts,
+	rule *graph.Node,
 	c *condition.Condition,
 	code, tests []grounding.Citation,
-) Result {
-	return Result{Facts: *facts, Assessment: Assess(ctx, facts, c, code, tests, w.Grounding)}
+	prior *cached,
+) (cached, llm.Usage, error) {
+	msgs := w.prompt(rule, c, code, tests)
+	entry := cached{InputHash: inputHash(msgs, w.Model)}
+	if prior.InputHash == entry.InputHash && prior.Facts != nil {
+		entry.Facts = prior.Facts
+		return entry, llm.Usage{}, nil
+	}
+	var usage llm.Usage
+	facts, err := llm.ChatJSON(ctx, w.LLM, msgs, corrections, func(u llm.Usage) { usage.Add(u) },
+		func(reply string) (Facts, error) { return Validate(reply, c, len(tests) > 0) })
+	switch {
+	case err == nil:
+		entry.Facts = &facts
+	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
+		return cached{}, usage, err
+	default:
+		w.Log.WarnContext(ctx, "acceptance failed", "rule", rule.ID, "err", err)
+		entry.Error = err.Error()
+	}
+	return entry, usage, nil
+}
+
+// readCached reads a rule's cache file and returns it with its bytes; the
+// zero entry when there is none or it does not decode. Numbers are kept as
+// written, as Validate reads a live reply: a cached run renders the same
+// examples as the run that cached them.
+func readCached(path string) (cached, []byte) {
+	data, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return cached{}, nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var entry cached
+	if dec.Decode(&entry) != nil {
+		return cached{}, data
+	}
+	return entry, data
+}
+
+// writeCached writes entry to path unless prior, the file's bytes, already
+// hold it: a warm run writes nothing.
+func writeCached(path string, entry *cached, prior []byte) error {
+	data, err := json.MarshalIndent(entry, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode acceptance: %w", err)
+	}
+	data = append(data, '\n')
+	if bytes.Equal(data, prior) {
+		return nil
+	}
+	if err = atomicfs.WriteFile(path, data); err != nil {
+		return fmt.Errorf("write acceptance: %w", err)
+	}
+	return nil
 }
 
 // prompt is the conversation that asks for one rule's facts.

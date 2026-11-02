@@ -262,8 +262,8 @@ frontmatter carries `quality_attribute` (from `--quality`) and the source
 rule (`codetospec_rule`, `codetospec_crosscheck`). A rule with no criteria
 (`--reduce-mode merge` keeps such rules) has its requirement as its one
 criterion, marked `codetospec_criteria: requirement`; a rule the crosscheck
-refuted is left out. A rule's observable (`--acceptance`) is one more
-criterion, named by `codetospec_observable: FR-001-AC-3`, and what it
+refuted is left out. A rule's observable (`--acceptance`, unless its
+review refuted it) is one more criterion, named by `codetospec_observable: FR-001-AC-3`, and what it
 does not claim is `codetospec_non_claims` (as criteria they would read as
 requirements to test an absence). It bootstraps a spec a team then edits in quoin, so
 `<dir>` must be new or empty: a second export would overwrite their work.
@@ -459,6 +459,12 @@ without an LLM: the observable's values against what it was read from
 (go-rule-engine, `examples: 3/3`); a contradicted example is an
 `example_contradicted` question: the requirement or the condition is
 wrong. Body sections "Observable", "Does not claim", "Condition examples".
+With `--crosscheck` too, a second, blind call tries to refute each
+observable from the rule, the observable, the cited code and the tests
+alone (`observable_crosscheck: supported | partial | unsupported`,
+cached beside the facts). A refuted observable stays in the body, with
+the reason in `observable_refuted` and an `observable_refuted` question,
+and no export takes it as a criterion.
 
 `--reduce-mode merge` makes reduce much cheaper: only candidates with a
 near-duplicate (similar requirement or overlapping citation) go to the LLM;

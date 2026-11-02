@@ -114,6 +114,15 @@ const (
 	ExtraExamplesContradicted = "examples_contradicted"
 )
 
+// ExtraObservableCrosscheck is the frontmatter key of the verdict of the
+// adversarial review of a rule's observable (acceptance.Writer.Review),
+// and ExtraObservableRefuted that of the review's reason when it found
+// the observable unsupported.
+const (
+	ExtraObservableCrosscheck = "observable_crosscheck"
+	ExtraObservableRefuted    = "observable_refuted"
+)
+
 // ExtraThreshold is the frontmatter key of the threshold a
 // non-functional rule's code states: the quantities of its requirement,
 // each found in the cited code (see quality.AnnotateThresholds); or the

@@ -34,6 +34,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/acceptance"
 	"github.com/StevenACoffman/codetospec/internal/crosscheck"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/nfrtarget"
@@ -188,7 +189,7 @@ func frDocument(id string, rule *graph.Node) ([]byte, error) {
 	if len(criteria) == 0 {
 		criteria, front.Criteria = []string{requirement}, CriteriaFromRequirement
 	}
-	if observable := graph.RuleObservable(rule.Body); observable != "" {
+	if observable := acceptance.ExportedObservable(rule); observable != "" {
 		criteria = append(criteria, observable)
 		front.Observable = fmt.Sprintf("%s-AC-%d", id, len(criteria))
 	}

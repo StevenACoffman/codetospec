@@ -56,6 +56,15 @@ type Labels struct {
 	Requirement string // label preceding the EARS requirement
 	Rationale   string
 	Criteria    string // label opening the numbered acceptance criteria
+	// The acceptance facts (see package acceptance); Observable and
+	// NonClaims are parsed back.
+	Observable    string // label before the observable: (channel) check
+	NonClaims     string // label opening the "- " list of non-claims
+	Examples      string // label opening the "- " list of examples
+	ExampleFmt    string // %s the given values (JSON), %s ExpectMatches or ExpectNoMatch
+	ExpectMatches string // the condition holds
+	ExpectNoMatch string // the condition does not hold
+	ExampleBroken string // after an example the condition contradicts
 
 	// Entity, endpoint and domain bodies.
 	Table, Columns          string
@@ -214,6 +223,22 @@ func newLabels(tr translate) Labels {
 			"**Critères d'acceptation** :",
 			"**Acceptance criteria**:",
 		),
+		Observable: tr(
+			"**Observable** (comment distinguer le succès d'une imitation) : ",
+			"**Observable** (how to tell success from an imitation): ",
+		),
+		NonClaims: tr(
+			"**Ne promet pas** :",
+			"**Does not claim**:",
+		),
+		Examples: tr(
+			"**Exemples de la condition** :",
+			"**Condition examples**:",
+		),
+		ExampleFmt:    tr("- avec `%s` : %s", "- given `%s`: %s"),
+		ExpectMatches: tr("la condition est vraie", "the condition holds"),
+		ExpectNoMatch: tr("la condition est fausse", "the condition does not hold"),
+		ExampleBroken: tr(" (la condition dit le contraire)", " (the condition says otherwise)"),
 		Table: tr(
 			"**Table** : ",
 			"**Table**: ",

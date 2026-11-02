@@ -27,7 +27,7 @@ type PhaseTokens struct {
 
 // Phases lists the LLM phases whose tokens State counts, in run order.
 func Phases() []string {
-	return []string{"map", "reduce", "crosscheck"}
+	return []string{"map", "reduce", "crosscheck", "quality", "acceptance"}
 }
 
 // AddTokens counts one LLM call of phase, in the cumulative and the

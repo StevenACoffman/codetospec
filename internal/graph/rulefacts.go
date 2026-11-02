@@ -101,6 +101,19 @@ const (
 	ExtraConditionDisagreement = "condition_disagreement"
 )
 
+// Frontmatter keys of a rule's acceptance facts (see package acceptance):
+// where the observable is seen (response, state, event, log), what it was
+// read from (test, code), whether its values occur there (a grounding
+// Status), how many condition examples hold ("k/n"), and the numbers of
+// those the condition contradicts ("2, 4").
+const (
+	ExtraObservable           = "observable"
+	ExtraObservableSource     = "observable_source"
+	ExtraObservableGrounding  = "observable_grounding"
+	ExtraExamples             = "examples"
+	ExtraExamplesContradicted = "examples_contradicted"
+)
+
 // ExtraThreshold is the frontmatter key of the threshold a
 // non-functional rule's code states: the quantities of its requirement,
 // each found in the cited code (see quality.AnnotateThresholds).

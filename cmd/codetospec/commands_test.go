@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/StevenACoffman/codetospec/internal/acceptance"
 	"github.com/StevenACoffman/codetospec/internal/config"
 	"github.com/StevenACoffman/codetospec/internal/drift"
 	"github.com/StevenACoffman/codetospec/internal/graph"
@@ -81,6 +82,34 @@ func checkDiffSelf(t *testing.T, outDir string, nodes []graph.Node) {
 	want := fmt.Sprintf("diff: 0 added, 0 removed, 0 renamed, 0 changed, %d unchanged\n", rules)
 	if stdout.String() != want {
 		t.Errorf("diff of a graph with itself = %q, want %q", stdout.String(), want)
+	}
+}
+
+// checkAcceptance: with --acceptance, each rule the pass asks about
+// carries the mock's observable and non-claim, read back from its file;
+// no other rule does.
+func checkAcceptance(t *testing.T, nodes []graph.Node) {
+	t.Helper()
+	asked := 0
+	for i := range nodes {
+		n := &nodes[i]
+		if n.Type != graph.TypeRule {
+			continue
+		}
+		want, wantClaims := "", 0
+		if acceptance.Asked(n) {
+			asked++
+			want, wantClaims = "response", 1
+		}
+		if got := n.Extra[graph.ExtraObservable]; got != want {
+			t.Errorf("rule %s: observable = %q, want %q", n.ID, got, want)
+		}
+		if got := len(graph.RuleNonClaims(n.Body)); got != wantClaims {
+			t.Errorf("rule %s: %d non-claims read back, want %d", n.ID, got, wantClaims)
+		}
+	}
+	if asked == 0 {
+		t.Error("the fixture run produced no rule for the acceptance pass")
 	}
 }
 

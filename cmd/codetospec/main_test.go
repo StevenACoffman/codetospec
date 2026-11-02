@@ -46,6 +46,7 @@ func e2eConfig(t *testing.T, serverURL, outDir string) *config.Config {
 		DomainStrategy: "auto",
 		Crosscheck:     true,
 		Quality:        true,
+		Acceptance:     true,
 	}
 }
 
@@ -88,6 +89,7 @@ func TestEndToEndRunOnFixture(t *testing.T) {
 	checkDriftJSON(t, cfg, outDir, nodes)
 	checkDiffSelf(t, outDir, nodes)
 	checkQuality(t, outDir, nodes)
+	checkAcceptance(t, nodes)
 	checkExport(t, outDir, nodes)
 	checkExportKiro(t, outDir, nodes)
 }

@@ -11,7 +11,8 @@
 // no threshold (KindNFRTarget: the target is the person's to set), a rule
 // whose nature its code's layer contradicts (KindNatureMismatch), one whose
 // condition and EARS text state different checks (KindConditionMismatch),
-// and code of a domain that produced no rule (KindCoverageGap). Pair findings (near-duplicates) and the
+// one whose condition contradicts an example (KindExampleContradicted), and code
+// of a domain that produced no rule (KindCoverageGap). Pair findings (near-duplicates) and the
 // domain-model gaps are not questions yet.
 package questions
 
@@ -38,7 +39,11 @@ const (
 	// KindConditionMismatch: a rule's condition and its EARS text state
 	// different checks (graph.ExtraConditionDisagreement).
 	KindConditionMismatch = "condition_mismatch"
-	KindCoverageGap       = "coverage_gap"
+	// KindExampleContradicted: an example of the acceptance pass that the
+	// rule's condition contradicts (graph.ExtraExamplesContradicted): the
+	// requirement or the condition is wrong.
+	KindExampleContradicted = "example_contradicted"
+	KindCoverageGap         = "coverage_gap"
 )
 
 // Question is one finding a person may resolve.
@@ -103,6 +108,7 @@ func ruleFindings(n *graph.Node) []finding {
 		{KindEARSIssue, graph.ExtraEARSIssue},
 		{KindStaleVerdict, graph.ExtraStaleVerdict},
 		{KindConditionMismatch, graph.ExtraConditionDisagreement},
+		{KindExampleContradicted, graph.ExtraExamplesContradicted},
 	} {
 		if v := n.Extra[k.extra]; v != "" {
 			found = append(found, finding{k.kind, v, v})

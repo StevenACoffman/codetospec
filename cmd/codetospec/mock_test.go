@@ -18,8 +18,8 @@ import (
 // mockLLM is a deterministic OpenAI-compatible endpoint: it answers map
 // prompts with one rule per chunk containing business code, reduce prompts
 // by consolidating the candidates verbatim (a controller's rules
-// technical), crosscheck prompts with "supported" and quality prompts with
-// "security".
+// technical), crosscheck prompts with "supported", quality prompts with
+// "security" and acceptance prompts with one observable and non-claim.
 func mockLLM(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -62,6 +62,12 @@ func mockReply(system, user string) (string, error) {
 		return `{"verdict": "supported", "reason": "Les lignes citées implémentent la règle."}`, nil
 	case strings.Contains(system, "ISO 25010 quality characteristic"):
 		return mockQuality(user)
+	case strings.Contains(system, "acceptance facts of one business rule"):
+		if !strings.Contains(user, "CITED CODE:") {
+			return "", errors.New("no cited code in acceptance prompt")
+		}
+		return `{"observable": {"channel": "response", "check": "La réponse est renvoyée.", ` +
+			`"source": "code"}, "non_claims": ["ne notifie pas l'utilisateur"], "examples": []}`, nil
 	default:
 		return "", errors.New("unknown prompt")
 	}

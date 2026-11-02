@@ -95,11 +95,14 @@ type Config struct {
 	NoTUI          bool
 	Crosscheck     bool
 	Quality        bool
-	Repair         bool
-	Reground       bool
-	ReduceBatch    int
-	ReduceMode     string // "full" or "merge" (see reducer.ModeMerge)
-	Format         string // drift and diff output: "text" | "json"; export: ExportQuire | ExportKiro
+	// Acceptance writes each LLM rule's acceptance facts: observable,
+	// non-claims, condition examples (package acceptance).
+	Acceptance  bool
+	Repair      bool
+	Reground    bool
+	ReduceBatch int
+	ReduceMode  string // "full" or "merge" (see reducer.ModeMerge)
+	Format      string // drift and diff output: "text" | "json"; export: ExportQuire | ExportKiro
 	// DomainModels are human modelith models (*.modelith.yaml) the graph is
 	// compared with (--domain-model, then domain_models resolved against
 	// --src); DomainModelEntities maps a model entity to the code entity it
@@ -537,7 +540,13 @@ func registerPassFlags(flags *flag.FlagSet, cfg *Config) {
 		&cfg.Quality,
 		"quality",
 		false,
-		"classify technical rules by ISO 25010 quality attribute (one LLM call per 40 uncached rules)",
+		"classify the rules but presentation ones by ISO 25010 quality attribute (one LLM call per 40 uncached rules)",
+	)
+	flags.BoolVar(
+		&cfg.Acceptance,
+		"acceptance",
+		false,
+		"write each LLM rule's acceptance facts: observable, non-claims, condition examples (one LLM call per uncached rule)",
 	)
 	flags.BoolVar(
 		&cfg.Reground,

@@ -37,7 +37,9 @@ func (p *pipeline) judge(
 	groundingOpts grounding.Options,
 	prior *render.Prior,
 ) (judged, error) {
-	nodes, tally, err := p.crosscheck(ctx, nodes, idx.symbols)
+	nearest := testreach.NearestTests(facts, crosscheckTests)
+	nodes, tally, err := p.crosscheck(ctx, nodes, idx.symbols,
+		func(rule *graph.Node) []extract.Ref { return nearest(rule.Sources) })
 	if err != nil {
 		return judged{}, err
 	}
@@ -54,13 +56,20 @@ func (p *pipeline) judge(
 	return judged{nodes: nodes, tally: tally, reviewedFiles: reviewedFiles}, nil
 }
 
-// crosscheck runs the adversarial review when --crosscheck is set, and
-// returns the nodes annotated with their verdicts and the tally; without
-// it, the nodes unchanged and an empty tally.
+// crosscheckTests is how many of the nearest tests the reviewer reads
+// beside a rule's cited code: the nearest are the ones asserting on it;
+// more would spend tokens on tests that only pass through.
+const crosscheckTests = 2
+
+// crosscheck runs the adversarial review when --crosscheck is set, the
+// nearest tests of each rule (testsFor) shown as evidence, and returns the
+// nodes annotated with their verdicts and the tally; without it, the nodes
+// unchanged and an empty tally.
 func (p *pipeline) crosscheck(
 	ctx context.Context,
 	nodes []graph.Node,
 	symbols map[string][]mapper.SymbolContext,
+	testsFor func(rule *graph.Node) []extract.Ref,
 ) ([]graph.Node, crosscheck.Tally, error) {
 	if !p.cfg.Crosscheck {
 		return nodes, crosscheck.Tally{}, nil
@@ -85,6 +94,7 @@ func (p *pipeline) crosscheck(
 		SrcRoot:    p.cfg.Src,
 		Repair:     p.cfg.Repair,
 		SymbolsFor: func(path string) []mapper.SymbolContext { return symbols[path] },
+		TestsFor:   testsFor,
 		OnUnit: func(v crosscheck.Verdict, usage llm.Usage) {
 			p.record(ctx, func(s *state.State) {
 				s.AddTokens("crosscheck", usage.PromptTokens, usage.CompletionTokens)

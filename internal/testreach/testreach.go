@@ -25,9 +25,9 @@ const MaxDepth = 3
 // maxListed caps the nearest tests a rule names.
 const maxListed = 3
 
-// test is one test function, by file and name.
+// test is one test function, by file and name, and the lines of its body.
 type test struct {
-	path, name string
+	path, name, lines string
 }
 
 // String is how a rule names the test.
@@ -80,6 +80,29 @@ func Annotate(nodes []graph.Node, facts []extract.Fact) []graph.Node {
 		maps.Copy(out[i].Extra, fields)
 	}
 	return out
+}
+
+// NearestTests returns, for a rule's cited sources, the code of the
+// nearest tests reaching it through direct uses (as Annotate ranks them:
+// by depth, then name), at most n: evidence a reviewer can read beside the
+// cited code. None without test facts.
+//
+// Requires: facts are the run's merged facts.
+// Ensures:  the returned function is pure; each ref is a test function's
+// own span, under --src.
+func NearestTests(facts []extract.Fact, n int) func(sources []extract.Ref) []extract.Ref {
+	reach := reachOf(facts)
+	return func(sources []extract.Ref) []extract.Ref {
+		if reach == nil {
+			return nil
+		}
+		nearest, _ := testsCiting(sources, reach.directDefs, reach.direct)
+		refs := make([]extract.Ref, 0, min(n, len(nearest)))
+		for _, r := range nearest[:min(n, len(nearest))] {
+			refs = append(refs, extract.Ref{Path: r.test.path, Lines: r.test.lines})
+		}
+		return refs
+	}
 }
 
 // testReach is which tests reach each definition: through direct uses,
@@ -146,7 +169,7 @@ func usesOf(facts []extract.Fact, viaInterface bool) uses {
 		case extract.KindCall:
 			u.calls[f.Source] = append(u.calls[f.Source], callee)
 		case extract.KindTest:
-			t := test{path: f.Source.Path, name: f.Attrs[extract.AttrName]}
+			t := test{path: f.Source.Path, name: f.Attrs[extract.AttrName], lines: f.Source.Lines}
 			u.tests[t] = append(u.tests[t], callee)
 		}
 	}

@@ -59,7 +59,11 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   validates its output (2 corrections max then a traced failure). The map
   prefixes each line of code with its absolute number (`numberedContent`):
   otherwise the model *counts* lines and drifts (off-by-N citations on big
-  chunks). The crosscheck (`--crosscheck`) refutes each rule; with
+  chunks). The crosscheck (`--crosscheck`) refutes each rule, reading beside its
+  cited code the two nearest tests reaching it (`testreach.NearestTests`,
+  `Checker.TestsFor`; folded into the cache key; the prompt forbids
+  crediting what only a test does,
+  `docs/verification/crosscheck-tests-evidence-2026-11-01.md`); with
   `--repair` (+ SCIP index), a rejected rule re-cites the exact span of a
   precise symbol, chosen by label (`S1`…, `symbolCatalog`): the model never
   writes a range, so the citation is a real symbol body (mechanical

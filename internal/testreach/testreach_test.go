@@ -194,3 +194,35 @@ func TestAnnotateExecuted(t *testing.T) {
 		})
 	}
 }
+
+// TestNearestTests: the code of the nearest tests reaching the cited
+// code, nearest first, at most n; none without test facts.
+func TestNearestTests(t *testing.T) {
+	// TestTotal (lines 1-9) uses 1-5, which calls 20-25; TestRound
+	// (lines 11-19) uses 20-25 directly.
+	const helper = "20-25" // the definition both tests reach
+	round := use("TestRound", helper)
+	round.Source.Lines = "11-19"
+	chain := []extract.Fact{call("1-5", helper), use("TestTotal", "1-5"), round}
+	at := func(lines string) []extract.Ref { return []extract.Ref{{Path: testFile, Lines: lines}} }
+	cases := map[string]struct {
+		facts []extract.Fact
+		cited string
+		n     int
+		want  []extract.Ref
+	}{
+		"nearest first": {chain, helper, 2, append(at("11-19"), at("1-9")...)},
+		"at most n":     {chain, helper, 1, at("11-19")},
+		"only reaching": {chain, "1-5", 2, at("1-9")},
+		"no test facts": {chain[:1], helper, 2, nil},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := testreach.NearestTests(tc.facts, tc.n)(
+				[]extract.Ref{{Path: codeFile, Lines: tc.cited}})
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("NearestTests = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

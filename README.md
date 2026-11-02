@@ -382,7 +382,9 @@ boundary runs through one concept. A route fact may carry its handler's code spa
 near-duplicate (similar requirement or overlapping citation) go to the LLM;
 the others are kept as mapped, without rationale or acceptance criteria.
 
-Useful flags: `--crosscheck` (adversarial review pass), `--repair` (fix
+Useful flags: `--crosscheck` (adversarial review pass; with Go test facts
+the reviewer also reads the two nearest tests of each rule, as evidence
+never credited for what only a test does), `--repair` (fix
 flagged citations, needs a SCIP index), `--quality` (classify each
 rule but the presentation ones by the ISO 25010 quality characteristic it
 serves — an authorization rule is business behavior and `security` at

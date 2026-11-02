@@ -68,6 +68,7 @@ Hard rules:
 - verdict "partial": the behavior is plausible but the cited lines only show part of it, or values/thresholds differ from the requirement.
 - verdict "unsupported": the cited lines do not show this behavior at all.
 - The cited lines are marked ">"; up to a few surrounding lines marked "·" are shown as context. Base the verdict on the cited lines, using the context only to read an enclosing condition or scope. Do NOT credit behavior that appears only in context lines, and never assume code you cannot see.
+- TESTS, when given, are the nearest tests that exercise the cited code. Use them only to read what the cited lines do and with which values. A test is not the system: do NOT credit behavior that appears only in a test (a mock, a call the test makes itself) and not in the cited lines.
 - Write the reason in <LANG>: one or two concrete sentences naming what the lines do or do not show.`
 
 const userPromptFormat = `RULE: %s
@@ -77,6 +78,9 @@ ACCEPTANCE_CRITERIA:
 %s
 
 CITED SOURCE (1-based line numbers; > = cited, · = surrounding context):
+%s
+
+TESTS (the nearest tests exercising the cited code; - = none known):
 %s
 
 OUTPUT JSON SCHEMA:
@@ -157,6 +161,10 @@ type Checker struct {
 	// SymbolsFor returns precise symbol definitions for a file (from a SCIP
 	// index). Repair needs these as grounded citation targets.
 	SymbolsFor func(path string) []mapper.SymbolContext
+	// TestsFor returns the code of the nearest tests exercising a rule's
+	// cited code (testreach.NearestTests), shown to the reviewer as
+	// evidence and folded into the cache key; nil when no test is known.
+	TestsFor func(rule *graph.Node) []extract.Ref
 	// OnUnit is called after each finished rule (cached or live).
 	OnUnit func(v Verdict, usage llm.Usage)
 }
@@ -211,7 +219,8 @@ func (c *Checker) checkRule(ctx context.Context, rule *graph.Node) (Verdict, llm
 	if err != nil {
 		return Verdict{}, llm.Usage{}, fmt.Errorf("rule %s: %w", rule.ID, err)
 	}
-	hash := inputHash(c.promptKey(), rule, excerpt)
+	tests := c.testsExcerpt(ctx, rule)
+	hash := inputHash(c.promptKey(), rule, excerpt+tests)
 
 	outPath := filepath.Join(c.OutDir, rule.ID+".json")
 	if data, readErr := os.ReadFile(filepath.Clean(outPath)); readErr == nil {
@@ -221,7 +230,7 @@ func (c *Checker) checkRule(ctx context.Context, rule *graph.Node) (Verdict, llm
 		}
 	}
 
-	payload, usage, err := c.review(ctx, rule, excerpt)
+	payload, usage, err := c.review(ctx, rule, excerpt, tests)
 	v := Verdict{RuleID: rule.ID, InputHash: hash}
 	switch {
 	case err == nil:
@@ -261,20 +270,21 @@ func (c *Checker) checkRule(ctx context.Context, rule *graph.Node) (Verdict, llm
 // for correction before the rule is left unchecked.
 const reviewCorrections = 2
 
-// review asks the reviewer to refute rule against the cited excerpt. It
-// takes the rule and its cited code only: no earlier verdict, reason or
-// repair can reach the reviewer, so a re-review is as blind as the first.
+// review asks the reviewer to refute rule against the cited excerpt, with
+// the tests excerpt as evidence. It takes the rule, its cited code and its
+// tests only: no earlier verdict, reason or repair can reach the reviewer,
+// so a re-review is as blind as the first.
 func (c *Checker) review(
 	ctx context.Context,
 	rule *graph.Node,
-	excerpt string,
+	excerpt, tests string,
 ) (verdictPayload, llm.Usage, error) {
 	criteria := "-"
 	if lines := graph.RuleCriteria(rule.Body); len(lines) > 0 {
 		criteria = strings.Join(lines, "\n")
 	}
 	userPrompt := fmt.Sprintf(userPromptFormat,
-		rule.ID, rule.Title, graph.RuleRequirement(rule.Body), criteria, excerpt)
+		rule.ID, rule.Title, graph.RuleRequirement(rule.Body), criteria, excerpt, tests)
 	msgs := []llm.Message{
 		{Role: "system", Content: locale.For(c.Lang).Prompt(systemPrompt)},
 		{Role: "user", Content: userPrompt},
@@ -344,7 +354,8 @@ func (c *Checker) tryRepair(
 		repaired := *rule
 		repaired.Sources = citations
 		var reviewUsage llm.Usage
-		payload, reviewUsage, err = c.review(ctx, &repaired, excerpt)
+		payload, reviewUsage, err = c.review(ctx, &repaired, excerpt,
+			c.testsExcerpt(ctx, &repaired))
 		usage.Add(reviewUsage)
 	}
 	switch {
@@ -486,6 +497,26 @@ func (catalog symbolCatalog) citations(labels []string) ([]extract.Ref, error) {
 		}
 	}
 	return refs, nil
+}
+
+// testsExcerpt is the code of the nearest tests exercising rule's cited
+// code, read as cited code is, or "-" when none is known. A test file that cannot be
+// read leaves the rule without that evidence, logged, never failed: the
+// verdict is about the cited code.
+func (c *Checker) testsExcerpt(ctx context.Context, rule *graph.Node) string {
+	if c.TestsFor == nil {
+		return "-"
+	}
+	refs := c.TestsFor(rule)
+	if len(refs) == 0 {
+		return "-"
+	}
+	excerpt, err := c.citedExcerpt(refs)
+	if err != nil {
+		c.Log.WarnContext(ctx, "crosscheck: tests unreadable, reviewed without them", "err", err)
+		return "-"
+	}
+	return excerpt
 }
 
 // citedExcerpt reads the cited lines from the source tree, with 1-based line

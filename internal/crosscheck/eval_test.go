@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/StevenACoffman/codetospec/internal/crosscheck"
@@ -72,6 +73,13 @@ func TestEvalPlantedFaults(t *testing.T) {
 			Workers: 2,
 			OutDir:  t.TempDir(), // never reuse cached verdicts in a measurement
 			SrcRoot: "../../testdata/fixture",
+			TestsFor: func(rule *graph.Node) []extract.Ref {
+				lines := evalTests()[strings.TrimPrefix(rule.ID, "rule.eval.")]
+				if lines == "" {
+					return nil
+				}
+				return []extract.Ref{{Path: testFile, Lines: lines}}
+			},
 		}
 		verdicts, err := checker.Run(t.Context(), nodes)
 		if err != nil {
@@ -126,6 +134,25 @@ func evalCases() map[string]plantedRule {
 			"QUAND un administrateur active un abonnement, le systeme doit " +
 				"facturer le montant mensuel complet.", true,
 		},
+		"control-prorata-tested": {
+			"QUAND un abonnement est activé le 16 d'un mois de 30 jours, le systeme doit " +
+				"facturer 15 sur un montant mensuel de 30.", false,
+		},
+		"test-only-receipt": {
+			"QUAND un abonnement est activé, le systeme doit envoyer un reçu du montant " +
+				"au prorata.", true,
+		},
+	}
+}
+
+// evalTests are the lines of the fixture test (testFile) the reviewer reads
+// beside the cited code, by case: a test confirming a control's values,
+// and one doing itself what a planted rule credits the code with (a mock
+// receipt), which must not count as the code's behavior.
+func evalTests() map[string]string {
+	return map[string]string{
+		"control-prorata-tested": "10-15",
+		"test-only-receipt":      "17-24",
 	}
 }
 

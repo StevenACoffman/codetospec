@@ -501,3 +501,54 @@ func TestAnnotateKeepsInheritedVerdict(t *testing.T) {
 		t.Fatalf("crosscheck = %q, want the inherited %q", got, crosscheck.VerdictSupported)
 	}
 }
+
+// testFile is the fixture's test of ProrataCalculator.
+const testFile = "tests/Unit/ProrataCalculatorTest.php"
+
+// TestTestsShownAndKeyed: the reviewer reads the nearest tests beside the
+// cited code ("-" when none is known), and a verdict cached without them,
+// or with other tests, is not reused.
+func TestTestsShownAndKeyed(t *testing.T) {
+	var prompts []string
+	chat := chatFunc(func(_ context.Context, msgs []llm.Message) (string, llm.Usage, error) {
+		prompts = append(prompts, msgs[1].Content)
+		return supportedReply, llm.Usage{}, nil
+	})
+	c := newChecker(t, chat)
+	cases := []struct {
+		name         string
+		tests        []extract.Ref
+		wantCall     bool
+		wantInPrompt string
+	}{
+		{
+			"no test known",
+			nil,
+			true,
+			"TESTS (the nearest tests exercising the cited code; - = none known):\n-",
+		},
+		{"same, cached", nil, false, ""},
+		{
+			"a test now reaches it",
+			[]extract.Ref{{Path: testFile, Lines: "10-15"}},
+			true,
+			"assertSame(15.0",
+		},
+		{"other test lines", []extract.Ref{{Path: testFile, Lines: "17-24"}}, true, "sendReceipt"},
+	}
+	for _, tc := range cases { // in order: each run reuses the cache of the previous
+		t.Run(tc.name, func(t *testing.T) {
+			c.TestsFor = func(*graph.Node) []extract.Ref { return tc.tests }
+			before := len(prompts)
+			if _, err := c.Run(t.Context(), []graph.Node{ruleNode()}); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if called := len(prompts) > before; called != tc.wantCall {
+				t.Fatalf("reviewer called = %v, want %v", called, tc.wantCall)
+			}
+			if tc.wantCall && !strings.Contains(prompts[len(prompts)-1], tc.wantInPrompt) {
+				t.Errorf("prompt lacks %q:\n%s", tc.wantInPrompt, prompts[len(prompts)-1])
+			}
+		})
+	}
+}

@@ -252,6 +252,11 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   (`tr(fr, en)`), including the EARS templates of the prompts. Writers take
   `locale.For(--lang)`; parsers (`graph.RuleRequirement`,
   `graph.RuleCriteria`) accept the labels of every language.
+  `onlylocale_test.go` fails on a prose literal (two lowercase words) in
+  the spec writers (`render`, `questions`, `domainmodel`), error and log
+  messages and struct tags aside. Exempt: `render/llms.go` (llms.txt,
+  one language by decision) and the exports (`quire`, `kiro`: the text
+  their pinned formats require, kept in the one package that knows each).
 - `internal/grounding` — mechanical check (no LLM): every number / quoted
   string of the EARS requirement must appear in the cited lines.
   `grounded | ungrounded | unchecked` in the frontmatter; "unchecked" is

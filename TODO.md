@@ -56,6 +56,20 @@ rest.
     careful mapping, text usually right
     (`docs/verification/positional-nature-2026-11-01.md`).
 
+- [ ] After the remap, measure how many questions the narrowed
+      `nature_mismatch` rules would raise, then decide. Today every
+      disagreement is a question: one placed rule in five on districts
+      with a careful mapping, mostly answered "the text is right".
+  - Per rule: ask only when the positional nature would change an
+    outcome, either the quality pass (presentation rules are not asked)
+    or the export (only technical rules become NFRs). Keep
+    `nature_by_position` in the frontmatter for the rest.
+  - Per layer: one question for each layer whose disagreement rate is
+    high, to fix the mapping or split a package that mixes concerns
+    (a lead for the anarch-lint rule proposals). Choose the threshold
+    from the measured rates.
+  - Count both on the remapped districts graph before building either.
+
 ## Nonfunctional Requirements
 
 - [x] Export NFRs as incomplete proof obligations instead of as FRs. The
@@ -85,6 +99,19 @@ rest.
   - Done: `quality.AnnotateThresholds` (frontmatter `threshold`, from
     `grounding.StatedNumbers` of a grounded NFR); such an NFR exports
     `codetospec_threshold: stated`. Config files are not read.
+
+- [ ] Measure whether config files hold the missing NFR thresholds, then
+      decide whether to read them. Today a threshold comes only from the
+      numbers in an NFR's cited code (`quality.AnnotateThresholds`); values
+      set in YAML, environment variables or flags are never read.
+  - After the remap, count the NFRs still raising `nfr_target`, and sample
+    them by hand: how many have their value in config, and in which form
+    (viper, environment variables, struct tags, gqlgen config).
+  - If that share is large, have the Go extractor emit `config` facts (key,
+    value, `file:line`) and let a threshold come from a config value the
+    cited code reads. First decide which value counts when environments
+    differ: production, development, or the default in code.
+  - Otherwise leave config unread: a person's target answer covers the gap.
 
 ## Acceptance
 

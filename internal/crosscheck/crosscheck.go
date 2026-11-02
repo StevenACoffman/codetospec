@@ -166,9 +166,6 @@ type Checker struct {
 // unchanged (input hash). Rules are reviewed in parallel; verdicts are
 // recorded, and OnUnit called, in the calling goroutine.
 func (c *Checker) Run(ctx context.Context, nodes []graph.Node) (map[string]Verdict, error) {
-	if err := os.MkdirAll(c.OutDir, 0o750); err != nil {
-		return nil, fmt.Errorf("create crosscheck dir: %w", err)
-	}
 	var rules []graph.Node
 	for i := range nodes {
 		if graph.Reviewable(&nodes[i]) {

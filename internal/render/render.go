@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"maps"
 	"math"
-	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -89,9 +88,7 @@ type Meta struct {
 func Write(outDir string, nodes []graph.Node, meta *Meta) error {
 	text := locale.For(meta.Lang)
 	files := nodeFiles(nodes, meta.Reviewed, text)
-	err := atomicfs.ReplaceDir(filepath.Join(outDir, "nodes"), func(staging string) error {
-		return writeNodes(staging, nodes, files)
-	})
+	err := atomicfs.ReplaceDir(filepath.Join(outDir, "nodes"), nodePaths(nodes, files))
 	if err != nil {
 		return err
 	}
@@ -136,23 +133,14 @@ func nodeFiles(
 	return files
 }
 
-// writeNodes writes one markdown file per node under nodesDir, the
-// directory NodeFile's "nodes/" prefix names, with its content in files.
-func writeNodes(nodesDir string, nodes []graph.Node, files map[string][]byte) error {
-	for _, sub := range []string{"domains", "entities", "endpoints", "enums", "rules", "services"} {
-		if err := os.MkdirAll(filepath.Join(nodesDir, sub), 0o750); err != nil {
-			return fmt.Errorf("create nodes dir: %w", err)
-		}
-	}
+// nodePaths keys each node's file content, files by node id, by its path
+// under the nodes/ directory NodeFile's prefix names.
+func nodePaths(nodes []graph.Node, files map[string][]byte) map[string][]byte {
+	byPath := make(map[string][]byte, len(nodes))
 	for i := range nodes {
-		n := &nodes[i]
-		rel := strings.TrimPrefix(NodeFile(n), "nodes/")
-		path := filepath.Join(nodesDir, filepath.FromSlash(rel))
-		if err := os.WriteFile(path, files[n.ID], 0o600); err != nil {
-			return fmt.Errorf("write node %s: %w", n.ID, err)
-		}
+		byPath[strings.TrimPrefix(NodeFile(&nodes[i]), "nodes/")] = files[nodes[i].ID]
 	}
-	return nil
+	return byPath
 }
 
 // NodeFile returns the path of a node file relative to the output dir.

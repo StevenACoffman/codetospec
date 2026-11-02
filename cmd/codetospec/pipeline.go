@@ -866,34 +866,29 @@ func (p *pipeline) writeModels(written *domainmodel.Enhanced) error {
 	if !p.cfg.WriteDomainModel {
 		return nil
 	}
-	dir := filepath.Join(p.cfg.Out, "models")
-	if len(written.Files) == 0 {
-		if err := os.RemoveAll(dir); err != nil {
-			return fmt.Errorf("clear models dir: %w", err)
-		}
-		return nil
+	files, err := modelFiles(written)
+	if err != nil {
+		return err
 	}
-	return atomicfs.ReplaceDir(dir, func(staging string) error {
-		return writeModelFiles(staging, written)
-	})
+	return atomicfs.ReplaceDir(filepath.Join(p.cfg.Out, "models"), files)
 }
 
-// writeModelFiles writes the models and their provenance.json under dir.
-func writeModelFiles(dir string, written *domainmodel.Enhanced) error {
+// modelFiles is the content of <out>/models: the models and their
+// provenance.json; none when no model was written.
+func modelFiles(written *domainmodel.Enhanced) (map[string][]byte, error) {
+	files := make(map[string][]byte, len(written.Files)+1)
 	for _, f := range written.Files {
-		path := filepath.Join(dir, filepath.FromSlash(f.Path))
-		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-			return fmt.Errorf("create models dir: %w", err)
-		}
-		if err := os.WriteFile(path, f.Data, 0o600); err != nil {
-			return fmt.Errorf("write model %s: %w", f.Path, err)
-		}
+		files[f.Path] = f.Data
+	}
+	if len(files) == 0 {
+		return files, nil
 	}
 	provenance, err := json.MarshalIndent(written.Provenance, "", "  ")
 	if err != nil {
-		return fmt.Errorf("encode model provenance: %w", err)
+		return nil, fmt.Errorf("encode model provenance: %w", err)
 	}
-	return os.WriteFile(filepath.Join(dir, "provenance.json"), append(provenance, '\n'), 0o600)
+	files["provenance.json"] = append(provenance, '\n')
+	return files, nil
 }
 
 // allowedActors are the actors of the glossary a rule may name, as the

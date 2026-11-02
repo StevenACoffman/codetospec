@@ -203,9 +203,6 @@ const mapCorrections = 2
 // by the same model and prompt templates. Results are returned sorted by
 // (path, start line).
 func (m *Mapper) Run(ctx context.Context, chunks []sitter.Chunk) ([]Output, error) {
-	if err := os.MkdirAll(m.OutDir, 0o750); err != nil {
-		return nil, fmt.Errorf("create map dir: %w", err)
-	}
 	var (
 		outputs []Output
 		runErr  error

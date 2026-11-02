@@ -17,36 +17,53 @@ const (
 	newFile = "new.md"
 )
 
-// TestReplaceDir: the target ends up holding exactly the new content, or,
-// when fill fails, exactly the old one; no staging directory survives.
+// TestReplaceDir: the target ends up holding exactly the new files (parent
+// directories created), no dir at all for no files, or, when a write
+// fails, exactly the old content; no staging directory survives.
 func TestReplaceDir(t *testing.T) {
-	errFill := errors.New("fill failed")
-	cases := []struct {
-		name     string
-		previous []string // files in dir before the call; nil = no dir
-		fillErr  error
+	cases := map[string]struct {
+		previous []string          // files in dir before the call; nil = no dir
+		files    map[string][]byte // what ReplaceDir is given
+		wantErr  bool
 		want     []string // files in dir after the call; nil = no dir
 	}{
-		{"no previous dir", nil, nil, []string{newFile}},
-		{"previous dir replaced", []string{oldFile}, nil, []string{newFile}},
-		{"failed fill keeps previous", []string{oldFile}, errFill, []string{oldFile}},
-		{"failed fill, no previous dir", nil, errFill, nil},
+		"no previous dir": {
+			files: map[string][]byte{newFile: nil}, want: []string{newFile},
+		},
+		"previous dir replaced": {
+			previous: []string{oldFile},
+			files:    map[string][]byte{newFile: nil},
+			want:     []string{newFile},
+		},
+		"parents created": {
+			files: map[string][]byte{"rules/" + newFile: nil}, want: []string{"rules"},
+		},
+		"no files removes the dir": {
+			previous: []string{oldFile}, files: nil, want: nil,
+		},
+		"no files and no dir": {files: map[string][]byte{}, want: nil},
+		"path outside keeps previous": {
+			previous: []string{oldFile},
+			files:    map[string][]byte{newFile: nil, "../escape.md": nil},
+			wantErr:  true,
+			want:     []string{oldFile},
+		},
+		"failed write, no previous dir": {
+			files: map[string][]byte{"../escape.md": nil}, wantErr: true, want: nil,
+		},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			parent := t.TempDir()
 			dir := filepath.Join(parent, "nodes")
 			if tc.previous != nil {
 				writeFiles(t, dir, tc.previous)
 			}
 
-			err := atomicfs.ReplaceDir(dir, func(staging string) error {
-				writeFiles(t, staging, []string{newFile})
-				return tc.fillErr
-			})
+			err := atomicfs.ReplaceDir(dir, tc.files)
 
-			if !errors.Is(err, tc.fillErr) {
-				t.Fatalf("err = %v, want %v", err, tc.fillErr)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err = %v, want error: %v", err, tc.wantErr)
 			}
 			if got := listFiles(t, dir); !slices.Equal(got, tc.want) {
 				t.Errorf("dir holds %v, want %v", got, tc.want)

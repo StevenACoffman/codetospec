@@ -91,11 +91,10 @@ func writeSpec(dir string, files map[string][]byte) error {
 		return fmt.Errorf("%w: %s", errExportTarget, dir)
 	}
 	for _, rel := range slices.Sorted(maps.Keys(files)) {
-		path := filepath.Join(dir, filepath.FromSlash(rel))
-		if err = os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-			return err
-		}
-		if err = atomicfs.WriteFile(path, files[rel]); err != nil {
+		if err = atomicfs.WriteFile(
+			filepath.Join(dir, filepath.FromSlash(rel)),
+			files[rel],
+		); err != nil {
 			return err
 		}
 	}

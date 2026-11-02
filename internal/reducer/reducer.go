@@ -109,9 +109,6 @@ type Reducer struct {
 // cached output still matches their candidates are reused. Results are
 // returned sorted by domain for determinism.
 func (r *Reducer) Run(ctx context.Context, candidates map[string][]mapper.Rule) ([]Output, error) {
-	if err := os.MkdirAll(r.OutDir, 0o750); err != nil {
-		return nil, fmt.Errorf("create reduce dir: %w", err)
-	}
 	domains := make([]string, 0, len(candidates))
 	for domain := range candidates {
 		domains = append(domains, domain)

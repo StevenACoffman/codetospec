@@ -1,54 +1,66 @@
 // Package atomicfs writes files and directories so that neither a reader
 // nor a crash part way through ever sees them half written: the new content
 // is built beside the target, then renamed over it.
+//
+// It is the only code that changes the file system: the test beside it
+// (onlywriter_test.go) fails on any other call that writes, renames or
+// removes, in every module of the repository.
 package atomicfs
 
 import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
+
+	"github.com/google/renameio/v2"
 )
 
-// dirPerm is the mode of the directories ReplaceDir creates, the mode the
-// output tree has always had.
-const dirPerm = 0o750
+// Modes of what the package creates, the modes the output tree has always
+// had: owner-only, as it may quote private code.
+const (
+	dirPerm  = 0o750
+	filePerm = 0o600
+)
 
-// WriteFile writes data to path via a temporary file and rename, so a
-// crash never leaves a truncated file behind. A failure to remove the
-// temporary file after an error is reported with it.
+// WriteFile writes data to path, creating its directory, through a
+// temporary file synced and renamed over path (renameio), so neither a
+// crash nor a power loss leaves a truncated file behind. The temporary
+// file sits beside path, hidden: it shares path's mount, so the rename is
+// atomic, and a leftover is skipped by every reader of the tree.
 func WriteFile(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, dirPerm); err != nil {
 		return fmt.Errorf("create dir %s: %w", dir, err)
 	}
-	tmp, err := os.CreateTemp(dir, ".tmp-*")
-	if err != nil {
-		return fmt.Errorf("create temp file in %s: %w", dir, err)
-	}
-	tmpName := tmp.Name()
-	_, writeErr := tmp.Write(data)
-	if written := errors.Join(writeErr, tmp.Close()); written != nil {
-		return errors.Join(fmt.Errorf("write %s: %w", tmpName, written), os.Remove(tmpName))
-	}
-	if renameErr := os.Rename(tmpName, path); renameErr != nil {
-		return errors.Join(fmt.Errorf("rename to %s: %w", path, renameErr), os.Remove(tmpName))
+	if err := renameio.WriteFile(path, data, filePerm, renameio.WithTempDir(dir)); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
 }
 
-// ReplaceDir replaces the directory dir with what fill writes into the
-// empty staging directory it is given. The staging directory is a hidden
-// sibling of dir, so a leftover from a killed run is skipped by every
-// reader of the tree.
+// ReplaceDir replaces the directory dir with exactly files, by path
+// relative to dir (slash-separated; parents created as needed). The files
+// are written into a hidden staging sibling of dir, which is then swapped
+// in: a leftover from a killed run is skipped by every reader of the tree.
+// No file is synced: staging is invisible until the swap, and syncing
+// thousands of node files would cost more than the run they render.
 //
-// Requires: fill writes only under its argument.
-// Ensures:  when fill or the swap fails, dir holds what it held before
-// and the staging directory is gone; on success dir holds exactly fill's
-// output. An error removing the previous content is returned after the new
-// content is in place.
-func ReplaceDir(dir string, fill func(staging string) error) error {
+// Requires: every key of files is a relative path inside dir.
+// Ensures:  when a write or the swap fails, dir holds what it held before
+// and the staging directory is gone; on success dir holds exactly files,
+// and no files at all leaves no dir. An error removing the previous
+// content is returned after the new content is in place.
+func ReplaceDir(dir string, files map[string][]byte) error {
+	if len(files) == 0 {
+		if err := os.RemoveAll(dir); err != nil {
+			return fmt.Errorf("remove %s: %w", dir, err)
+		}
+		return nil
+	}
 	parent, base := filepath.Dir(dir), filepath.Base(dir)
 	if err := os.MkdirAll(parent, dirPerm); err != nil {
 		return fmt.Errorf("create dir %s: %w", parent, err)
@@ -57,10 +69,10 @@ func ReplaceDir(dir string, fill func(staging string) error) error {
 	if err != nil {
 		return fmt.Errorf("create staging dir for %s: %w", dir, err)
 	}
-	if err = os.Chmod(staging, dirPerm); err != nil {
-		return errors.Join(fmt.Errorf("chmod %s: %w", staging, err), os.RemoveAll(staging))
+	if err = os.Chmod(staging, dirPerm); err == nil {
+		err = fill(staging, files)
 	}
-	if err = fill(staging); err != nil {
+	if err != nil {
 		return errors.Join(err, os.RemoveAll(staging))
 	}
 
@@ -85,6 +97,24 @@ func ReplaceDir(dir string, fill func(staging string) error) error {
 	}
 	if err = os.RemoveAll(aside); err != nil {
 		return fmt.Errorf("remove previous %s: %w", dir, err)
+	}
+	return nil
+}
+
+// fill writes files under staging, in path order.
+func fill(staging string, files map[string][]byte) error {
+	for _, rel := range slices.Sorted(maps.Keys(files)) {
+		local := filepath.FromSlash(rel)
+		if !filepath.IsLocal(local) {
+			return fmt.Errorf("write %s: path not inside the directory", rel)
+		}
+		path := filepath.Join(staging, local)
+		if err := os.MkdirAll(filepath.Dir(path), dirPerm); err != nil {
+			return fmt.Errorf("create dir for %s: %w", rel, err)
+		}
+		if err := os.WriteFile(path, files[rel], filePerm); err != nil {
+			return fmt.Errorf("write %s: %w", rel, err)
+		}
 	}
 	return nil
 }

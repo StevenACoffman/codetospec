@@ -240,9 +240,14 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   computed by `coverageGaps` in `pipeline.go`; "Code without rules" section
   of the output README. A path that is excluded or has no grammar has no
   domain: it never makes a domain partial.
-- `internal/atomicfs` — the only writes of the output: `WriteFile` (temp +
-  rename) and `ReplaceDir` (`nodes/`, `models/` built alongside then
-  swapped); an interrupted render leaves the previous output intact.
+- `internal/atomicfs` — the only writes of the output: `WriteFile`
+  (`github.com/google/renameio/v2`: temp beside the target, fsync, rename;
+  Unix only, as the cgo build already is) and `ReplaceDir(dir, files)`
+  (`nodes/`, `models/` written into a hidden staging sibling, unsynced,
+  then swapped; no files = no dir); an interrupted render leaves the
+  previous output intact. `onlywriter_test.go` parses every non-test Go
+  file of every module and fails on any other `os` call that writes,
+  renames or removes (the shared `.golangci.yml` stays untouched).
 - `internal/locale` — all fixed output strings, FR and EN side by side
   (`tr(fr, en)`), including the EARS templates of the prompts. Writers take
   `locale.For(--lang)`; parsers (`graph.RuleRequirement`,

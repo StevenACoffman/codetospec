@@ -423,13 +423,13 @@ func reducedRuleNode(domain string, rule *reducer.Rule, text *locale.Text) Node 
 		Edges:   edges,
 		Title:   rule.Title,
 		Body:    body.String(),
-		Extra: withActions(withEARS(map[string]string{
+		Extra: withCondition(withActions(withEARS(map[string]string{
 			"ears":       rule.EarsKind,
 			"acceptance": strconv.Itoa(len(rule.AcceptanceCriteria)),
 			"nature":     rule.Nature,
 			"origin":     rule.Origin,
 			"confidence": strconv.FormatFloat(rule.Confidence, 'f', 2, 64),
-		}, rule.Requirement), &rule.EARS),
+		}, rule.Requirement), &rule.EARS), string(rule.Condition)),
 	}
 }
 

@@ -239,6 +239,14 @@ rest.
     person accepts each proposed rule into `anarch.json` explicitly.
     Nothing is written into `anarch.json` itself. The per-layer
     `nature_mismatch` questions are a lead for it.
+  - Measured (2026-11-02): none of the ~19,000 rules of `~/spec-graphs`
+    states a dependency constraint ("only through X", "never calls Y");
+    the keyword matches all describe behaviour (a read-only client). A
+    mapped rule describes what code does, not how packages depend on
+    each other, so rule text is not the source. Deferred until after the
+    remap: decide from the per-layer `nature_mismatch` counts (above)
+    whether they, or the enum transitions (a `fields` write rule per
+    state field), give proposals worth a file.
 
 ## Conditions
 

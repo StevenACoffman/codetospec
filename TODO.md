@@ -206,11 +206,14 @@ rest.
     translating into its own `arch` types. Decided: anarch-lint depends on
     `indomain`; changes either tool needs go into `indomain`.
 
-- [ ] Have anarch-lint recommend `modelith lint` for an invalid model.
+- [x] Have anarch-lint recommend `modelith lint` for an invalid model.
       Decided (2026-11-02): anarch-lint does not run `indomain`'s lint (it
       decodes strictly; checking the rest of the format is modelith's job).
       Today only the package comment of `internal/modelith` says so: say it
       in anarch-lint's README and in its error for an invalid model.
+  - Done in anarch-lint (`0c3fc95`): `modelith.Parse`'s EINVALID message
+    ends with "(check the file with `modelith lint`)", and the README's
+    Domain Models section says so.
 
 ## Repository Checks
 

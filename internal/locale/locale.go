@@ -87,7 +87,7 @@ type ReadmeCounts struct {
 	EnumsFmt                string // %d enumerations, %d with transitions
 	EndpointsFmt, RulesFmt  string // %d
 	NatureFmt               string // %d business, presentation, technical
-	QualityFmt              string // %s "attribute count" list, %d technical rules without one
+	QualityFmt              string // %s "attribute count" list, %d asked rules without one
 	OriginFmt               string // %d explicit, implicit
 }
 
@@ -391,8 +391,8 @@ func newReadmeCounts(tr translate) ReadmeCounts {
 			"  - business: %d · presentation: %d · technical: %d",
 		),
 		QualityFmt: tr(
-			"  - qualité ISO 25010 (règles techniques) : %s ; %d sans attribut",
-			"  - ISO 25010 quality (technical rules): %s; %d without one",
+			"  - qualité ISO 25010 (hors règles de présentation) : %s ; %d sans attribut",
+			"  - ISO 25010 quality (rules but presentation): %s; %d without one",
 		),
 		OriginFmt: tr(
 			"  - explicites : %d · implicites : %d",

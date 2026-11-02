@@ -108,8 +108,10 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   not executed lines); `executed: k/n` per rule, observed, next to `tests`,
   derived. A file newer than the profile is dropped; a rule that cites a
   file without a profile does not have the field.
-- `internal/quality` — `--quality`: classifies each technical rule by ISO
-  25010 characteristic (list from spec-artifacts-iso 0.3.0, Quire),
+- `internal/quality` — `--quality`: classifies each rule but the
+  presentation ones by ISO 25010 characteristic (a business rule can also
+  serve a quality: authorization is `security`; list from
+  spec-artifacts-iso 0.3.0, Quire),
   frontmatter `quality_attribute`. Batches of 40 labeled R1…Rn (the model
   writes only labels and values from the list, otherwise correction),
   single cache `.codetospec/quality.json` by hash (prompt key + title +

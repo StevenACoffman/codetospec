@@ -394,9 +394,10 @@ func countByExtra(nodes []graph.Node, key string) map[string]int {
 }
 
 // qualityLine counts the rules by quality attribute, most common first,
-// and the technical rules without one; empty when no rule has one (the
-// pass did not run).
-func qualityLine(nodes []graph.Node, technical int, text *locale.Text) string {
+// and the asked rules (all but the presentation ones, see
+// quality.Classifier) without one; empty when no rule has one (the pass
+// did not run).
+func qualityLine(nodes []graph.Node, asked int, text *locale.Text) string {
 	byAttribute := countByExtra(nodes, graph.ExtraQualityAttribute)
 	if len(byAttribute) == 0 {
 		return ""
@@ -414,7 +415,7 @@ func qualityLine(nodes []graph.Node, technical int, text *locale.Text) string {
 	return fmt.Sprintf(
 		text.QualityFmt+"\n",
 		strings.Join(parts, " · "),
-		max(technical-classified, 0),
+		max(asked-classified, 0),
 	)
 }
 
@@ -453,7 +454,7 @@ func readmeCounts(nodes []graph.Node, text *locale.Text) string {
 		fmt.Fprintf(&b, text.NatureFmt+"\n",
 			byNature["business"], byNature["presentation"], byNature["technical"])
 	}
-	b.WriteString(qualityLine(nodes, byNature["technical"], text))
+	b.WriteString(qualityLine(nodes, counts[graph.TypeRule]-byNature["presentation"], text))
 	byOrigin := countByExtra(nodes, "origin")
 	if byOrigin["explicit"]+byOrigin["implicit"] > 0 {
 		fmt.Fprintf(&b, text.OriginFmt+"\n", byOrigin["explicit"], byOrigin["implicit"])

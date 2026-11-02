@@ -39,24 +39,36 @@ func rule(id, nature, requirement string) graph.Node {
 	}
 }
 
-// Rules the cases classify, and the reply naming both technical ones.
+// Rules the cases classify, and the reply naming all three asked about:
+// the technical ones and the business one, never the presentation one.
 const (
 	timeoutRule  = "rule.api.timeout"
 	signedRule   = "rule.api.signed"
-	answerBoth   = `{"rules": [{"label": "R1", "quality_attribute": ""}, {"label": "R2", "quality_attribute": "performance_efficiency"}]}`
-	wrongValue   = `{"rules": [{"label": "R1", "quality_attribute": "speed"}, {"label": "R2", "quality_attribute": "security"}]}`
-	missingLabel = `{"rules": [{"label": "R2", "quality_attribute": "security"}]}`
+	ownerRule    = "rule.billing.owner"
+	answerAll    = `{"rules": [{"label": "R1", "quality_attribute": ""}, {"label": "R2", "quality_attribute": "performance_efficiency"}, {"label": "R3", "quality_attribute": "security"}]}`
+	wrongValue   = `{"rules": [{"label": "R1", "quality_attribute": "speed"}, {"label": "R2", "quality_attribute": "security"}, {"label": "R3", "quality_attribute": "security"}]}`
+	missingLabel = `{"rules": [{"label": "R2", "quality_attribute": "security"}, {"label": "R3", "quality_attribute": "security"}]}`
 )
 
 func nodes() []graph.Node {
 	return []graph.Node{
 		rule(timeoutRule, "technical", "The system shall time out a request after 30 seconds."),
 		rule(signedRule, "technical", "The system shall accept only signed webhooks."),
-		rule("rule.billing.prorata", "business", "The system shall prorate the first invoice."),
+		rule(
+			ownerRule,
+			"business",
+			"The system shall let only the account owner refund an invoice.",
+		),
+		rule(
+			"rule.billing.label",
+			"presentation",
+			"The system shall show the invoice total in bold.",
+		),
 	}
 }
 
-// TestRun: the technical rules are asked about in one labelled batch; a
+// TestRun: the technical and business rules are asked about in one
+// labelled batch, the presentation ones never; a
 // reply naming no listed attribute, or skipping a label, is corrected; a
 // failed batch leaves its rules out without failing the run.
 func TestRun(t *testing.T) {
@@ -66,26 +78,29 @@ func TestRun(t *testing.T) {
 		wantCalls int
 	}{
 		"answered": {
-			replies: []string{answerBoth},
+			replies: []string{answerAll},
 			want: map[string]string{
 				signedRule:  "",
 				timeoutRule: quality.PerformanceEfficiency,
+				ownerRule:   quality.Security,
 			},
 			wantCalls: 1,
 		},
 		"unknown value corrected": {
-			replies: []string{wrongValue, answerBoth},
+			replies: []string{wrongValue, answerAll},
 			want: map[string]string{
 				signedRule:  "",
 				timeoutRule: quality.PerformanceEfficiency,
+				ownerRule:   quality.Security,
 			},
 			wantCalls: 2,
 		},
 		"missing label corrected": {
-			replies: []string{missingLabel, answerBoth},
+			replies: []string{missingLabel, answerAll},
 			want: map[string]string{
 				signedRule:  "",
 				timeoutRule: quality.PerformanceEfficiency,
+				ownerRule:   quality.Security,
 			},
 			wantCalls: 2,
 		},
@@ -108,9 +123,13 @@ func TestRun(t *testing.T) {
 			if len(model.prompts) != tc.wantCalls {
 				t.Fatalf("calls = %d, want %d", len(model.prompts), tc.wantCalls)
 			}
-			if prompt := model.prompts[0]; strings.Contains(prompt, "prorate") ||
-				!strings.Contains(prompt, "R1. "+signedRule) {
-				t.Errorf("prompt does not list the technical rules alone, by id:\n%s", prompt)
+			if prompt := model.prompts[0]; strings.Contains(prompt, "bold") ||
+				!strings.Contains(prompt, "R1. "+signedRule) ||
+				!strings.Contains(prompt, "R3. "+ownerRule) {
+				t.Errorf(
+					"prompt does not list the non-presentation rules alone, by id:\n%s",
+					prompt,
+				)
 			}
 		})
 	}
@@ -120,7 +139,7 @@ func TestRun(t *testing.T) {
 // a reworded rule is asked again, alone.
 func TestRunReusesAnswers(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := classifier(t, &script{replies: []string{answerBoth}}, dir).
+	if _, err := classifier(t, &script{replies: []string{answerAll}}, dir).
 		Run(t.Context(), nodes()); err != nil {
 		t.Fatal(err)
 	}

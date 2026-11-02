@@ -70,7 +70,7 @@ const ExtraDigest = "digest"
 const ExtraSourceHashes = "source_hashes"
 
 // ExtraQualityAttribute is the frontmatter key of the ISO 25010 quality
-// characteristic a technical rule serves (see package quality).
+// characteristic a rule serves (see package quality).
 const ExtraQualityAttribute = "quality_attribute"
 
 // Frontmatter keys of the tests reaching a rule's cited code (see

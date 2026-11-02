@@ -83,27 +83,30 @@ func checkDiffSelf(t *testing.T, outDir string, nodes []graph.Node) {
 	}
 }
 
-// checkQuality: with --quality, each technical rule carries the attribute
-// the mock model gave it, no business rule carries one, and the README
-// counts them.
+// checkQuality: with --quality, each rule but the presentation ones
+// carries the attribute the mock model gave it, and the README counts
+// them.
 func checkQuality(t *testing.T, outDir string, nodes []graph.Node) {
 	t.Helper()
 	readme, err := fs.ReadFile(os.DirFS(outDir), "README.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(readme), "qualité ISO 25010 (règles techniques) : `security`") {
+	if !strings.Contains(
+		string(readme),
+		"qualité ISO 25010 (hors règles de présentation) : `security`",
+	) {
 		t.Errorf("README does not count the quality attributes:\n%s", readme)
 	}
-	technical := 0
+	asked := 0
 	for _, n := range nodes {
 		if n.Type != graph.TypeRule {
 			continue
 		}
 		want := ""
-		if n.Extra["nature"] == "technical" {
+		if n.Extra["nature"] != "presentation" {
 			want = "security"
-			technical++
+			asked++
 		}
 		if got := n.Extra[graph.ExtraQualityAttribute]; got != want {
 			t.Errorf(
@@ -115,8 +118,8 @@ func checkQuality(t *testing.T, outDir string, nodes []graph.Node) {
 			)
 		}
 	}
-	if technical == 0 {
-		t.Error("the fixture run produced no technical rule to classify")
+	if asked == 0 {
+		t.Error("the fixture run produced no rule to classify")
 	}
 }
 

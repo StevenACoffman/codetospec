@@ -1,9 +1,14 @@
-// Package quality classifies technical rules by the ISO 25010 quality
-// characteristic they serve (security, reliability, performance…), the
-// field an ISO 29148 non-functional requirement carries. An optional LLM
-// pass over the rules' own text: no code is read, and the map and reduce
-// prompts are untouched, so no cached phase is invalidated. Business and
-// presentation rules are functional by definition and are not asked about.
+// Package quality classifies rules by the ISO 25010 quality characteristic
+// they serve (security, reliability, performance…), the field an ISO 29148
+// non-functional requirement carries. An optional LLM pass over the rules'
+// own text: no code is read, and the map and reduce prompts are untouched,
+// so no cached phase is invalidated.
+//
+// Business rules are asked too: a rule can be functional behavior and a
+// quality requirement at once, as an authorization rule is both what the
+// system does and a security requirement. Presentation rules (display,
+// wording) are not asked: they serve usability by kind, never as a
+// requirement to measure.
 package quality
 
 import (
@@ -65,7 +70,7 @@ const batchSize = 40
 // batch is left unclassified.
 const corrections = 2
 
-const systemPrompt = `You classify the technical rules of a software system by the ISO 25010 quality characteristic each one serves.
+const systemPrompt = `You classify the rules of a software system by the ISO 25010 quality characteristic each one serves.
 
 Hard rules:
 - Output ONLY a valid JSON object matching the schema. No markdown fences, no prose.
@@ -83,7 +88,8 @@ Hard rules:
   scalability (grows with load: sharding, pagination, quotas),
   compliance (meets a law, regulation or policy: retention, privacy, consent),
   safety (prevents harm to people or property).
-- Pick the one the rule mainly serves. Use "" when the rule is plain functionality with no quality concern.`
+- Pick the one the rule mainly serves. A rule can be functional behavior and serve a quality at once: who may do what is security, a retry is reliability.
+- Use "" when the rule is plain functionality with no quality concern: most business rules (validation, calculation, workflow) are.`
 
 const userPromptFormat = `RULES:
 %s
@@ -109,14 +115,14 @@ type cacheFile struct {
 	Attributes map[string]string `json:"attributes"` // input hash → attribute or ""
 }
 
-// Run classifies every technical rule of nodes and returns its attribute
-// by rule id ("" when none fits). A rule whose text is unchanged since a
+// Run classifies every rule of nodes but the presentation ones and returns
+// its attribute by rule id ("" when none fits). A rule whose text is unchanged since a
 // previous run is not asked again. A batch the model cannot answer is
 // logged and its rules left out (asked again next run); only a cancelled
 // context fails the run.
 func (c *Classifier) Run(ctx context.Context, nodes []graph.Node) (map[string]string, error) {
 	key := llm.PromptKey(c.Model, systemPrompt, userPromptFormat)
-	rules := technicalRules(nodes)
+	rules := classifiedRules(nodes)
 	cached := c.load(ctx)
 	kept := cacheFile{Attributes: map[string]string{}}
 	out := map[string]string{}
@@ -238,11 +244,12 @@ func parseReply(reply string, n int) ([]string, error) {
 	return attributes, nil
 }
 
-// technicalRules lists the technical rules of nodes, sorted by id.
-func technicalRules(nodes []graph.Node) []graph.Node {
+// classifiedRules lists the rules of nodes the pass asks about, sorted by
+// id: all but the presentation rules.
+func classifiedRules(nodes []graph.Node) []graph.Node {
 	var rules []graph.Node
 	for i := range nodes {
-		if nodes[i].Type == graph.TypeRule && nodes[i].Extra["nature"] == "technical" {
+		if nodes[i].Type == graph.TypeRule && nodes[i].Extra["nature"] != "presentation" {
 			rules = append(rules, nodes[i])
 		}
 	}

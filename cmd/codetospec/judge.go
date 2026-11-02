@@ -118,7 +118,7 @@ func stamp(
 	return drift.Stamp(roots, grounding.Annotate(roots, nodes, opts), facts)
 }
 
-// quality classifies the technical rules by quality attribute when
+// quality classifies the rules by quality attribute when
 // --quality is set; without it, the nodes unchanged.
 func (p *pipeline) quality(ctx context.Context, nodes []graph.Node) ([]graph.Node, error) {
 	if !p.cfg.Quality {

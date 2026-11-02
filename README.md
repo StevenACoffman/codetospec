@@ -373,7 +373,9 @@ the others are kept as mapped, without rationale or acceptance criteria.
 
 Useful flags: `--crosscheck` (adversarial review pass), `--repair` (fix
 flagged citations, needs a SCIP index), `--quality` (classify each
-technical rule by the ISO 25010 quality characteristic it serves —
+rule but the presentation ones by the ISO 25010 quality characteristic it
+serves — an authorization rule is business behavior and `security` at
+once —
 `security`, `reliability`, `performance_efficiency`… as the frontmatter
 `quality_attribute`, the field an ISO 29148 NFR carries; one LLM call per
 40 rules, the rules' text alone, cached by text in

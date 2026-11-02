@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/condition"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/llm"
 	"github.com/StevenACoffman/codetospec/internal/sitter"
@@ -19,10 +20,11 @@ type Ungrounded func(requirement string, cited []string) []string
 // exchange: one call, one correction at most.
 const regroundRepairs = 1
 
-// reground asks the model, once, to fix the rules of a valid reply whose
-// requirements state values their cited lines do not hold. It is never
-// worse: the corrected reply is adopted only when it is valid, keeps every
-// rule and has fewer ungrounded rules; otherwise payload is kept as is.
+// reground asks the model, once, to fix the rules of a valid reply that
+// do not match their cited lines: a requirement or a condition stating a
+// value the lines do not hold, or a condition that does not parse. It is
+// never worse: the corrected reply is adopted only when it is valid, keeps
+// every rule and has fewer such rules; otherwise payload is kept as is.
 //
 // Requires: payload passed validate; msgs is the conversation that produced
 // it.
@@ -53,14 +55,20 @@ func (m *Mapper) reground(
 	return fixed, usage, true
 }
 
-// miss is one rule whose requirement states values its citations lack.
+// miss is one rule that does not match its cited lines.
 type miss struct {
 	rule   int      // index in the payload
 	values []string // as written in the requirement
 	lines  []string // the rule's citations, "a-b"
+	// invalid is why the rule's condition does not parse; conditionValues
+	// the values its condition compares with that the citations lack.
+	invalid         string
+	conditionValues []string
 }
 
-// misses checks every rule of payload against its cited lines in chunk.
+// misses checks every rule of payload against its cited lines in chunk:
+// its requirement's and its condition's values when Ungrounded is set,
+// and always whether its condition parses.
 func (m *Mapper) misses(payload mapPayload, chunk *sitter.Chunk) []miss {
 	lines := strings.Split(chunk.Content, "\n")
 	var found []miss
@@ -71,25 +79,55 @@ func (m *Mapper) misses(payload mapPayload, chunk *sitter.Chunk) []miss {
 			if err != nil || a < chunk.StartLine || b > chunk.EndLine {
 				continue // validate rejects these; nothing to check
 			}
-			cited = append(cited, lines[a-chunk.StartLine:min(b-chunk.StartLine+1, len(lines))]...)
+			lo, hi := min(a-chunk.StartLine, len(lines)), min(b-chunk.StartLine+1, len(lines))
+			cited = append(cited, lines[lo:hi]...)
 			refs = append(refs, c.Lines)
 		}
-		if values := m.Ungrounded(rule.Requirement, cited); len(values) > 0 {
-			found = append(found, miss{rule: i, values: values, lines: refs})
+		mi := miss{rule: i, lines: refs}
+		c, err := condition.Parse(rule.Condition)
+		if err != nil {
+			mi.invalid = err.Error()
+		}
+		if m.Ungrounded != nil {
+			mi.values = m.Ungrounded(rule.Requirement, cited)
+			if literals := c.Literals(); len(literals) > 0 {
+				mi.conditionValues = m.Ungrounded(strings.Join(literals, " "), cited)
+			}
+		}
+		if len(mi.values) > 0 || mi.invalid != "" || len(mi.conditionValues) > 0 {
+			found = append(found, mi)
 		}
 	}
 	return found
 }
 
-// regroundRequest is the correction naming each ungrounded rule.
+// regroundRequest is the correction naming each rule that does not match
+// its cited lines, and why.
 func regroundRequest(misses []miss) string {
 	var b strings.Builder
-	for _, mi := range misses {
-		fmt.Fprintf(&b, "rules[%d] states %s, which its cited lines %s do not contain.\n",
-			mi.rule, strings.Join(mi.values, ", "), strings.Join(mi.lines, ", "))
+	lines := func(mi *miss) string { return strings.Join(mi.lines, ", ") }
+	for i := range misses {
+		mi := &misses[i]
+		if len(mi.values) > 0 {
+			fmt.Fprintf(&b, "rules[%d] states %s, which its cited lines %s do not contain.\n",
+				mi.rule, strings.Join(mi.values, ", "), lines(mi))
+		}
+		if mi.invalid != "" {
+			fmt.Fprintf(&b, "rules[%d].condition is not valid: %s.\n", mi.rule, mi.invalid)
+		}
+		if len(mi.conditionValues) > 0 {
+			fmt.Fprintf(
+				&b,
+				"rules[%d].condition compares with %s, which its cited lines %s do not contain.\n",
+				mi.rule,
+				strings.Join(mi.conditionValues, ", "),
+				lines(mi),
+			)
+		}
 	}
 	b.WriteString("For each, cite the lines that hold the value, or remove the value " +
-		"from the rule's ears components. Keep every rule, change nothing else, and " +
-		"resend the full corrected JSON only.")
+		"from the rule's ears components and condition; fix an invalid condition or " +
+		"remove it. Keep every rule, change nothing else, and resend the full " +
+		"corrected JSON only.")
 	return b.String()
 }

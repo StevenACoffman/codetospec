@@ -37,6 +37,47 @@ func (s *SharedRoot) holds(pkgPath string) bool {
 // Ensures:  one fact per reached declaration, sorted by id; declarations of
 // the module itself are not facts.
 func ReachFacts(pkgs []*packages.Package, fset *token.FileSet, shared *SharedRoot) []Fact {
+	decls, reached := reachedDecls(pkgs, shared)
+	facts := make([]Fact, 0, len(reached))
+	for obj := range reached {
+		facts = append(facts, decls[obj].fact(obj, fset, shared))
+	}
+	sort.Slice(facts, func(i, j int) bool { return facts[i].ID < facts[j].ID })
+	return facts
+}
+
+// SharedStructFacts lists the struct facts (see StructFacts) of the shared
+// struct types the analyzed module reaches (see ReachFacts), cited under
+// the shared root: a module whose data types live in the shared code
+// names their fields in its conditions all the same. Generated files are
+// not left out here: a reached type is one the module's code uses.
+//
+// Requires: as ReachFacts.
+// Ensures:  sorted by id; fields in declaration order.
+func SharedStructFacts(pkgs []*packages.Package, fset *token.FileSet, shared *SharedRoot) []Fact {
+	decls, reached := reachedDecls(pkgs, shared)
+	var facts []Fact
+	for obj := range reached {
+		tn, isType := obj.(*types.TypeName)
+		if !isType {
+			continue
+		}
+		at := decls[obj].fact(obj, fset, shared).Source
+		id := kindStruct + ".@" + shared.Name + "/" + at.Path + "#" + tn.Name()
+		if f, ok := newStructFact(id, tn, at); ok {
+			facts = append(facts, f)
+		}
+	}
+	sort.Slice(facts, func(i, j int) bool { return facts[i].ID < facts[j].ID })
+	return facts
+}
+
+// reachedDecls returns the shared module's declarations and those the
+// analyzed module reaches (see ReachFacts).
+func reachedDecls(
+	pkgs []*packages.Package,
+	shared *SharedRoot,
+) (map[types.Object]sharedDecl, map[types.Object]bool) {
 	decls := sharedDecls(pkgs, shared)
 	reached := map[types.Object]bool{}
 	var queue []types.Object
@@ -69,13 +110,7 @@ func ReachFacts(pkgs []*packages.Package, fset *token.FileSet, shared *SharedRoo
 			mark(m)
 		}
 	}
-
-	facts := make([]Fact, 0, len(reached))
-	for obj := range reached {
-		facts = append(facts, decls[obj].fact(obj, fset, shared))
-	}
-	sort.Slice(facts, func(i, j int) bool { return facts[i].ID < facts[j].ID })
-	return facts
+	return decls, reached
 }
 
 // sharedDecl is a package-level declaration of the shared module: its node

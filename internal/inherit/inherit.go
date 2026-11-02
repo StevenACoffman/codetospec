@@ -79,7 +79,7 @@ func ruleFact(n *graph.Node, name string) extract.Fact {
 		domain, slug = name, rest
 	}
 	src := n.Sources[0]
-	return extract.Fact{
+	f := extract.Fact{
 		Kind: extract.KindRule,
 		ID:   "rule.inherited." + name + "." + rest,
 		Attrs: map[string]string{
@@ -98,6 +98,12 @@ func ruleFact(n *graph.Node, name string) extract.Fact {
 		Origin:    "inherit",
 		Certainty: "static",
 	}
+	// Its condition read back; none when a person's edit broke it: the
+	// shared spec's rule is inherited either way.
+	if c := graph.RuleCondition(n); !c.IsZero() {
+		f.Attrs[extract.AttrCondition] = c.Canonical()
+	}
+	return f
 }
 
 // verdictStale reports whether n has a verdict given on code that changed:

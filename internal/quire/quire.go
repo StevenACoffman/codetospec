@@ -18,8 +18,14 @@
 // other rule an FR, a business rule serving a quality included (an
 // authorization rule is what the system does). The code rarely states an
 // NFR's target: the Measurement row then says it is unknown and names the
-// question (questions.KindNFRTarget) a person answers. Enumerations are
-// not exported: they map to object types of another module.
+// question (questions.KindNFRTarget) a person answers, in targets.yaml
+// (package nfrtarget). A target set there wins over one the code states, the
+// person's target being the requirement; each kind maps to the fields the
+// NFR skeleton gives it: a measure fills the Measurement row (Planguage's
+// scale, plan, must and meter), a policy becomes an Acceptance Criteria row
+// (the skeleton's place for a policy NFR), an example the reference case
+// of the row. Enumerations are not exported: they map to object types of
+// another module.
 package quire
 
 import (
@@ -28,8 +34,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/acceptance"
 	"github.com/StevenACoffman/codetospec/internal/crosscheck"
 	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/nfrtarget"
 	"github.com/StevenACoffman/codetospec/internal/quality"
 	"github.com/StevenACoffman/codetospec/internal/questions"
 	"gopkg.in/yaml.v3"
@@ -43,10 +51,12 @@ const (
 	NFRDirectory = "non-functional"
 )
 
-// codetospec_threshold values of an NFR: its code states the threshold,
-// or a person has to (codetospec_question names the question).
+// codetospec_threshold values of an NFR: its code states the threshold, a
+// person set it (targets.yaml), or a person has to (codetospec_question
+// names the question).
 const (
 	ThresholdStated  = "stated"
+	ThresholdSet     = "set"
 	ThresholdUnknown = "unknown"
 )
 
@@ -76,8 +86,17 @@ type frontmatter struct {
 	Rule       string `yaml:"codetospec_rule"`
 	Crosscheck string `yaml:"codetospec_crosscheck,omitempty"`
 	Criteria   string `yaml:"codetospec_criteria,omitempty"`  // CriteriaFromRequirement
-	Threshold  string `yaml:"codetospec_threshold,omitempty"` // NFR: ThresholdStated or Unknown
-	Question   string `yaml:"codetospec_question,omitempty"`  // NFR: the question asking for it
+	Threshold  string `yaml:"codetospec_threshold,omitempty"` // NFR: ThresholdStated, Set or Unknown
+	Target     string `yaml:"codetospec_target,omitempty"`    // NFR, ThresholdSet: the nfrtarget.Kind
+	// Question names, for an NFR, the question asking for its target, or,
+	// when the code changed since a person set it, the one asking whether
+	// it still holds.
+	Question string `yaml:"codetospec_question,omitempty"`
+	// Observable names the criterion that is the acceptance pass's
+	// observable ("FR-001-AC-3"); NonClaims what the rule does not claim,
+	// which as criteria would read as requirements to test an absence.
+	Observable string   `yaml:"codetospec_observable,omitempty"`
+	NonClaims  []string `yaml:"codetospec_non_claims,omitempty"`
 }
 
 // indexFrontmatter is the index document's frontmatter.
@@ -91,11 +110,12 @@ type indexFrontmatter struct {
 // numbered NFR-001…, each in rule id order (so by domain), with an index
 // per kind.
 //
-// Requires: nodes as render.LoadDir reads them.
+// Requires: nodes as render.LoadDir reads them; nfrTargets from
+// nfrtarget.Load of the same output (nil when none).
 // Ensures:  one file per rule not refuted, plus Directory/index.md, and
-// NFRDirectory/index.md when there is an NFR; the same nodes give the same
-// bytes.
-func Export(nodes []graph.Node) (Spec, error) {
+// NFRDirectory/index.md when there is an NFR; the same inputs give the
+// same bytes.
+func Export(nodes []graph.Node, nfrTargets map[string]nfrtarget.Target) (Spec, error) {
 	var rules []*graph.Node
 	for i := range nodes {
 		if nodes[i].Type == graph.TypeRule {
@@ -113,8 +133,10 @@ func Export(nodes []graph.Node) (Spec, error) {
 		}
 		dir, prefix, count, index, write := Directory, "FR", &export.FRs, &frIndex, frDocument
 		if quality.IsNFR(rule) {
-			dir, prefix, count, index, write = NFRDirectory, "NFR", &export.NFRs, &nfrIndex,
-				nfrDocument
+			dir, prefix, count, index = NFRDirectory, "NFR", &export.NFRs, &nfrIndex
+			write = func(id string, rule *graph.Node) ([]byte, error) {
+				return nfrDocument(id, rule, targetOf(nfrTargets, rule.ID))
+			}
 		}
 		*count++
 		id := fmt.Sprintf("%s-%03d", prefix, *count)
@@ -167,12 +189,16 @@ func frDocument(id string, rule *graph.Node) ([]byte, error) {
 	if len(criteria) == 0 {
 		criteria, front.Criteria = []string{requirement}, CriteriaFromRequirement
 	}
+	if observable := acceptance.ExportedObservable(rule); observable != "" {
+		criteria = append(criteria, observable)
+		front.Observable = fmt.Sprintf("%s-AC-%d", id, len(criteria))
+	}
 	var b strings.Builder
 	if err := writeHeading(&b, &front); err != nil {
 		return nil, err
 	}
 	fmt.Fprintf(&b, "## Description\n\n%s\n\n", requirement)
-	writeCriteria(&b, id, criteria)
+	writeCriteria(&b, id, tested(criteria))
 	b.WriteString("\n")
 	writeDependencies(&b, rule)
 	return []byte(b.String()), nil
@@ -180,12 +206,18 @@ func frDocument(id string, rule *graph.Node) ([]byte, error) {
 
 // nfrDocument renders one non-functional rule as the NFR id: its
 // requirement as the Statement, and one Measurement row whose target and
-// threshold are those the code states, or unknown with the question
-// asking a person for them.
-func nfrDocument(id string, rule *graph.Node) ([]byte, error) {
+// threshold are those a person set (target, nil when none), else those the
+// code states, else unknown with the question asking a person for them.
+func nfrDocument(id string, rule *graph.Node, target *nfrtarget.Target) ([]byte, error) {
 	front := baseFrontmatter(id, "NFR", rule)
-	m := nfrMeasurement(rule)
-	front.Threshold, front.Question = m.threshold, m.question
+	m := nfrMeasurement(rule, target)
+	front.Threshold, front.Target, front.Question = m.threshold, m.kind, m.question
+	criteria := tested(ruleCriteria(rule))
+	if m.policy != "" {
+		criteria = append(criteria, criterion{text: m.policy, verification: "Inspection"})
+		m.target = fmt.Sprintf("Compliance with the policy (%s-AC-%d)", id, len(criteria))
+		m.thresholdCell = m.target
+	}
 	var b strings.Builder
 	if err := writeHeading(&b, &front); err != nil {
 		return nil, err
@@ -194,9 +226,9 @@ func nfrDocument(id string, rule *graph.Node) ([]byte, error) {
 	b.WriteString("## Measurement and Evaluation\n\n" +
 		"| Metric | Target | Threshold | Method |\n|--------|--------|-----------|--------|\n")
 	fmt.Fprintf(&b, "| %s | %s | %s | %s |\n\n",
-		cell(front.Title), cell(m.target), cell(m.target), cell(m.method))
+		cell(cmp.Or(m.metric, front.Title)), cell(m.target), cell(m.thresholdCell), cell(m.method))
 	fmt.Fprintf(&b, "## Verification\n\n%s\n\n", m.verification)
-	if criteria := ruleCriteria(rule); len(criteria) > 0 {
+	if len(criteria) > 0 {
 		writeCriteria(&b, id, criteria)
 		b.WriteString("\n")
 	}
@@ -205,39 +237,89 @@ func nfrDocument(id string, rule *graph.Node) ([]byte, error) {
 }
 
 // measurement is what an NFR's Measurement and Verification sections say:
-// the threshold the code states, or that a person has to set it.
+// the threshold a person set or the code states, or that a person has to
+// set it.
 type measurement struct {
-	threshold, question          string // codetospec_threshold, codetospec_question
-	target, method, verification string // the target is also the threshold cell
+	threshold, kind, question string // codetospec_threshold, codetospec_target, codetospec_question
+	// The Measurement row; metric "" is the document's title.
+	metric, target, thresholdCell, method string
+	verification                          string
+	// policy is a policy target, written as an Acceptance Criteria row the
+	// target cell points to.
+	policy string
 }
 
-// nfrMeasurement is rule's measurement: the threshold its code states
+// nfrMeasurement is rule's measurement: the target a person set (target,
+// nil when none), else the threshold its code states
 // (graph.ExtraThreshold), else unknown, naming the question asking for it.
-func nfrMeasurement(rule *graph.Node) measurement {
+func nfrMeasurement(rule *graph.Node, target *nfrtarget.Target) measurement {
+	if target != nil {
+		return setMeasurement(rule, target)
+	}
 	if stated := rule.Extra[graph.ExtraThreshold]; stated != "" {
+		inCode := stated + " (stated in the code)"
 		return measurement{
 			threshold: ThresholdStated,
-			target:    stated + " (stated in the code)",
-			method:    "Inspection of the cited code",
+			target:    inCode, thresholdCell: inCode,
+			method: "Inspection of the cited code",
 			verification: "Inspection: the cited code sets the threshold, and codetospec's " +
 				"grounding check found each stated value in it.",
 		}
 	}
-	q := nfrQuestion(rule)
+	q := questionOf(rule, questions.KindNFRTarget)
+	unknown := "Unknown: the code states none (question " + q + ")"
 	return measurement{
 		threshold: ThresholdUnknown,
 		question:  q,
-		target:    "Unknown: the code states none (question " + q + ")",
-		method:    "To be decided with the target",
+		target:    unknown, thresholdCell: unknown,
+		method: "To be decided with the target",
 		verification: "Not verifiable until a person sets the target and threshold: " +
 			"question " + q + " in questions.json.",
 	}
 }
 
-// nfrQuestion is the id of the question asking for rule's target.
-func nfrQuestion(rule *graph.Node) string {
+// setMeasurement is the measurement of the target a person set for rule,
+// naming the stale_target question when the code changed since.
+func setMeasurement(rule *graph.Node, target *nfrtarget.Target) measurement {
+	m := measurement{
+		threshold: ThresholdSet,
+		kind:      string(target.Kind()),
+		question:  questionOf(rule, questions.KindStaleTarget),
+	}
+	switch target.Kind() {
+	case nfrtarget.KindMeasure:
+		measure := target.Measure
+		m.metric, m.method = measure.Scale, measure.Meter
+		m.target = cmp.Or(measure.Plan, measure.Must)
+		m.thresholdCell = cmp.Or(measure.Must, measure.Plan)
+		m.verification = "Measurement: " + measure.Meter + ", against the target set in targets.yaml."
+	case nfrtarget.KindPolicy:
+		m.policy = target.Policy
+		m.method = "Review against the policy"
+		m.verification = "Inspection: a reviewer checks the code against the policy set in " +
+			"targets.yaml (the Acceptance Criteria below)."
+	case nfrtarget.KindExample:
+		m.target = "As the reference case: " + target.Example
+		m.thresholdCell = "No worse than the reference case"
+		m.method = "Comparison with the reference case"
+		m.verification = "Demonstration: the system is compared with the reference case set in " +
+			"targets.yaml."
+	}
+	return m
+}
+
+// targetOf is the target set for the rule id, nil when none.
+func targetOf(nfrTargets map[string]nfrtarget.Target, id string) *nfrtarget.Target {
+	if t, ok := nfrTargets[id]; ok {
+		return &t
+	}
+	return nil
+}
+
+// questionOf is the id of rule's question of kind, "" when it raises none.
+func questionOf(rule *graph.Node, kind string) string {
 	for _, q := range questions.List([]graph.Node{*rule}, nil) {
-		if q.Kind == questions.KindNFRTarget {
+		if q.Kind == kind {
 			return q.ID
 		}
 	}
@@ -252,6 +334,7 @@ func baseFrontmatter(id, kind string, rule *graph.Node) frontmatter {
 		Type:       kind,
 		Rule:       rule.ID,
 		Crosscheck: rule.Extra["crosscheck"],
+		NonClaims:  graph.RuleNonClaims(rule.Body),
 	}
 	if attribute := rule.Extra[graph.ExtraQualityAttribute]; quality.IsAttribute(attribute) {
 		front.Quality = attribute
@@ -278,13 +361,26 @@ func ruleCriteria(rule *graph.Node) []string {
 	return criteria
 }
 
+// criterion is one Acceptance Criteria row: its text and how it is
+// verified (Test, Inspection).
+type criterion struct{ text, verification string }
+
+// tested is criteria as rows verified by test.
+func tested(criteria []string) []criterion {
+	rows := make([]criterion, len(criteria))
+	for k, text := range criteria {
+		rows[k] = criterion{text: text, verification: "Test"}
+	}
+	return rows
+}
+
 // writeCriteria writes the Acceptance Criteria table, ids <id>-AC-<n>.
-func writeCriteria(b *strings.Builder, id string, criteria []string) {
+func writeCriteria(b *strings.Builder, id string, criteria []criterion) {
 	b.WriteString(
 		"## Acceptance Criteria\n\n| ID | Criteria | Verification |\n|----|----------|--------------|\n",
 	)
-	for k, criterion := range criteria {
-		fmt.Fprintf(b, "| %s-AC-%d | %s | Test |\n", id, k+1, cell(criterion))
+	for k, row := range criteria {
+		fmt.Fprintf(b, "| %s-AC-%d | %s | %s |\n", id, k+1, cell(row.text), row.verification)
 	}
 }
 

@@ -35,6 +35,7 @@ Hard rules:
 - entities and endpoints MUST be subsets of the provided allowed lists.
 - Keep each rule's requirement as EARS components in "ears", in <LANG>, one behavior per rule, each part a phrase without its keyword: "where" features (0 or more), "while" states and preconditions (0 or more, a precondition of the trigger included), "when" the triggering event (0 or 1), "if" the unwanted condition (0 or 1; with a "when" it is a second trigger), "system" one of ALLOWED_ACTORS when that part of the system performs the response (omit it otherwise), "shall" what the actor does (1 or more; one item per action: "log an error and return the cached value" is two, "log an error" and "return the cached value"; a list the action applies to stays one, "validate the role, the source and the invariants"), each {"text": the verb phrase that follows "the system shall", "action": its opening words naming what is done, negation included ("not store" in "not store card numbers")}. When merging candidates, keep the conditions they share; never add one the candidates do not state. The sentence is written from them, in this order:
 <EARS>
+- condition: the candidates' "condition" (what the code checks before the response, a JSON tree). Keep it when the candidates you merge share it; otherwise write the one the merged requirement states, in the same notation with the candidates' variable names, never a check they do not state. Omit it for an unconditional rule.
 - slug: lowercase ascii, words separated by "-", max 5 words, unique within the domain.
 - acceptance_criteria: 2 to 5 concrete, testable checks per rule, each restating a behavior the requirement and its cited code actually establish. Do NOT invent error cases, edge cases, thresholds, defaults or inputs the requirement does not state — a criterion that reaches beyond the cited behavior gets the whole rule rejected at review. Written in <LANG>.
 - nature ("business"|"presentation"|"technical") and origin ("explicit"|"implicit"): carry over from the merged candidates; when they disagree, pick the dominant one.
@@ -46,7 +47,7 @@ ALLOWED_ENDPOINTS: %s
 ALLOWED_ACTORS: %s
 
 OUTPUT JSON SCHEMA:
-{"domain_summary": string, "rules": [{"slug": string, "title": string, "ears": {"where": [string], "while": [string], "when": string, "if": string, "system": string, "shall": [{"text": string, "action": string}]}, "rationale": string, "citations": [{"path": string, "lines": "A-B"}], "entities": [string], "endpoints": [string], "acceptance_criteria": [string], "nature": "business|presentation|technical", "origin": "explicit|implicit", "confidence": number}]}
+{"domain_summary": string, "rules": [{"slug": string, "title": string, "ears": {"where": [string], "while": [string], "when": string, "if": string, "system": string, "shall": [{"text": string, "action": string}]}, "condition": object, "rationale": string, "citations": [{"path": string, "lines": "A-B"}], "entities": [string], "endpoints": [string], "acceptance_criteria": [string], "nature": "business|presentation|technical", "origin": "explicit|implicit", "confidence": number}]}
 
 CANDIDATE_RULES:
 %s`
@@ -56,6 +57,9 @@ type Rule struct {
 	Slug  string          `json:"slug"`
 	Title string          `json:"title"`
 	EARS  ears.Components `json:"ears"`
+	// Condition is what the code checks before the response (package
+	// condition's notation, canonical once settled); see settleConditions.
+	Condition json.RawMessage `json:"condition,omitempty"`
 	// EarsKind and Requirement are derived from EARS (ears.KindOf,
 	// ears.Render) by withText, as mapper.Rule's are.
 	EarsKind           string        `json:"-"`
@@ -274,6 +278,13 @@ func (r *Reducer) reduceBatch(
 				&mapper.Allowed{Entities: r.Entities, Endpoints: r.Endpoints, Actors: r.Actors},
 				allowedCitations)
 		})
+	if err == nil {
+		var dropped int
+		if payload.Rules, dropped = settleConditions(payload.Rules, rules); dropped > 0 {
+			r.Log.InfoContext(ctx, "merged conditions dropped: they do not parse",
+				"domain", domain, "rules", dropped)
+		}
+	}
 	return payload, usage, err
 }
 
@@ -416,8 +427,9 @@ func outcomeFrom(domain string, payload reducePayload, err error) Output {
 }
 
 // mergeBatchRules deduplicates rules merged from several batches: identical
-// requirements collapse (unioning their citations), and colliding slugs are
-// renumbered so they stay unique within the domain.
+// requirements collapse (unioning their citations, keeping a condition
+// only when both state the same one), and colliding slugs are renumbered
+// so they stay unique within the domain.
 func mergeBatchRules(rules []Rule) []Rule {
 	byRequirement := make(map[string]int) // requirement -> index in out
 	slugs := make(map[string]bool)
@@ -425,6 +437,7 @@ func mergeBatchRules(rules []Rule) []Rule {
 	for _, rule := range rules {
 		if idx, ok := byRequirement[rule.Requirement]; ok {
 			out[idx].Citations = unionRefs(out[idx].Citations, rule.Citations)
+			out[idx].Condition = sharedCondition(out[idx].Condition, rule.Condition)
 			continue
 		}
 		rule.Slug = uniqueSlug(normalizeSlug(rule.Slug), slugs)

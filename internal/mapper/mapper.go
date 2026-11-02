@@ -16,11 +16,13 @@ import (
 	"strings"
 
 	"github.com/StevenACoffman/codetospec/internal/atomicfs"
+	"github.com/StevenACoffman/codetospec/internal/condition"
 	"github.com/StevenACoffman/codetospec/internal/ears"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/llm"
 	"github.com/StevenACoffman/codetospec/internal/locale"
 	"github.com/StevenACoffman/codetospec/internal/sitter"
+	"github.com/StevenACoffman/codetospec/internal/vocabulary"
 	"github.com/StevenACoffman/codetospec/internal/workpool"
 )
 
@@ -34,6 +36,7 @@ Hard rules:
 - entities MUST be a subset of ALLOWED_ENTITIES. endpoints MUST be a subset of ALLOWED_ENDPOINTS. When unsure, use [].
 - Write each rule's requirement as EARS components in "ears", in <LANG>, each part a phrase without its keyword: "where" the features it applies to (0 or more), "while" the states and preconditions it holds under (0 or more, a precondition of the trigger included), "when" the event that triggers it (0 or 1), "if" the unwanted condition it handles (0 or 1; with a "when" it is a second trigger, "WHEN x, IF y, THEN"), "system" one of ALLOWED_ACTORS when that part of the system performs the response; omit it otherwise (the system as a whole), "shall" what the actor does (1 or more; one behavior per rule, one item per action: "log an error and return the cached value" is two, "log an error" and "return the cached value"; a list the action applies to stays one, "validate the role, the source and the invariants"), each {"text": the verb phrase that follows "the system shall", "action": its opening words naming what is done, negation included ("not store" in "not store card numbers")}. Leave out a component the code does not condition the rule on. The sentence is written from them, in this order:
 <EARS>
+- Write in "condition" what the code checks before the response, when it checks something (omit "condition" for an unconditional rule): {"all": [c, ...]}, {"any": [c, ...]}, {"not": c}, {"exists": "v"}, {"var": "v", "op": OP, "value": LITERAL} or {"var": "v", "op": OP, "var2": "w"}, with OP one of <OPERATORS> and LITERAL a boolean, number or string (a list of them for in and not_in). Name each variable "v" from VOCABULARY when one fits; otherwise "local.<name>". Every number and string in it MUST appear in the cited lines. It states the same checks as the rule's "where", "while", "when" and "if", as a machine reads them.
 - Focus on business behavior: validation, calculation, state transitions, side effects, authorization. Ignore framework plumbing.
 - Classify each rule:
   - nature: "business" (domain behavior: validation, calculation, pricing, authorization), "presentation" (display, formatting, UI text, rendering), or "technical" (framework wiring, logging, serialization, infrastructure).
@@ -48,9 +51,11 @@ DOMAIN: %s
 ALLOWED_ENTITIES: %s
 ALLOWED_ENDPOINTS: %s
 ALLOWED_ACTORS: %s
+VOCABULARY: %s
+VOCABULARY_VALUES: %s
 %s
 OUTPUT JSON SCHEMA:
-{"chunk_summary": string, "rules": [{"title": string, "ears": {"where": [string], "while": [string], "when": string, "if": string, "system": string, "shall": [{"text": string, "action": string}]}, "citations": [{"path": string, "lines": "A-B"}], "entities": [string], "endpoints": [string], "nature": "business|presentation|technical", "origin": "explicit|implicit", "confidence": number}]}
+{"chunk_summary": string, "rules": [{"title": string, "ears": {"where": [string], "while": [string], "when": string, "if": string, "system": string, "shall": [{"text": string, "action": string}]}, "condition": object, "citations": [{"path": string, "lines": "A-B"}], "entities": [string], "endpoints": [string], "nature": "business|presentation|technical", "origin": "explicit|implicit", "confidence": number}]}
 
 %s`
 
@@ -82,6 +87,10 @@ func numberedContent(chunk *sitter.Chunk) string {
 type Rule struct {
 	Title string          `json:"title"`
 	EARS  ears.Components `json:"ears"`
+	// Condition is what the code checks before the response, in package
+	// condition's notation (canonical once validated); empty when the rule
+	// is unconditional.
+	Condition json.RawMessage `json:"condition,omitempty"`
 	// EarsKind and Requirement are derived from EARS (ears.KindOf,
 	// ears.Render) by WithText, never written by the model nor stored:
 	// the JSON of a Rule is what the model reads and writes.
@@ -170,6 +179,11 @@ type Mapper struct {
 	// system" (ListedActors).
 	Actors       Actors
 	EndpointsFor func(path string) []string
+	// VocabularyFor returns the condition variables offered to a chunk of
+	// path whose code is content (vocabulary.Vocabulary.For). Optional; like
+	// Entities, outside the prompt key: a cached condition keeps the names
+	// it was written with.
+	VocabularyFor func(path, content string) []vocabulary.Term
 	// SymbolsFor returns the precise symbol definitions known for a file
 	// (empty when no SCIP index was provided). Optional.
 	SymbolsFor func(path string) []SymbolContext
@@ -271,16 +285,11 @@ func (m *Mapper) mapChunk(ctx context.Context, chunk *sitter.Chunk) (Output, llm
 		}
 	}
 
-	allowedEndpoints := m.EndpointsFor(chunk.Path)
-	msgs := m.prompt(chunk, sections, allowedEndpoints)
+	allowed := m.allowed(chunk)
+	msgs := m.prompt(chunk, sections, &allowed)
 	var usage llm.Usage
 	validate := func(reply string) (mapPayload, error) {
-		return validateMapReply(
-			reply,
-			chunk,
-			m.Lang,
-			&Allowed{m.Entities, allowedEndpoints, m.Actors},
-		)
+		return validateMapReply(reply, chunk, m.Lang, &allowed)
 	}
 	payload, err := llm.ChatJSON(
 		ctx,
@@ -291,10 +300,15 @@ func (m *Mapper) mapChunk(ctx context.Context, chunk *sitter.Chunk) (Output, llm
 		validate,
 	)
 	regrounded := false
-	if err == nil && m.Ungrounded != nil {
+	if err == nil {
 		var regroundUsage llm.Usage
 		payload, regroundUsage, regrounded = m.reground(ctx, msgs, payload, chunk, validate)
 		usage.Add(regroundUsage)
+		var dropped int
+		if payload.Rules, dropped = withValidConditions(payload.Rules); dropped > 0 {
+			m.Log.InfoContext(ctx, "conditions dropped: still invalid after the repair",
+				"chunk", chunk.ID, "rules", dropped)
+		}
 	}
 
 	out := Output{
@@ -324,12 +338,23 @@ func (m *Mapper) mapChunk(ctx context.Context, chunk *sitter.Chunk) (Output, llm
 	return out, usage, nil
 }
 
+// allowed is what a chunk's rules may name: entities, the chunk's
+// endpoints, actors and condition variables.
+func (m *Mapper) allowed(chunk *sitter.Chunk) Allowed {
+	var terms []vocabulary.Term
+	if m.VocabularyFor != nil {
+		terms = m.VocabularyFor(chunk.Path, chunk.Content)
+	}
+	return Allowed{
+		Entities:  m.Entities,
+		Endpoints: m.EndpointsFor(chunk.Path),
+		Actors:    m.Actors,
+		Terms:     terms,
+	}
+}
+
 // prompt is the conversation that maps chunk.
-func (m *Mapper) prompt(
-	chunk *sitter.Chunk,
-	sections string,
-	allowedEndpoints []string,
-) []llm.Message {
+func (m *Mapper) prompt(chunk *sitter.Chunk, sections string, allowed *Allowed) []llm.Message {
 	namespace := chunk.Namespace
 	if namespace == "" {
 		namespace = "-"
@@ -337,14 +362,34 @@ func (m *Mapper) prompt(
 	userPrompt := fmt.Sprintf(userPromptFormat,
 		chunk.Path, chunk.StartLine, chunk.EndLine,
 		chunk.Language, namespace, chunk.Domain,
-		mustJSON(m.Entities), mustJSON(allowedEndpoints), mustJSON(m.Actors.Names),
+		mustJSON(m.Entities), mustJSON(allowed.Endpoints), mustJSON(m.Actors.Names),
+		mustJSON(vocabulary.Names(allowed.Terms)), mustJSON(termValues(allowed.Terms)),
 		sections,
 		numberedContent(chunk),
 	)
 	return []llm.Message{
-		{Role: "system", Content: locale.For(m.Lang).Prompt(systemPrompt)},
+		{Role: "system", Content: systemText(m.Lang)},
 		{Role: "user", Content: userPrompt},
 	}
+}
+
+// systemText is the system prompt in lang, the operators of the condition
+// notation filled in.
+func systemText(lang string) string {
+	return strings.ReplaceAll(locale.For(lang).Prompt(systemPrompt),
+		"<OPERATORS>", strings.Join(condition.Operators(), ", "))
+}
+
+// termValues maps each enumeration among terms to its values, for
+// VOCABULARY_VALUES; {} when none has values.
+func termValues(terms []vocabulary.Term) map[string][]string {
+	values := make(map[string][]string)
+	for _, t := range terms {
+		if len(t.Values) > 0 {
+			values[t.Name] = t.Values
+		}
+	}
+	return values
 }
 
 // regroundCached gives a cached output, under Reground, the correction
@@ -364,22 +409,18 @@ func (m *Mapper) regroundCached(
 	if len(m.misses(payload, chunk)) == 0 {
 		return *cached, llm.Usage{}, nil
 	}
-	allowedEndpoints := m.EndpointsFor(chunk.Path)
+	allowed := m.allowed(chunk)
 	validate := func(reply string) (mapPayload, error) {
-		return validateMapReply(
-			reply,
-			chunk,
-			m.Lang,
-			&Allowed{m.Entities, allowedEndpoints, m.Actors},
-		)
+		return validateMapReply(reply, chunk, m.Lang, &allowed)
 	}
 	fixed, usage, _ := m.reground(
 		ctx,
-		m.prompt(chunk, sections, allowedEndpoints),
+		m.prompt(chunk, sections, &allowed),
 		payload,
 		chunk,
 		validate,
 	)
+	fixed.Rules, _ = withValidConditions(fixed.Rules)
 	cached.ChunkSummary, cached.Rules, cached.Regrounded = fixed.ChunkSummary, fixed.Rules, true
 	if err := writeOutput(outPath, cached); err != nil {
 		return Output{}, usage, err
@@ -407,7 +448,7 @@ func writeOutput(outPath string, out *Output) error {
 func (m *Mapper) promptKey(sections string) string {
 	return llm.PromptKey(
 		m.Model,
-		locale.For(m.Lang).Prompt(systemPrompt),
+		systemText(m.Lang),
 		userPromptFormat,
 		sections,
 	)
@@ -508,6 +549,7 @@ func validateMapReply(
 		}
 		normalized := rule.EARS.Normalized()
 		rule.EARS = lists.Actors.Named(&normalized)
+		rule.Condition = settledCondition(rule.Condition, vocabulary.Names(lists.Terms))
 		labels := Labels{
 			EARS: &rule.EARS, Nature: rule.Nature, Origin: rule.Origin,
 			Confidence: rule.Confidence, Entities: rule.Entities, Endpoints: rule.Endpoints,
@@ -521,10 +563,42 @@ func validateMapReply(
 }
 
 // Allowed are the lists a map or reduce rule's labels keep to: entity
-// and endpoint ids, and actors.
+// and endpoint ids, and actors; and the condition variables offered (a
+// variable outside them is coined, never refused).
 type Allowed struct {
 	Entities, Endpoints []string
 	Actors              Actors
+	Terms               []vocabulary.Term
+}
+
+// settledCondition returns a rule's raw condition in canonical form, its
+// variables outside names moved under vocabulary.Local; nil when it is
+// none; raw as written when it does not parse, for the repair exchange to
+// name (see reground) and withValidConditions to drop.
+func settledCondition(raw json.RawMessage, names []string) json.RawMessage {
+	c, err := condition.Parse(raw)
+	switch {
+	case err != nil:
+		return raw
+	case c.IsZero():
+		return nil
+	}
+	coined, _ := vocabulary.Coined(&c, names)
+	return json.RawMessage(coined.Canonical())
+}
+
+// withValidConditions returns rules with every condition that does not
+// parse removed, and how many were: a bad condition never costs its rule.
+func withValidConditions(rules []Rule) ([]Rule, int) {
+	out := slices.Clone(rules)
+	dropped := 0
+	for i := range out {
+		if _, err := condition.Parse(out[i].Condition); err != nil {
+			out[i].Condition = nil
+			dropped++
+		}
+	}
+	return out, dropped
 }
 
 // Actors are the actors a rule may name instead of the system (config

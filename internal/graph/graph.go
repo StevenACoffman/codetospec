@@ -96,6 +96,46 @@ func RuleCriteria(body string) []string {
 	return criteria
 }
 
+// RuleObservable returns the check of a rule body's observable, written
+// in any supported language (see package acceptance): what follows its
+// label and its "(channel, source)"; "" when the body has none.
+func RuleObservable(body string) string {
+	for line := range strings.SplitSeq(body, "\n") {
+		for _, text := range locale.All() {
+			if rest, ok := strings.CutPrefix(line, text.Observable); ok {
+				if strings.HasPrefix(rest, "(") {
+					if _, after, closed := strings.Cut(rest, ") "); closed {
+						rest = after
+					}
+				}
+				return strings.TrimSpace(rest)
+			}
+		}
+	}
+	return ""
+}
+
+// RuleNonClaims returns what a rule body, written in any supported
+// language, says the rule does not claim: the "- " lines after its label.
+func RuleNonClaims(body string) []string {
+	var claims []string
+	inList := false
+	for line := range strings.SplitSeq(body, "\n") {
+		if !inList {
+			inList = slices.ContainsFunc(locale.All(), func(text *locale.Text) bool {
+				return strings.HasPrefix(line, text.NonClaims)
+			})
+			continue
+		}
+		item, ok := strings.CutPrefix(strings.TrimSpace(line), "- ")
+		if !ok {
+			break
+		}
+		claims = append(claims, item)
+	}
+	return claims
+}
+
 // Edge types a rule node carries.
 const (
 	EdgeBelongsTo = "belongs_to" // rule → its domain
@@ -423,13 +463,13 @@ func reducedRuleNode(domain string, rule *reducer.Rule, text *locale.Text) Node 
 		Edges:   edges,
 		Title:   rule.Title,
 		Body:    body.String(),
-		Extra: withActions(withEARS(map[string]string{
+		Extra: withCondition(withActions(withEARS(map[string]string{
 			"ears":       rule.EarsKind,
 			"acceptance": strconv.Itoa(len(rule.AcceptanceCriteria)),
 			"nature":     rule.Nature,
 			"origin":     rule.Origin,
 			"confidence": strconv.FormatFloat(rule.Confidence, 'f', 2, 64),
-		}, rule.Requirement), &rule.EARS),
+		}, rule.Requirement), &rule.EARS), string(rule.Condition)),
 	}
 }
 

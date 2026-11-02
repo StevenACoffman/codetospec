@@ -124,6 +124,62 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   failure. Outside map/reduce: no cache invalidated. The passes after the
   build (crosscheck, quality, stamps, test reach, reviewed rules) are in
   `cmd/codetospec/judge.go`.
+- `internal/condition` — a rule's structured condition (IMPROVEMENTS #1):
+  a compact JSON notation (`all`/`any`/`not`/`exists`/`var`+`op`+`value`
+  or `var2`; contract in `extract.AttrCondition`) that codetospec compiles
+  into a `github.com/faustbrian/go-rule-engine/v2` plan; no engine type
+  crosses the API. `Parse` (an error names the JSON path), `Hash`
+  (the engine's canonical hash: equal whatever the spacing or key order),
+  `Canonical` (frontmatter `condition`), `Variables`, `Literals`
+  (grounding text), `Renamed`, `Evaluate` (an `Outcome`, never an error:
+  a missing variable is `Indeterminate`). `matches` is left out (a regex
+  is not groundable). Every number is a float (the engine refuses int vs
+  float, and a model writes 0 and 0.0 alike): 3 and 3.0 hash equal. `FuzzParse` pins `Parse(Canonical(c))`. Producers:
+  the webapp extractor (`extractors/webapp/condition.go`, access and
+  rate-limit guards outside loops; `TestExtractorRuleFactsPass` parses
+  its goldens' conditions, so a notation drift fails there), the map
+  (prompt rule + `VOCABULARY`; a bad or ungrounded condition joins the
+  one repair exchange, `reground`, then is dropped, never the rule;
+  unknown variables move under `local.`), the reduce
+  (`settleConditions`: the merged candidates' shared condition wins over
+  the model's; equal hashes also cluster in merge mode; batch merge keeps
+  a condition only when both copies agree), inherited rules (carried).
+  At build, `grounding.Annotate` drops a condition whose values the cited
+  lines lack (`condition_dropped`) and records a disagreement with the
+  EARS conditions (`condition_disagreement`, values marked cited or not;
+  0 and "" are implicit in prose) → `condition_mismatch` question.
+- `internal/vocabulary` — the condition variables offered to each map
+  chunk, no LLM: extractor rule-condition variables (scoped to their
+  file), then schema facts (`table.column`, enums with values, struct
+  fields `pkg.Type.Field` from the Go extractor's `struct` facts), then
+  `--domain-model` attributes and enums; a term is offered when its last
+  part is a word of the chunk (case, `_`, camelCase ignored), a struct
+  field only when its struct's name or that name's last part is one too
+  (else every `Status` everywhere), at most `MaxTerms`. Measured: coined
+  variables 97 % → 59 % on districts-jobs
+  (`docs/verification/condition-vocabulary-go-structs-2026-11-02.md`). `Coined` moves other variables under `local.`. Injected as
+  `Mapper.VocabularyFor`, outside `promptKey` like the entities.
+- `internal/acceptance` — `--acceptance`: per LLM rule not refuted, one
+  call (cited code via `extract.Roots` + the two nearest tests) writes the
+  observable (`response|state|event|log`, check, `test|code`), up to 3
+  non-claims and, with a condition, up to 4 examples (IMPROVEMENTS #5).
+  Pure `Validate` (examples name only the condition's variables), `Assess`
+  (observable grounded against what it was read from; examples evaluated
+  by `condition.Evaluate`), `Annotate` (body sections parsed back by
+  `graph.RuleObservable`/`RuleNonClaims`; frontmatter `observable`,
+  `observable_source`, `observable_grounding`, `examples: k/n`,
+  `examples_contradicted` → `example_contradicted` question). Runs in
+  `judge` after the stamps (an ungrounded condition is gone by then).
+  With `--crosscheck` (`Writer.Review`), a blind review of each
+  observable (`review.go`: rule, observable, code, tests; nothing of the
+  writing conversation), cached in the rule's file under its own hash
+  and kept through runs without it: `observable_crosscheck`, and when
+  unsupported `observable_refuted` (the reason) → `observable_refuted`
+  question; `acceptance.ExportedObservable` is what Quire and Kiro take
+  (none when refuted).
+  Exports: Quire one more criterion (`codetospec_observable`) and
+  `codetospec_non_claims`; Kiro the property's criteria and the trace
+  comment (requirements.md takes EARS only).
 - `graph/enums.go` — `enum` nodes (`nodes/enums/`) from the `enum`,
   `enum_value`, `transition` facts (Go extractor, `enums.go`,
   `transitions.go`): values in code order (sorted by citation: the facts
@@ -136,11 +192,12 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
 - `internal/quire` — `export --out --to` command: rules → FRs, and
   technical rules serving a quality (`quality.IsNFR`) → NFRs, in Quire
   format (spec-artifacts-iso 0.3.0, pinned in the package doc: the only
-  place that knows the format). An NFR's threshold is the run's
-  `threshold` frontmatter (`quality.AnnotateThresholds`: the numbers of a
-  grounded requirement, `grounding.StatedNumbers`, read with `--lang`'s
-  decimal separator), else unknown + the `nfr_target` question id
-  (`questions.KindNFRTarget`). NFR shape verified with the downloaded
+  place that knows the format). An NFR's threshold is the target a person
+  set (`internal/nfrtarget`, `codetospec_threshold: set`, mapped by kind),
+  else the run's `threshold` frontmatter (`quality.AnnotateThresholds`:
+  the numbers of a grounded requirement, `grounding.StatedNumbers`, read
+  with `--lang`'s decimal separator), else unknown + the `nfr_target`
+  question id (`questions.KindNFRTarget`). NFR shape verified with the downloaded
   `nfr-frontmatter.schema.json` and the skeleton's section rules
   (`docs/verification/quire-nfr-export-2026-11-01.md`). Pure (`Export` returns the files); the CLI
   refuses a non-empty `--to` (one-time bootstrap, the team then edits in
@@ -149,6 +206,17 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   the crosscheck: dropped. Verified against the downloaded frontmatter
   schemas (jsonschema) on roster and districts; no local `quire validate`
   (no published binary).
+- `internal/nfrtarget` — a person's answers to `nfr_target`:
+  `<out>/targets.yaml` (never written), keyed by rule id (a question id
+  hashes the cited code; a rule id survives edits and renames), each one
+  of `measure` (Planguage scale, meter, must/plan), `policy` or `example`,
+  with the `digest` it was set for. Loaded by `render.LoadPrior` (a
+  malformed entry stops the run before any LLM call); `Annotate` (in
+  `judge`, after `AnnotateThresholds`) sets the NFR's `threshold` (over a
+  stated one: the person's target is the requirement, and the question
+  closes) and `target`; another digest → `target_stale` →
+  `stale_target` question. A target with no NFR of its id is counted in
+  the README, never an error. `export` passes the file to `quire.Export`.
 - `internal/kiro` — `export --format kiro`: one Kiro spec per domain
   (`.kiro/specs/<domain>/requirements.md`, `design.md`), format pinned in
   the package doc (Kiro docs + example spec from kirodotdev/Kiro
@@ -399,12 +467,16 @@ repository-specific code in the core: all webapp knowledge lives in
 - `map/<chunkID>.json` — name = hash of the chunk content; reused if its `prompt_key` matches. The domain of a cached output is taken from the current chunk (changing the domain strategy regroups without re-mapping).
 - `reduce/<domain>.json` — reused if the hash of the candidates (`candidates_hash`) matches.
 - `crosscheck/<ruleID>.json` — key = hash (prompt key + rule + cited lines).
+- `acceptance/<ruleID>.json` — key = hash of the model and the whole
+  conversation (prompt templates, rule, condition, cited code, tests); the
+  observable's review (`--crosscheck`) under its own such hash.
 - `quality.json` — a single file, answer by hash (prompt key + title +
   requirement); keeps only the run's rules.
 
-All four keys include `llm.PromptKey`: model, language (if the prompt depends on it) and **text of the
-prompt templates** (+ `--repair` for the crosscheck). Editing a prompt or
-changing the model therefore invalidates the cache on its own — no version
+Every key includes the model and the **text of the prompt templates**
+(`llm.PromptKey`, language included when the prompt depends on it, plus
+`--repair` for the crosscheck; the acceptance key hashes the whole
+conversation). Editing a prompt or changing the model therefore invalidates the cache on its own — no version
 constant to bump. A cache without a key (earlier version) is considered
 stale.
 

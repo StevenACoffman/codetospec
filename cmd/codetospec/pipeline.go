@@ -36,6 +36,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/state"
 	"github.com/StevenACoffman/codetospec/internal/ui"
 	"github.com/StevenACoffman/codetospec/internal/verify"
+	"github.com/StevenACoffman/codetospec/internal/vocabulary"
 )
 
 // runPipeline is the full run sequence: extract, chunk, map, reduce, build,
@@ -128,7 +129,7 @@ func (p *pipeline) run(ctx context.Context) error {
 	})
 	p.sink.Emit(ui.Chunked{Chunks: len(chunks)})
 
-	idx := indexFacts(ext.facts)
+	idx := indexFacts(ext.facts, models)
 	groundingOpts := grounding.Options{
 		DecimalSeparator: locale.For(cfg.Lang).DecimalSeparator,
 		Constants:        grounding.Constants(ext.facts),
@@ -173,6 +174,7 @@ func (p *pipeline) run(ctx context.Context) error {
 	})
 	meta.Reviewed = reviewedFiles
 	meta.Resolutions = prior.Resolutions
+	meta.UnusedTargets = result.unusedTargets
 	written, err := p.domainModel(models, nodes, tablesOf(ext.facts, domainOf))
 	if err != nil {
 		return err
@@ -466,9 +468,12 @@ func (p *pipeline) mapChunks(
 		Entities:     idx.entities,
 		Actors:       allowedActors(&p.cfg.Actors),
 		EndpointsFor: func(path string) []string { return idx.endpointsByPath[path] },
-		SymbolsFor:   func(path string) []mapper.SymbolContext { return idx.symbols[path] },
-		RulesFor:     func(path string) []mapper.Note { return idx.mechanical[path] },
-		DocsFor:      func(path string) []mapper.Note { return idx.docs[path] },
+		VocabularyFor: func(path, content string) []vocabulary.Term {
+			return idx.vocabulary.For(path, content)
+		},
+		SymbolsFor: func(path string) []mapper.SymbolContext { return idx.symbols[path] },
+		RulesFor:   func(path string) []mapper.Note { return idx.mechanical[path] },
+		DocsFor:    func(path string) []mapper.Note { return idx.docs[path] },
 		OnUnit: func(out mapper.Output, usage llm.Usage) {
 			var done int
 			p.record(ctx, func(s *state.State) {

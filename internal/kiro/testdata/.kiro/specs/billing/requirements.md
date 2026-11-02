@@ -31,7 +31,7 @@ Recovered by codetospec from the code of the `billing` domain: each requirement 
 
 ### Requirement 3: Rule prorata
 
-<!-- codetospec: rule.billing.prorata · crosscheck: supported · code: app/billing.go:10-20 -->
+<!-- codetospec: rule.billing.prorata · crosscheck: supported · code: app/billing.go:10-20 · does not claim: does not prorate a cancellation -->
 
 #### Acceptance Criteria
 

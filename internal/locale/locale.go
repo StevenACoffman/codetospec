@@ -56,6 +56,15 @@ type Labels struct {
 	Requirement string // label preceding the EARS requirement
 	Rationale   string
 	Criteria    string // label opening the numbered acceptance criteria
+	// The acceptance facts (see package acceptance); Observable and
+	// NonClaims are parsed back.
+	Observable    string // label before the observable: (channel) check
+	NonClaims     string // label opening the "- " list of non-claims
+	Examples      string // label opening the "- " list of examples
+	ExampleFmt    string // %s the given values (JSON), %s ExpectMatches or ExpectNoMatch
+	ExpectMatches string // the condition holds
+	ExpectNoMatch string // the condition does not hold
+	ExampleBroken string // after an example the condition contradicts
 
 	// Entity, endpoint and domain bodies.
 	Table, Columns          string
@@ -111,6 +120,7 @@ type ReadmeCoverage struct {
 	ExecutedFmt                             string // %d rules with executed cited code, of %d recorded
 	QuestionsFmt                            string // %d questions, %d resolved
 	UnusedResolutionsFmt                    string // %d resolutions matching no question
+	UnusedTargetsFmt                        string // %d targets matching no non-functional rule
 }
 
 // ReadmeReview lists rules for review and the domain graph heading.
@@ -214,6 +224,22 @@ func newLabels(tr translate) Labels {
 			"**Critères d'acceptation** :",
 			"**Acceptance criteria**:",
 		),
+		Observable: tr(
+			"**Observable** (comment distinguer le succès d'une imitation) : ",
+			"**Observable** (how to tell success from an imitation): ",
+		),
+		NonClaims: tr(
+			"**Ne promet pas** :",
+			"**Does not claim**:",
+		),
+		Examples: tr(
+			"**Exemples de la condition** :",
+			"**Condition examples**:",
+		),
+		ExampleFmt:    tr("- avec `%s` : %s", "- given `%s`: %s"),
+		ExpectMatches: tr("la condition est vraie", "the condition holds"),
+		ExpectNoMatch: tr("la condition est fausse", "the condition does not hold"),
+		ExampleBroken: tr(" (la condition dit le contraire)", " (the condition says otherwise)"),
 		Table: tr(
 			"**Table** : ",
 			"**Table**: ",
@@ -502,6 +528,10 @@ func newReadmeCoverage(tr translate) ReadmeCoverage {
 		UnusedResolutionsFmt: tr(
 			" ; %d résolutions ne correspondent plus à aucune question (code cité modifié, ou constat disparu) : à retirer",
 			"; %d resolutions match no question any more (cited code changed, or the finding is gone): remove them",
+		),
+		UnusedTargetsFmt: tr(
+			" ; %d cibles de `targets.yaml` ne correspondent à aucune règle non fonctionnelle (règle disparue, renommée ou devenue fonctionnelle)",
+			"; %d targets in `targets.yaml` match no non-functional rule (rule gone, renamed, or now functional)",
 		),
 		ExecutedFmt: tr(
 			"- Exécution (profil de couverture) : %d règles sur %d ont du code cité exécuté par les tests (`executed`)",

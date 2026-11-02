@@ -636,7 +636,7 @@ func isCondition(e ast.Expr) bool {
 	case *ast.BinaryExpr:
 		return slices.Contains(conditionOps(), x.Op)
 	case *ast.Ident:
-		return x.Name != goNil && x.Name != goTrue && x.Name != "false"
+		return x.Name != goNil && x.Name != goTrue && x.Name != goFalse
 	}
 	return false
 }
@@ -659,6 +659,7 @@ func conditionOps() []token.Token {
 const (
 	goNil    = "nil"
 	goTrue   = "true"
+	goFalse  = "false"
 	goBool   = "bool"
 	goString = "string"
 )

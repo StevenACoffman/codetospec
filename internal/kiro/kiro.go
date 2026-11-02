@@ -16,8 +16,9 @@
 // criteria become the correctness property validating N.1. No user story
 // (the code states none, and one is not invented) and no tasks.md (the
 // code already exists). The rule id, crosscheck verdict and cited code go
-// in an HTML comment, which Kiro does not render. Rules the crosscheck
-// refuted are left out.
+// in an HTML comment, which Kiro does not render, with what the rule does
+// not claim (the acceptance pass); its observable joins the property's
+// criteria. Rules the crosscheck refuted are left out.
 package kiro
 
 import (
@@ -27,6 +28,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/acceptance"
 	"github.com/StevenACoffman/codetospec/internal/crosscheck"
 	"github.com/StevenACoffman/codetospec/internal/ears"
 	"github.com/StevenACoffman/codetospec/internal/graph"
@@ -107,6 +109,11 @@ func newRequirement(n *graph.Node) requirement {
 	for _, line := range graph.RuleCriteria(n.Body) {
 		r.criteria = append(r.criteria, graph.CriterionText(line))
 	}
+	// The acceptance pass's observable checks the rule like its criteria:
+	// it joins them in the property (requirements.md takes EARS only).
+	if observable := acceptance.ExportedObservable(n); observable != "" {
+		r.criteria = append(r.criteria, "Observable: "+observable)
+	}
 	if c, ok := graph.RuleComponents(n); ok {
 		r.actor = c.System
 	}
@@ -145,8 +152,9 @@ func requirementsDoc(
 	b.WriteString("\n## Requirements\n")
 	for i, r := range reqs {
 		fmt.Fprintf(&b, "\n### Requirement %d: %s\n\n", i+1, oneLine(r.rule.Title))
-		fmt.Fprintf(&b, "<!-- codetospec: %s · crosscheck: %s · code: %s -->\n\n",
-			r.rule.ID, cmp.Or(r.rule.Extra["crosscheck"], "unchecked"), citations(r.rule))
+		fmt.Fprintf(&b, "<!-- codetospec: %s · crosscheck: %s · code: %s%s -->\n\n",
+			r.rule.ID, cmp.Or(r.rule.Extra["crosscheck"], "unchecked"), citations(r.rule),
+			nonClaims(r.rule))
 		fmt.Fprintf(&b, "#### Acceptance Criteria\n\n1. %s\n", criterion(r.rule))
 	}
 	return []byte(b.String())
@@ -192,6 +200,20 @@ func criterion(rule *graph.Node) string {
 		sentence = capitals
 	}
 	return strings.TrimSuffix(oneLine(sentence), ".")
+}
+
+// nonClaims is what the rule does not claim (the acceptance pass), for
+// the trace comment: " · does not claim: a; b", "" when it states none. As
+// criteria they would read as requirements to test an absence.
+func nonClaims(rule *graph.Node) string {
+	claims := graph.RuleNonClaims(rule.Body)
+	if len(claims) == 0 {
+		return ""
+	}
+	for i := range claims {
+		claims[i] = strings.ReplaceAll(oneLine(claims[i]), "--", "-")
+	}
+	return " · does not claim: " + strings.Join(claims, "; ")
 }
 
 // citations are a rule's cited spans, "path:lines" comma-separated.

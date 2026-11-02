@@ -28,6 +28,10 @@ const (
 	xPath      = "app/X.php"
 	invoices   = "entity.invoices"
 	prorataRef = "prorata-activation"
+	whenXThenY = "QUAND x, le systeme doit y."
+	// Requirements sharing no word.
+	alphaRule = "alpha beta gamma"
+	deltaRule = "delta epsilon zeta"
 )
 
 // withEARS is rule as map leaves it: the components of its Requirement,
@@ -49,7 +53,7 @@ func candidates() map[string][]mapper.Rule {
 	return map[string][]mapper.Rule{
 		billing: {withEARS(&mapper.Rule{
 			Title:       "Prorata",
-			Requirement: "QUAND x, le systeme doit y.",
+			Requirement: whenXThenY,
 			Citations:   []extract.Ref{{Path: xPath, Lines: "12-15"}},
 			Entities:    []string{invoices},
 			Confidence:  0.9,
@@ -371,7 +375,7 @@ func TestReduceParallelDeterministic(t *testing.T) {
 		multi[d] = []mapper.Rule{
 			withEARS(&mapper.Rule{
 				Title:       "T",
-				Requirement: "QUAND x, le systeme doit y.",
+				Requirement: whenXThenY,
 				Citations: []extract.Ref{
 					{Path: xPath, Lines: "12-15"},
 				},
@@ -493,8 +497,8 @@ func mergeCandidates() map[string][]mapper.Rule {
 		})
 	}
 	return map[string][]mapper.Rule{billing: {
-		rule("Prorata", "QUAND x, le systeme doit y.", repliedLines),
-		rule("Prorata bis", "QUAND x, le systeme doit y.", "13-14"),
+		rule("Prorata", whenXThenY, repliedLines),
+		rule("Prorata bis", whenXThenY, "13-14"),
 		rule(
 			"Refund window",
 			"QUAND un remboursement est demandé, le systeme doit vérifier la fenêtre.",
@@ -514,12 +518,27 @@ func TestSplitClusters(t *testing.T) {
 		"citation overlap alone clusters": {
 			[]mapper.Rule{
 				{
-					Requirement: "alpha beta gamma",
+					Requirement: alphaRule,
 					Citations:   []extract.Ref{{Path: fileA, Lines: sharedLines}},
 				},
 				{
-					Requirement: "delta epsilon zeta",
+					Requirement: deltaRule,
 					Citations:   []extract.Ref{{Path: fileA, Lines: "10-12"}},
+				},
+			},
+			2,
+		},
+		"same condition alone clusters": {
+			[]mapper.Rule{
+				{
+					Requirement: alphaRule,
+					Condition:   []byte(`{"exists": "token"}`),
+					Citations:   []extract.Ref{{Path: fileA, Lines: sharedLines}},
+				},
+				{
+					Requirement: deltaRule,
+					Condition:   []byte(` {"exists":"token"}`),
+					Citations:   []extract.Ref{{Path: "b.go", Lines: sharedLines}},
 				},
 			},
 			2,
@@ -527,11 +546,11 @@ func TestSplitClusters(t *testing.T) {
 		"same lines in another file do not cluster": {
 			[]mapper.Rule{
 				{
-					Requirement: "alpha beta gamma",
+					Requirement: alphaRule,
 					Citations:   []extract.Ref{{Path: fileA, Lines: sharedLines}},
 				},
 				{
-					Requirement: "delta epsilon zeta",
+					Requirement: deltaRule,
 					Citations:   []extract.Ref{{Path: "b.go", Lines: sharedLines}},
 				},
 			},

@@ -1185,6 +1185,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/federation.go:5-7",
     "attrs": {
+      "condition": "{\"not\":{\"var\":\"caller.loggedIn\",\"op\":\"equal\",\"value\":true}}",
       "domain": "federation",
       "ears": "unwanted",
       "nature": "business",
@@ -1203,6 +1204,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/federation.go:14-16",
     "attrs": {
+      "condition": "{\"not\":{\"var\":\"caller.loggedIn\",\"op\":\"equal\",\"value\":true}}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
@@ -1260,6 +1262,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/federation.go:39-41",
     "attrs": {
+      "condition": "{\"not\":{\"var\":\"caller.hasPermission.CanManageBlockList\",\"op\":\"equal\",\"value\":true}}",
       "domain": "federation",
       "ears": "unwanted",
       "nature": "business",
@@ -1279,6 +1282,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/federation.go:47-49",
     "attrs": {
+      "condition": "{\"not\":{\"var\":\"caller.loggedIn\",\"op\":\"equal\",\"value\":true}}",
       "domain": "resolvers",
       "ears": "unwanted",
       "nature": "business",
@@ -1335,6 +1339,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:6-8",
     "attrs": {
+      "condition": "{\"not\":{\"var\":\"request.isServiceAdmin\",\"op\":\"equal\",\"value\":true}}",
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
@@ -1354,6 +1359,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:14-16",
     "attrs": {
+      "condition": "{\"all\":[{\"not\":{\"var\":\"acl.IsCurrentUser\",\"op\":\"equal\",\"value\":true}},{\"not\":{\"var\":\"request.isServiceAdmin\",\"op\":\"equal\",\"value\":true}}]}",
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
@@ -1392,6 +1398,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:27-30",
     "attrs": {
+      "condition": "{\"not\":{\"var\":\"caller.loggedInNonPhantom\",\"op\":\"equal\",\"value\":true}}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
@@ -1411,6 +1418,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:36-39",
     "attrs": {
+      "condition": "{\"all\":[{\"not\":{\"var\":\"acl.IsCurrentUser\",\"op\":\"equal\",\"value\":true}},{\"not\":{\"var\":\"caller.hasPermission.CanViewUserIdentity\",\"op\":\"equal\",\"value\":true}}]}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
@@ -1429,6 +1437,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:40-46",
     "attrs": {
+      "condition": "{\"any\":[{\"not\":{\"var\":\"caller.hasPermission.CanChangeUserData\",\"op\":\"equal\",\"value\":true}},{\"all\":[{\"var\":\"customCheck\",\"op\":\"equal\",\"value\":true},{\"var\":\"acl.IsCoachedByActor\",\"op\":\"equal\",\"value\":true}]}]}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
@@ -1447,6 +1456,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:51-53",
     "attrs": {
+      "condition": "{\"not\":{\"var\":\"permissions.UserCanViewEmails\",\"op\":\"equal\",\"value\":true}}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
@@ -1465,6 +1475,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:74-76",
     "attrs": {
+      "condition": "{\"any\":[{\"exists\":\"err\"},{\"not\":{\"var\":\"canView\",\"op\":\"equal\",\"value\":true}}]}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
@@ -1483,6 +1494,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:77-80",
     "attrs": {
+      "condition": "{\"any\":[{\"var\":\"acl.ActorHasPermissionErr.fails\",\"op\":\"equal\",\"value\":true},{\"not\":{\"var\":\"caller.hasPermission.CanViewUserIdentity\",\"op\":\"equal\",\"value\":true}}]}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
@@ -1501,6 +1513,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:87-94",
     "attrs": {
+      "condition": "{\"all\":[{\"not\":{\"var\":\"request.isServiceAdmin\",\"op\":\"equal\",\"value\":true}},{\"not\":{\"var\":\"acl.IsCurrentUser\",\"op\":\"equal\",\"value\":true}}]}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
@@ -1519,6 +1532,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:98-101",
     "attrs": {
+      "condition": "{\"all\":[{\"exists\":\"user.Kaid\"},{\"not\":{\"var\":\"caller.loggedIn\",\"op\":\"equal\",\"value\":true}}]}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
@@ -1537,6 +1551,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:111-115",
     "attrs": {
+      "condition": "{\"all\":[{\"exists\":\"user.Kaid\"},{\"var\":\"ktx.RequestUser.fails\",\"op\":\"equal\",\"value\":true}]}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
@@ -1573,6 +1588,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:128-130",
     "attrs": {
+      "condition": "{\"var\":\"permissions.RequireEditor.fails\",\"op\":\"equal\",\"value\":true}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
@@ -1591,6 +1607,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:137-140",
     "attrs": {
+      "condition": "{\"var\":\"_canEditDrafts.fails\",\"op\":\"equal\",\"value\":true}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
@@ -1609,6 +1626,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:158-163",
     "attrs": {
+      "condition": "{\"var\":\"caller.overRateLimit.Signup\",\"op\":\"equal\",\"value\":true}",
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
@@ -1628,6 +1646,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:164-169",
     "attrs": {
+      "condition": "{\"var\":\"caller.overRateLimit.SignupAccount\",\"op\":\"equal\",\"value\":true}",
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
@@ -1666,6 +1685,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:184-187",
     "attrs": {
+      "condition": "{\"not\":{\"any\":[{\"var\":\"request.isServiceAdmin\",\"op\":\"equal\",\"value\":true},{\"var\":\"acl.IsCurrentUser\",\"op\":\"equal\",\"value\":true}]}}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
@@ -1684,6 +1704,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:194-200",
     "attrs": {
+      "condition": "{\"not\":{\"any\":[{\"var\":\"caller.loggedIn\",\"op\":\"equal\",\"value\":true},{\"var\":\"request.isServiceAdmin\",\"op\":\"equal\",\"value\":true}]}}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
@@ -1702,6 +1723,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:207-213",
     "attrs": {
+      "condition": "{\"all\":[{\"not\":{\"var\":\"request.isServiceAdmin\",\"op\":\"equal\",\"value\":true}},{\"not\":{\"var\":\"caller.hasPermission.CanViewUserIdentity\",\"op\":\"equal\",\"value\":true}}]}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
@@ -1721,6 +1743,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:220-225",
     "attrs": {
+      "condition": "{\"not\":{\"var\":\"caller.hasPermission.CanEditDrafts\",\"op\":\"equal\",\"value\":true}}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
@@ -1776,6 +1799,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:254-258",
     "attrs": {
+      "condition": "{\"all\":[{\"not\":{\"var\":\"request.isServiceAdmin\",\"op\":\"equal\",\"value\":true}},{\"not\":{\"var\":\"caller.hasPermission.CanRosterDistrict\",\"op\":\"equal\",\"value\":true}},{\"not\":{\"var\":\"caller.hasPermission.CanAccessDevadmin\",\"op\":\"equal\",\"value\":true}}]}",
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
@@ -1795,6 +1819,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:266-269",
     "attrs": {
+      "condition": "{\"all\":[{\"not\":{\"exists\":\"kaid\"}},{\"not\":{\"var\":\"caller.loggedIn\",\"op\":\"equal\",\"value\":true}}]}",
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
@@ -1814,6 +1839,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:266-273",
     "attrs": {
+      "condition": "{\"all\":[{\"exists\":\"kaid\"},{\"not\":{\"var\":\"acl.IsCurrentUser\",\"op\":\"equal\",\"value\":true}}]}",
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
@@ -1833,6 +1859,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:280-283",
     "attrs": {
+      "condition": "{\"any\":[{\"var\":\"cross_service.InKhanmigoDistrict.fails\",\"op\":\"equal\",\"value\":true},{\"not\":{\"var\":\"cross_service.InKhanmigoDistrict\",\"op\":\"equal\",\"value\":true}}]}",
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
@@ -1852,6 +1879,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:289-291",
     "attrs": {
+      "condition": "{\"var\":\"validateRename.fails\",\"op\":\"equal\",\"value\":true}",
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
@@ -1890,6 +1918,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:320-323",
     "attrs": {
+      "condition": "{\"not\":{\"any\":[{\"var\":\"request.isServiceAdmin\",\"op\":\"equal\",\"value\":true},{\"var\":\"acl.IsCurrentUser\",\"op\":\"equal\",\"value\":true}]}}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
@@ -1945,6 +1974,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:349-351",
     "attrs": {
+      "condition": "{\"not\":{\"var\":\"caller.loggedIn\",\"op\":\"equal\",\"value\":true}}",
       "domain": "resolvers",
       "ears": "unwanted",
       "nature": "business",
@@ -1963,6 +1993,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:368-370",
     "attrs": {
+      "condition": "{\"not\":{\"var\":\"_isActor\",\"op\":\"equal\",\"value\":true}}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
@@ -1982,6 +2013,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:382-388",
     "attrs": {
+      "condition": "{\"var\":\"age.IsUnderAgeGateByKaid\",\"op\":\"equal\",\"value\":true}",
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
@@ -2023,6 +2055,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.pkg/web/serve/graphql.go:11-18",
     "attrs": {
+      "condition": "{\"var\":\"request.header.X-Ka-Gateway-Secret\",\"op\":\"equal\",\"value\":\"\"}",
       "domain": "shared-serve",
       "ears": "unwanted",
       "nature": "business",
@@ -2042,6 +2075,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.pkg/web/serve/graphql.go:11-23",
     "attrs": {
+      "condition": "{\"any\":[{\"var\":\"ctx.Secrets().Get.fails\",\"op\":\"equal\",\"value\":true},{\"var\":\"request.header.X-Ka-Gateway-Secret\",\"op\":\"not_equal\",\"var2\":\"expected\"}]}",
       "domain": "shared-serve",
       "ears": "unwanted",
       "nature": "business",

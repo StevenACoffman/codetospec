@@ -201,6 +201,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.routes/graphql.go:6-22",
     "attrs": {
+      "condition": "{\"all\":[{\"var\":\"r.Method == http.MethodPost\",\"op\":\"equal\",\"value\":true},{\"not\":{\"var\":\"os.Getenv(\\\"KA_IS_DEV_SERVER\\\")\",\"op\":\"not_equal\",\"value\":\"0\"}},{\"var\":\"validateIsTrustedClient.fails\",\"op\":\"equal\",\"value\":true},{\"var\":\"validateIsTrustedClient.fails\",\"op\":\"equal\",\"value\":true},{\"var\":\"gateway.ValidateCSRF.fails\",\"op\":\"equal\",\"value\":true}]}",
       "domain": "routes",
       "ears": "unwanted",
       "nature": "business",
@@ -219,6 +220,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.routes/graphql.go:9-12",
     "attrs": {
+      "condition": "{\"var\":\"gateway.RateLimit\",\"op\":\"equal\",\"value\":true}",
       "domain": "routes",
       "ears": "unwanted",
       "nature": "business",
@@ -294,6 +296,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.routes/pubsub.go:12-16",
     "attrs": {
+      "condition": "{\"var\":\"pubsub.DecodeAndValidatePushMsg.fails\",\"op\":\"equal\",\"value\":true}",
       "domain": "routes",
       "ears": "unwanted",
       "nature": "business",
@@ -312,6 +315,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.routes/pubsub.go:36-39",
     "attrs": {
+      "condition": "{\"var\":\"r.URL.Query().Get(\\\"token\\\") != _pushToken\",\"op\":\"equal\",\"value\":true}",
       "domain": "routes",
       "ears": "unwanted",
       "nature": "business",
@@ -402,6 +406,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.routes/settings.go:6-10",
     "attrs": {
+      "condition": "{\"var\":\"validateIsTrustedClient.fails\",\"op\":\"equal\",\"value\":true}",
       "domain": "routes",
       "ears": "unwanted",
       "nature": "business",
@@ -420,6 +425,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.routes/settings.go:27-29",
     "attrs": {
+      "condition": "{\"not\":{\"var\":\"ctx.RequestIsTask\",\"op\":\"equal\",\"value\":true}}",
       "domain": "routes",
       "ears": "unwanted",
       "nature": "business",
@@ -438,6 +444,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.routes/settings.go:56-59",
     "attrs": {
+      "condition": "{\"var\":\"_ensureLoggedIn.fails\",\"op\":\"equal\",\"value\":true}",
       "domain": "routes",
       "ears": "unwanted",
       "nature": "business",
@@ -456,6 +463,7 @@
     "kind": "rule",
     "id": "rule.webapp.authz.pkg/web/serve/task_handler_util.go:4-10",
     "attrs": {
+      "condition": "{\"not\":{\"var\":\"ctx.RequestIsTask\",\"op\":\"equal\",\"value\":true}}",
       "domain": "shared-serve",
       "ears": "unwanted",
       "nature": "business",

@@ -23,15 +23,18 @@ const (
 const clusterSimilarity = 0.6
 
 // splitClusters separates the candidates that have a near-duplicate — a
-// similar requirement (textsim.Jaccard ≥ clusterSimilarity) or an
-// overlapping citation, transitively — from the singletons.
+// similar requirement (textsim.Jaccard ≥ clusterSimilarity), an
+// overlapping citation, or the same condition (equal hash), transitively —
+// from the singletons.
 //
 // Requires: nothing.
 // Ensures:  clustered and singles partition rules, each keeping rules' order.
 func splitClusters(rules []mapper.Rule) ([]mapper.Rule, []mapper.Rule) {
 	words := make([]map[string]bool, len(rules))
+	hashes := make([]string, len(rules))
 	for i := range rules {
 		words[i] = textsim.Words(rules[i].Requirement)
+		hashes[i] = conditionHash(rules[i].Condition)
 	}
 	parent := make([]int, len(rules))
 	for i := range parent {
@@ -47,7 +50,8 @@ func splitClusters(rules []mapper.Rule) ([]mapper.Rule, []mapper.Rule) {
 	for i := range rules {
 		for j := i + 1; j < len(rules); j++ {
 			if textsim.Jaccard(words[i], words[j]) >= clusterSimilarity ||
-				citationsOverlap(rules[i].Citations, rules[j].Citations) {
+				citationsOverlap(rules[i].Citations, rules[j].Citations) ||
+				(hashes[i] != "" && hashes[i] == hashes[j]) {
 				parent[find(i)] = find(j)
 			}
 		}
@@ -91,6 +95,7 @@ func asIs(c *mapper.Rule) Rule {
 		Slug:        normalizeSlug(c.Title),
 		Title:       c.Title,
 		EARS:        c.EARS,
+		Condition:   c.Condition,
 		EarsKind:    c.EarsKind,
 		Requirement: c.Requirement,
 		Citations:   c.Citations,

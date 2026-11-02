@@ -16,7 +16,10 @@ import (
 // drops a rule fact that breaks it (ears.Check included) without failing
 // the run. A template change shows up in the goldens (UPDATE_GOLDEN=1 in
 // extractors/webapp); a stricter check here then fails this test instead
-// of silently deleting authorization rules from real specs.
+// of silently deleting authorization rules from real specs. The goldens
+// of the service carry conditions in the compact notation, which only
+// package condition parses on this side: a notation change on either side
+// fails here too.
 func TestExtractorRuleFactsPass(t *testing.T) {
 	testdata := os.DirFS("../../extractors/webapp/testdata")
 	goldens, err := fs.Glob(testdata, "golden*.json")
@@ -26,11 +29,9 @@ func TestExtractorRuleFactsPass(t *testing.T) {
 	for _, name := range goldens {
 		t.Run(name, func(t *testing.T) {
 			facts := goldenFacts(t, testdata, name)
-			rules := 0
-			for i := range facts {
-				if facts[i].Kind == extract.KindRule {
-					rules++
-				}
+			rules, conditions := countRules(facts)
+			if conditions == 0 {
+				t.Error("no rule fact has a condition: the golden no longer exercises the notation")
 			}
 			if rules == 0 {
 				t.Fatal("no rule fact: the golden no longer exercises the contract")
@@ -40,6 +41,22 @@ func TestExtractorRuleFactsPass(t *testing.T) {
 			}
 		})
 	}
+}
+
+// countRules returns how many rule facts facts holds, and how many of
+// them carry a condition.
+func countRules(facts []extract.Fact) (int, int) {
+	rules, conditions := 0, 0
+	for i := range facts {
+		if facts[i].Kind != extract.KindRule {
+			continue
+		}
+		rules++
+		if facts[i].Attrs[extract.AttrCondition] != "" {
+			conditions++
+		}
+	}
+	return rules, conditions
 }
 
 // goldenFacts reads a golden: a bare JSON array of facts.

@@ -153,10 +153,7 @@ func Check(requirement string, citations []Citation, opts Options) Result {
 	if len(literals) == 0 || len(citations) == 0 {
 		return Result{Status: StatusUnchecked}
 	}
-	var cited []string
-	for _, c := range citations {
-		cited = append(cited, c.File[c.Start-1:c.End]...)
-	}
+	cited := citedLines(citations)
 	result := Result{Status: StatusGrounded}
 	for i := range literals {
 		lit := &literals[i]
@@ -483,7 +480,8 @@ func fold(s string) string {
 // citations cannot be read is StatusUnchecked; verify reports the broken
 // citation itself. An ungrounded rule whose citation is merely too narrow
 // is widened (see widening): the lines added to its Sources are recorded in
-// Extra[graph.ExtraGroundingWidened].
+// Extra[graph.ExtraGroundingWidened]. A rule's condition is checked too
+// (see checkCondition).
 func Annotate(roots extract.Roots, nodes []graph.Node, opts Options) []graph.Node {
 	for i := range nodes {
 		if nodes[i].Type != graph.TypeRule {
@@ -517,6 +515,9 @@ func Annotate(roots extract.Roots, nodes []graph.Node, opts Options) []graph.Nod
 		nodes[i].Extra["grounding"] = string(result.Status)
 		if summary := result.Summary(); summary != "" {
 			nodes[i].Extra["grounding_missing"] = summary
+		}
+		if citations, err := Load(roots, nodes[i].Sources); err == nil {
+			nodes[i].Extra = checkCondition(&nodes[i], citations, opts)
 		}
 	}
 	return nodes

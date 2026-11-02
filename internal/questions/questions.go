@@ -9,9 +9,16 @@
 // refuted (KindRefuted), an inherited rule whose shared code changed since
 // its verdict (KindStaleVerdict), a non-functional rule whose code states
 // no threshold (KindNFRTarget: the target is the person's to set), a rule
-// whose nature its code's layer contradicts (KindNatureMismatch), and code
-// of a domain that produced no rule (KindCoverageGap). Pair findings (near-duplicates) and the
-// domain-model gaps are not questions yet.
+// whose nature its code's layer contradicts (KindNatureMismatch), one whose
+// condition and EARS text state different checks (KindConditionMismatch),
+// one whose condition contradicts an example (KindExampleContradicted), one
+// whose observable the review refuted (KindObservableRefuted), one
+// whose target a person set for code that has changed since
+// (KindStaleTarget), and code of a domain that produced no rule
+// (KindCoverageGap). Pair findings (near-duplicates) and the domain-model
+// gaps are not questions yet. A target (KindNFRTarget's answer) is set in
+// targets.yaml (package nfrtarget), not resolved here: it closes the
+// question by setting the threshold.
 package questions
 
 import (
@@ -34,7 +41,23 @@ const (
 	KindStaleVerdict   = "stale_verdict"
 	KindNFRTarget      = "nfr_target"
 	KindNatureMismatch = "nature_mismatch"
-	KindCoverageGap    = "coverage_gap"
+	// KindConditionMismatch: a rule's condition and its EARS text state
+	// different checks (graph.ExtraConditionDisagreement).
+	KindConditionMismatch = "condition_mismatch"
+	// KindExampleContradicted: an example of the acceptance pass that the
+	// rule's condition contradicts (graph.ExtraExamplesContradicted): the
+	// requirement or the condition is wrong.
+	KindExampleContradicted = "example_contradicted"
+	// KindObservableRefuted: the adversarial review found that the cited
+	// code does not produce a rule's observable
+	// (graph.ExtraObservableRefuted, the review's reason): the observable
+	// or the rule is wrong.
+	KindObservableRefuted = "observable_refuted"
+	// KindStaleTarget: a non-functional rule's target was set for other
+	// code than it cites now (graph.ExtraTargetStale): check it still
+	// holds, then update its digest in targets.yaml.
+	KindStaleTarget = "stale_target"
+	KindCoverageGap = "coverage_gap"
 )
 
 // Question is one finding a person may resolve.
@@ -68,27 +91,8 @@ func List(nodes []graph.Node, gaps []graph.CoverageGap) []Question {
 		if n.Type != graph.TypeRule {
 			continue
 		}
-		digest := n.Extra[graph.ExtraDigest]
-		if n.Extra["grounding"] == "ungrounded" {
-			missing := n.Extra["grounding_missing"]
-			add(KindUngrounded, n.ID, missing, missingValues(missing), digest)
-		}
-		if issue := n.Extra[graph.ExtraEARSIssue]; issue != "" {
-			add(KindEARSIssue, n.ID, issue, issue, digest)
-		}
-		if n.Extra["crosscheck"] == crosscheck.VerdictUnsupported {
-			add(KindRefuted, n.ID, n.Extra["crosscheck"], "", digest)
-		}
-		if stale := n.Extra[graph.ExtraStaleVerdict]; stale != "" {
-			add(KindStaleVerdict, n.ID, stale, stale, digest)
-		}
-		if positional := n.Extra[graph.ExtraNatureByPosition]; positional != "" {
-			detail := positional + " by position, " + n.Extra["nature"] + " by text"
-			add(KindNatureMismatch, n.ID, detail, positional, digest)
-		}
-		if quality.IsNFR(n) && n.Extra[graph.ExtraThreshold] == "" {
-			attribute := n.Extra[graph.ExtraQualityAttribute]
-			add(KindNFRTarget, n.ID, attribute, attribute, digest)
+		for _, f := range ruleFindings(n) {
+			add(f.kind, n.ID, f.detail, f.key, n.Extra[graph.ExtraDigest])
 		}
 	}
 	for _, g := range gaps {
@@ -100,6 +104,48 @@ func List(nodes []graph.Node, gaps []graph.CoverageGap) []Question {
 	}
 	slices.SortFunc(qs, func(a, b Question) int { return cmp.Compare(a.ID, b.ID) })
 	return qs
+}
+
+// finding is one question a rule raises: its kind, detail and stable key.
+type finding struct{ kind, detail, key string }
+
+// ruleFindings lists the questions rule n raises.
+func ruleFindings(n *graph.Node) []finding {
+	var found []finding
+	if n.Extra["grounding"] == "ungrounded" {
+		missing := n.Extra["grounding_missing"]
+		found = append(found, finding{KindUngrounded, missing, missingValues(missing)})
+	}
+	// The findings a frontmatter key states as is: its value is both the
+	// detail and the stable key.
+	for _, k := range []struct{ kind, extra string }{
+		{KindEARSIssue, graph.ExtraEARSIssue},
+		{KindStaleVerdict, graph.ExtraStaleVerdict},
+		{KindConditionMismatch, graph.ExtraConditionDisagreement},
+		{KindExampleContradicted, graph.ExtraExamplesContradicted},
+		{KindStaleTarget, graph.ExtraTargetStale},
+	} {
+		if v := n.Extra[k.extra]; v != "" {
+			found = append(found, finding{k.kind, v, v})
+		}
+	}
+	if n.Extra["crosscheck"] == crosscheck.VerdictUnsupported {
+		found = append(found, finding{KindRefuted, n.Extra["crosscheck"], ""})
+	}
+	// The reason is the detail, not the key: a rerun of the review words
+	// it anew.
+	if reason := n.Extra[graph.ExtraObservableRefuted]; reason != "" {
+		found = append(found, finding{KindObservableRefuted, reason, ""})
+	}
+	if positional := n.Extra[graph.ExtraNatureByPosition]; positional != "" {
+		detail := positional + " by position, " + n.Extra["nature"] + " by text"
+		found = append(found, finding{KindNatureMismatch, detail, positional})
+	}
+	if quality.IsNFR(n) && n.Extra[graph.ExtraThreshold] == "" {
+		attribute := n.Extra[graph.ExtraQualityAttribute]
+		found = append(found, finding{KindNFRTarget, attribute, attribute})
+	}
+	return found
 }
 
 // gapFinding identifies a coverage gap among its domain's.

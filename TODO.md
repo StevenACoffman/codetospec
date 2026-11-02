@@ -113,6 +113,30 @@ rest.
     differ: production, development, or the default in code.
   - Otherwise leave config unread: a person's target answer covers the gap.
 
+- [x] Read a person's NFR target answer back into the export. Today an NFR
+      without a stated threshold exports `codetospec_threshold: unknown` and
+      raises an `nfr_target` question, and nothing reads the answer.
+  - Decided (2026-11-02): a separate `targets.yaml` keyed by rule id, not a
+    `resolutions.yaml` entry. A resolution is keyed by question id, which
+    hashes the cited code, so any edit to those lines would discard a
+    target that still holds; rule ids are stable across runs and renames
+    (`graph.MatchRules`).
+  - Each answer is a typed choice: `measure` (Planguage subset: Scale,
+    Meter, Must, Plan), `policy` (a reviewer policy) or `example` (a
+    reference case), so qualitative attributes such as usability get an
+    answer too. Each type maps to its own Quire field.
+  - A stored target fills the `threshold` frontmatter, which closes the
+    `nfr_target` question by itself; the export marks it
+    `codetospec_threshold: set`, apart from `stated` and `unknown`.
+  - Store the cited code's digest with each answer. When the code changes,
+    keep the target and raise a `stale_target` question, as inherited rules
+    raise `stale_verdict`. Report an answer whose rule no longer exists,
+    like a resolution without a question.
+  - Done: `internal/nfrtarget` as decided; the Quire export maps a measure
+    to the Measurement row, a policy to an Acceptance Criteria row, an
+    example to the reference case (validated against the schemas). A
+    person's target also wins over a stated threshold.
+
 ## Acceptance
 
 - [x] Add a journey node that orders endpoints and rules into a path someone
@@ -124,11 +148,38 @@ rest.
     shows no sequence of endpoints): `journey` frontmatter and body list,
     from handler spans and direct call facts (`graph/journeys.go`).
 
-- [ ] Record the two acceptance facts EARS does not carry: how an observer
+- [x] Record the two acceptance facts EARS does not carry: how an observer
       tells success from a plausible imitation, and what the rule does not
       claim. The EARS components already give the starting state (`while`),
       the trigger (`when`, `if`) and the behaviour (`shall`). The Kiro and
       Quire exports would carry the new facts as criteria.
+  - Decided (2026-11-02), source: a separate opt-in pass after the build,
+    shaped like `--quality` and outside the map and reduce caches, so it
+    needs no remap. It reads each rule's cited code and its nearest tests
+    (`testreach.NearestTests`), has its own cache by hash, and skips
+    extractor and inherited rules. Where tests exist, facts derived from
+    their assertions seed it; each fact records its source.
+  - Shape: structured, `observable: {channel: response | state | event |
+    log, check: ...}` and `non_claims: [...]`, written as a locale-labelled
+    body section read back like `graph.RuleCriteria`, so a reviewed rule
+    keeps them. Grounding checks the values of `check` against the cited
+    code or tests; the crosscheck may try to refute the observable.
+  - Exports: the observable becomes an acceptance criterion (Quire
+    criteria, Kiro N.2 and up). The non-claims become
+    `codetospec_non_claims` in Quire (or the schema's own field, if
+    spec-artifacts-iso 0.3.0 has one) and go in Kiro's trace comment:
+    as criteria they would read as requirements to test an absence.
+  - The same pass writes the executable examples of IMPROVEMENTS #5 (see
+    Conditions).
+  - Done: `internal/acceptance` (`--acceptance`); exports as decided, except
+    that Kiro's observable joins the `design.md` property (its
+    `requirements.md` takes EARS sentences only). Facts derived from test
+    assertions come from the model reading the tests (`source: test`),
+    not from a mechanical parser. With `--crosscheck`, a blind review
+    tries to refute each observable (`observable_crosscheck`); a refuted
+    one gets a question and leaves the exports. On three districts-jobs
+    modules, 66 observables, 27
+    grounded (`docs/verification/conditions-acceptance-2026-11-02.md`).
 
 ## Domain Models
 
@@ -146,10 +197,20 @@ rest.
     actions by first verb; unperformed actions and unmodeled verbs in the
     README. `indomain` already reads actions.
 
-- [ ] Share one modelith reader with anarch-lint. codetospec reads models
+- [x] Share one modelith reader with anarch-lint. codetospec reads models
       through `indomain`; anarch-lint has its own `internal/modelith` adapter,
       so every model feature, actions included, is built twice. Decide whether
       anarch-lint can depend on `indomain`, or both on a shared package.
+  - Found done (2026-11-02): anarch-lint already requires `indomain`
+    v0.3.0, and its `internal/modelith` parses through `indomain/pkg/model`,
+    translating into its own `arch` types. Decided: anarch-lint depends on
+    `indomain`; changes either tool needs go into `indomain`.
+
+- [ ] Have anarch-lint recommend `modelith lint` for an invalid model.
+      Decided (2026-11-02): anarch-lint does not run `indomain`'s lint (it
+      decodes strictly; checking the rest of the format is modelith's job).
+      Today only the package comment of `internal/modelith` says so: say it
+      in anarch-lint's README and in its error for an invalid model.
 
 ## Repository Checks
 
@@ -174,3 +235,65 @@ rest.
       dependency constraint, such as "package X never calls Y", emit it as a
       candidate `fitness` rule for a person to accept into the target's
       `anarch.json`. No format is fixed yet.
+  - Decided (2026-11-02): a proposals file that anarch-lint can read; a
+    person accepts each proposed rule into `anarch.json` explicitly.
+    Nothing is written into `anarch.json` itself. The per-layer
+    `nature_mismatch` questions are a lead for it.
+  - Measured (2026-11-02): none of the ~19,000 rules of `~/spec-graphs`
+    states a dependency constraint ("only through X", "never calls Y");
+    the keyword matches all describe behaviour (a read-only client). A
+    mapped rule describes what code does, not how packages depend on
+    each other, so rule text is not the source. Deferred until after the
+    remap: decide from the per-layer `nature_mismatch` counts (above)
+    whether they, or the enum transitions (a `fields` write rule per
+    state field), give proposals worth a file.
+
+## Conditions
+
+IMPROVEMENTS #1 (structured `condition` per rule) and #5 (executable
+examples) land before the remap. Decided 2026-11-02:
+
+- [x] Add `github.com/faustbrian/go-rule-engine/v2` to the main module: it
+      parses, hashes canonically and evaluates the conditions.
+- [x] Give the map a vocabulary for condition variables, so an LLM rule and
+      an extractor rule about the same check hash equal. Sources, in order:
+      the variables of extractor rule conditions, schema facts (tables and
+      columns, enums), then the human domain models where present; each
+      chunk gets only the terms that appear in it. A variable outside the
+      vocabulary is coined under `local.`. The vocabulary stays out of
+      `promptKey`, as the actors do.
+- [x] When the reduce merges rules: if every merged candidate's condition
+      hashes equal, keep it without the LLM; otherwise the reduce writes the
+      merged condition, which must parse and ground or is dropped (never a
+      run failure). The condition hash is also one more "same rule" signal
+      for the reduce's clustering.
+- [x] When a rule's condition and its EARS text disagree, neither wins: a
+      question, whose detail says which side's values occur in the cited
+      code. Never an automatic override; measure the volume and precision
+      after the remap.
+- [x] Executable examples (#5): written by the acceptance pass (see
+      Acceptance), not the map, as `{given, expect}` rows checked against
+      the condition with go-rule-engine; a contradicted example flags a
+      wrong requirement or a wrong condition, with no LLM.
+- Done: `internal/condition`, `internal/vocabulary`, the webapp
+  extractor's guard conditions, map, reduce, build checks and the two
+  questions. On three districts-jobs modules: 45 of 66 rules got a
+  condition, none dropped; 5 disagreements (1 wrong condition, 4 vaguer
+  texts); 116 of 116 examples hold
+  (`docs/verification/conditions-acceptance-2026-11-02.md`).
+
+- [x] Grow the condition vocabulary for Go services. On districts-jobs,
+      66 of 69 condition variables were coined under `local.`: those
+      modules have no tables, no domain model, and the Go extractor states
+      no rule conditions, so map rules cannot hash equal across chunks.
+      Candidate source: the Go extractor's types (struct fields as
+      `Type.field`), as the enumerations already are (`moa.State` was
+      used where offered). Measure the coined share before and after.
+  - Done: `struct` facts (module types, and with `-shared` the shared
+    types the module reaches), offered as `pkg.Type.Field` where the
+    struct is named. Coined variables 62/64 → 39/66, variables shared by
+    two rules 7 → 13; 20 of 21 vocabulary uses right
+    (`docs/verification/condition-vocabulary-go-structs-2026-11-02.md`).
+- [ ] Measure conditions on webapp after the remap: its extractor
+      conditions (34 in the goldens) are the vocabulary's richest source,
+      and how often map conditions reuse them is unmeasured.

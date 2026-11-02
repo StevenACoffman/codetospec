@@ -38,7 +38,16 @@ const (
 	// (EARS kind), AttrNature and AttrDomain describe it. The graph turns
 	// valid rule facts into rule nodes that skip the LLM crosscheck. The
 	// optional AttrRoute names the route fact (by ID) of the endpoint the rule
-	// guards; it becomes an exposed_by edge.
+	// guards; it becomes an exposed_by edge. The optional AttrCondition is
+	// the rule's condition in the compact notation of package condition,
+	// one JSON object:
+	//   {"all": [c…]} | {"any": [c…]} | {"not": c} | {"exists": "a.b"}
+	//   {"var": "a.b", "op": "<operator>", "value": <literal>}
+	//   {"var": "a.b", "op": "<operator>", "var2": "c.d"}
+	// (operators: condition.Operators; a literal is a bool, number or
+	// string, a list of them for in and not_in; a variable is dot-separated
+	// parts without / or \). A condition that does not parse rejects the
+	// fact.
 	KindRule = "rule"
 	// KindDomain assigns the code in Source to the domain AttrDomain,
 	// overriding the configured domain strategy for chunks starting there.
@@ -97,6 +106,12 @@ const (
 	// facts, and only for the code of the commit the profile was made on:
 	// the extractor leaves out the files changed since.
 	KindExecuted = "executed"
+	// KindStruct is a struct type at Source (AttrName, e.g. "shop.Order")
+	// and AttrFields, the comma-separated names of its fields a condition
+	// can compare or test for presence. Only the condition vocabulary reads
+	// it (see package vocabulary): a rule about an order's status names
+	// shop.Order.Status as the code does.
+	KindStruct = "struct"
 )
 
 // DispatchInterface is AttrDispatch on a call or test fact whose caller
@@ -125,8 +140,10 @@ const (
 	AttrNamespace   = "namespace" // the namespace a fact sits in
 	AttrTarget      = "target"    // what an import names
 	AttrColumns     = "columns"   // a table's "name:type" columns, comma-separated
+	AttrFields      = "fields"    // a struct's field names, comma-separated
 	AttrValue       = "value"
 	AttrRoute       = "route"
+	AttrCondition   = "condition" // a rule's condition (see KindRule)
 	AttrText        = "text"
 	// AttrDescription, on a table fact, is the entity's authored
 	// description (a struct's doc comment, a schema comment): what the

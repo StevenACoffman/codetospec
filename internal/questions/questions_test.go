@@ -1,6 +1,7 @@
 package questions_test
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -178,8 +179,13 @@ func TestLoad(t *testing.T) {
 	}
 }
 
-// technical is the nature of a non-functional rule.
-const technical = "technical"
+// technical is the nature of a non-functional rule, performance one of
+// its qualities, and nature the frontmatter key of the nature.
+const (
+	technical   = "technical"
+	performance = "performance_efficiency"
+	nature      = "nature"
+)
 
 // TestListNFRTarget: a non-functional rule asks for its target until its
 // code states a threshold; a business rule serving a quality, and a
@@ -190,11 +196,11 @@ func TestListNFRTarget(t *testing.T) {
 		want                         []string
 	}{
 		"no stated threshold": {
-			nature: technical, attribute: "performance_efficiency",
+			nature: technical, attribute: performance,
 			want: []string{"nfr_target performance_efficiency"},
 		},
 		"threshold stated in code": {
-			nature: technical, attribute: "performance_efficiency", threshold: "30 seconds",
+			nature: technical, attribute: performance, threshold: "30 seconds",
 		},
 		"business rule serving security": {nature: "business", attribute: "security"},
 		"plain functionality": {
@@ -205,13 +211,77 @@ func TestListNFRTarget(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			extra := map[string]string{"nature": tc.nature}
+			extra := map[string]string{nature: tc.nature}
 			if tc.attribute != "" {
 				extra[graph.ExtraQualityAttribute] = tc.attribute
 			}
 			if tc.threshold != "" {
 				extra[graph.ExtraThreshold] = tc.threshold
 			}
+			var got []string
+			for _, q := range questions.List(
+				[]graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}}, nil) {
+				got = append(got, q.Kind+" "+q.Detail)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("questions = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestListConditionMismatch: a rule whose condition and EARS text
+// disagree asks which is right, with the disagreement as detail.
+func TestListConditionMismatch(t *testing.T) {
+	cases := map[string]struct {
+		disagreement string
+		want         []string
+	}{
+		"disagree": {
+			"text 30 (not cited)",
+			[]string{questions.KindConditionMismatch + " text 30 (not cited)"},
+		},
+		"agree": {"", nil},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			extra := map[string]string{"nature": "business"}
+			if tc.disagreement != "" {
+				extra[graph.ExtraConditionDisagreement] = tc.disagreement
+			}
+			var got []string
+			for _, q := range questions.List(
+				[]graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}}, nil) {
+				got = append(got, q.Kind+" "+q.Detail)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("questions = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestListStaleTarget: a target a person set closes the nfr_target
+// question; set for code that changed since, it asks whether it still
+// holds.
+func TestListStaleTarget(t *testing.T) {
+	cases := map[string]struct {
+		extra map[string]string
+		want  []string
+	}{
+		"no target": {nil, []string{questions.KindNFRTarget + " " + performance}},
+		"set":       {map[string]string{graph.ExtraThreshold: "must 200 ms"}, nil},
+		"set for other code": {
+			map[string]string{graph.ExtraThreshold: "must 200 ms", graph.ExtraTargetStale: "d1"},
+			[]string{questions.KindStaleTarget + " d1"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			extra := map[string]string{
+				nature: technical, graph.ExtraQualityAttribute: performance,
+			}
+			maps.Copy(extra, tc.extra)
 			var got []string
 			for _, q := range questions.List(
 				[]graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}}, nil) {

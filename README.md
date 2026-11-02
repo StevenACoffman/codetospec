@@ -262,7 +262,10 @@ frontmatter carries `quality_attribute` (from `--quality`) and the source
 rule (`codetospec_rule`, `codetospec_crosscheck`). A rule with no criteria
 (`--reduce-mode merge` keeps such rules) has its requirement as its one
 criterion, marked `codetospec_criteria: requirement`; a rule the crosscheck
-refuted is left out. It bootstraps a spec a team then edits in quoin, so
+refuted is left out. A rule's observable (`--acceptance`, unless its
+review refuted it) is one more criterion, named by `codetospec_observable: FR-001-AC-3`, and what it
+does not claim is `codetospec_non_claims` (as criteria they would read as
+requirements to test an absence). It bootstraps a spec a team then edits in quoin, so
 `<dir>` must be new or empty: a second export would overwrite their work.
 A technical rule serving a quality (`--quality`, other than
 `functional_suitability`) is a non-functional requirement instead:
@@ -278,6 +281,37 @@ unknown`, and names the `nfr_target` question of `questions.json`
 quality (authorization is `security`) stays an FR. Not exported:
 enumerations (another module's object types).
 
+A person answers an `nfr_target` question in `<out>/targets.yaml`, keyed
+by rule id (stable across runs, where a question id changes with the
+cited code), with one of three kinds of target and the rule's `digest`:
+
+```yaml
+rule.billing.invoice-latency:
+  digest: 3f2a9c01d4e5b6a7
+  measure:                       # Planguage: scale, meter, must and/or plan
+    scale: p95 latency of POST /invoices
+    meter: load test, 10 minutes
+    must: 200 ms
+    plan: 120 ms
+rule.billing.audit-trail:
+  digest: 9b0c1d2e3f4a5b6c
+  policy: Every change to an invoice is logged with its author.
+rule.checkout.plain-forms:
+  digest: 0a1b2c3d4e5f6a7b
+  example: the checkout of the 2026 redesign   # a reference case
+```
+
+The run sets the rule's `threshold` from it (`target: measure`), which
+closes the question, and the NFR exports `codetospec_threshold: set`: a
+measure fills the Measurement row, a policy becomes an Acceptance
+Criteria row (the NFR skeleton's place for a policy), an example the
+reference case. A person's target wins over a threshold the code states.
+When the cited code changes, the target is kept, the rule gets
+`target_stale` and a `stale_target` question asks whether it still holds
+(update the digest once checked). A target whose rule is gone, or no
+longer non-functional, is counted in the README; a malformed entry stops
+the run before any LLM call. codetospec never writes the file.
+
 `export --format kiro` writes one [Kiro](https://kiro.dev) spec per
 domain, `<dir>/.kiro/specs/<domain>/`: `requirements.md` (Introduction
 from the domain summary, a Glossary of the system and the actors the rules
@@ -286,8 +320,10 @@ acceptance criterion, written in Kiro's capitals — `WHEN …, THE SYSTEM
 SHALL …`) and, when rules have acceptance criteria, `design.md`, whose
 Correctness Properties each `**Validates: Requirements N.1**`. Each
 requirement carries its rule id, verdict and cited code in an HTML
-comment. No user story (the code states none) and no `tasks.md` (the code
-exists); refuted rules are left out. On districts and assignments every
+comment, with what it does not claim; its observable joins the property's
+criteria (`requirements.md` takes EARS sentences only). No user story
+(the code states none) and no `tasks.md` (the code exists); refuted rules
+are left out. On districts and assignments every
 exported criterion reads back into its rule's components
 (`docs/verification/kiro-export-2026-10-27.md`).
 
@@ -351,7 +387,8 @@ overwritten, with a warning.
 
 **Findings a person has checked stay checked.** Each finding about one
 rule or domain (an ungrounded rule, an `ears_issue`, a refuted rule, a
-stale inherited verdict, code without rules) is a question in
+stale inherited verdict, a condition or an example at odds with the
+text, code without rules) is a question in
 `questions.json`, with an id that depends on the finding and the digest of
 the cited code, not on its wording. Answer one in `<out>/resolutions.yaml`:
 
@@ -385,6 +422,50 @@ requirement in the body: the start of an acceptance test of that endpoint.
 Which endpoint a person calls next is not in the code, so a journey never
 spans two endpoints.
 
+**Conditions.** Besides its EARS sentence, a rule carries what its code
+checks before the response as a tree a machine can hash and evaluate:
+frontmatter `condition` (`{"all": [...]}`, `{"any": [...]}`, `{"not": c}`,
+`{"exists": "v"}`, `{"var": "v", "op": "less_than", "value": 3}` or
+`"var2"`: [go-rule-engine](https://github.com/faustbrian/go-rule-engine)'s
+operators) and `condition_hash`, equal for two rules that check the same
+thing the same way, however they are worded. An extractor states it on its
+rule facts (the webapp extractor does for its access and rate-limit
+guards: `caller.loggedIn`, `caller.hasPermission.<P>`…); the map writes it
+for its own rules, offered a **vocabulary** per chunk: the variables of the
+extractor rules of its file, the tables' columns, enumerations and Go
+struct fields it mentions (`shop.Order.Status`, offered where the chunk
+also names the struct: the Go extractor's `struct` facts, the shared
+`-shared` types the module reaches included), then the attributes of
+`--domain-model` models; a variable outside
+it is kept under `local.`. A condition that does not parse, or compares with
+a value its cited lines lack, gets the map's one repair exchange, and is
+dropped if still wrong (`condition_dropped`), never its rule. The reduce
+keeps the condition its merged candidates share, else the one it writes.
+A kept condition that states other values than the EARS text, or
+conditions a rule whose text states none, is a `condition_mismatch`
+question (`condition_disagreement` says which values, and whether the
+cited code holds each); neither side is changed.
+
+**Acceptance facts** (`--acceptance`). One LLM call per rule the map wrote
+and the crosscheck did not refute, reading its cited code and its two
+nearest tests, cached in `.codetospec/acceptance/` (no map or reduce cache
+invalidated): the **observable** — where an observer sees that the rule
+held, not a plausible imitation (`response`, `state`, `event`, `log`),
+what to check, and whether a test or the code states it — what the rule
+**does not claim**, and, for a rule with a condition, **examples**
+(`given` values → the condition holds or not) at its boundaries. Checked
+without an LLM: the observable's values against what it was read from
+(`observable_grounding`), each example against the condition
+(go-rule-engine, `examples: 3/3`); a contradicted example is an
+`example_contradicted` question: the requirement or the condition is
+wrong. Body sections "Observable", "Does not claim", "Condition examples".
+With `--crosscheck` too, a second, blind call tries to refute each
+observable from the rule, the observable, the cited code and the tests
+alone (`observable_crosscheck: supported | partial | unsupported`,
+cached beside the facts). A refuted observable stays in the body, with
+the reason in `observable_refuted` and an `observable_refuted` question,
+and no export takes it as a criterion.
+
 `--reduce-mode merge` makes reduce much cheaper: only candidates with a
 near-duplicate (similar requirement or overlapping citation) go to the LLM;
 the others are kept as mapped, without rationale or acceptance criteria.
@@ -399,7 +480,8 @@ once —
 `security`, `reliability`, `performance_efficiency`… as the frontmatter
 `quality_attribute`, the field an ISO 29148 NFR carries; one LLM call per
 40 rules, the rules' text alone, cached by text in
-`.codetospec/quality.json`; no map or reduce cache is invalidated), `--domain-depth N` (split a repo that
+`.codetospec/quality.json`; no map or reduce cache is invalidated),
+`--acceptance` (acceptance facts, above), `--domain-depth N` (split a repo that
 lives under one root namespace into `core-controller`, `core-server`… instead
 of one mega-domain; a namespace declared in several directories, such as
 Go's `main` for every `cmd/<tool>`, is never one domain: each file takes its
@@ -507,6 +589,7 @@ Copy a model back into your repository, edit it, and pass it with
 ├── graph.json        # whole graph, machine format
 ├── questions.json    # findings to review, with their ids
 ├── resolutions.yaml  # yours: answers to questions (never written by codetospec)
+├── targets.yaml      # yours: NFR targets by rule id (never written by codetospec)
 └── nodes/
     ├── domains/<slug>.md
     ├── entities/<slug>.md
@@ -575,7 +658,9 @@ Two more kinds let an extractor contribute beyond structure (contract in
   the LLM reviewer), are listed to the map prompt as `MECHANICAL_RULES` so the
   model does not restate them, and are grounded like any rule.
   An optional attr `route` (a route fact id) links the rule to that
-  endpoint (`exposed_by`). Its `source` may carry `"root": "<name>"`: the
+  endpoint (`exposed_by`); an optional attr `condition` is its condition
+  in the notation above (one JSON object; one that does not parse rejects
+  the fact). Its `source` may carry `"root": "<name>"`: the
   citation is then in the tree given by `--ref-root <name>=dir`, not
   `--src` — shared code the analyzed one builds on (a monorepo's `pkg/`).
   Such a rule is grounded, digested and verified against that tree, shown

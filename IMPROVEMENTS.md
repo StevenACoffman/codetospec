@@ -22,7 +22,7 @@ code under `internal/`, and zen-go links prebuilt Rust archives through cgo.
 Licenses: feelc and gortex are Apache-2.0 (copied code needs NOTICE
 attribution); zen-go, go-rule-engine and codegraph-go are MIT.
 
-## Status (2026-10-13, #11 updated 2026-11-01)
+## Status (2026-10-13, #11 updated 2026-11-01, #1 and #5 done 2026-11-02)
 
 Each item was measured on the users and districts runs (and, for the
 extractor, on admin, ai-guide and content-editing) before being built.
@@ -35,8 +35,8 @@ extractor, on admin, ai-guide and content-editing) before being built.
 | — | **Done: extractor bug found by #2 step 1's prototype** | a block ending in a successful return was a guard because an auth error sat in a nested branch; `errorName` now skips nested branches (districts −1 false rule, nothing else changed) |
 | 2 (step 0) | **Rejected by measurement** | 5 candidates (users 4, districts 1), 0 real contradictions: complementary branches or paraphrases with one negation word |
 | 1, 2 (step 1) | **Deferred** | prototype with go-rule-engine over 84 multi-guard methods: 0 dead, 0 shadowed guards once variables are keyed by their bound call; nothing to report without LLM conditions |
-| 5 | Deferred | needs LLM conditions; extractor examples would be tautological |
-| 1 (LLM part) | Deferred | a map prompt change re-maps every chunk (~3.6M tokens per service), and LLM variables would not share the extractor's vocabulary |
+| 5 | **Done** (2026-11-02) | the acceptance pass writes the examples, checked against the condition with go-rule-engine: 116 of 116 hold on three districts-jobs modules (`docs/verification/conditions-acceptance-2026-11-02.md`) |
+| 1 (LLM part) | **Done** (2026-11-02) | map and reduce write conditions, the webapp extractor states its guards'; 45 of 66 districts-jobs rules got one, none dropped, but 66 of 69 variables were coined: the vocabulary needs Go types (TODO.md) |
 | 4, 8 | Deferred | 0 aliased `acl`/`permissions` imports in any service; ~4 cross-package access calls; cost = type-checked fixture + slower extractor |
 | 6 | **Rejected by measurement** | rules per 1,000 lines are flat with distance from resolvers (users 46 at hop 0 vs 49 unreached; districts 33 vs 24): skipping far chunks drops rules in proportion |
 | 7 | **Rejected by measurement** | exact Type-2 clones: users 6.1% of map lines (mostly mocks, testutil, a data list, now excluded by `scanwebapp.sh`), districts 1.5% |
@@ -97,6 +97,20 @@ frontmatter next to the EARS text.
   as it does for the requirement text.
 - **Canonical hash.** Two rules with the same condition hash equal even
   when their wording differs, which Jaccard misses.
+
+**Decided (2026-11-02).** Built before the remap, with
+`github.com/faustbrian/go-rule-engine/v2` in the main module.
+- **Vocabulary.** The map gets the variable names it may use: those of
+  the extractor rules' conditions, then schema facts (tables and columns,
+  enums), then the human domain models, each chunk only the terms that
+  appear in it. A coined variable goes under `local.`. The vocabulary is
+  outside `promptKey`, as the actors are.
+- **Reduce.** Merged candidates whose conditions hash equal keep that
+  condition without the LLM; otherwise the reduce writes the merged
+  condition, kept only if it parses and grounds, never a run failure. The
+  hash is also a clustering signal.
+- **Disagreement with the EARS text.** Neither wins: a question, whose
+  detail says which side's values the cited code holds.
 
 **Limits.** The predicate tree can't be walked through the API: node types
 and `Plan.requiredPaths` are unexported, and so is the JSON schema behind
@@ -218,6 +232,11 @@ or a wrong condition, with no LLM. The reducer already writes acceptance
 criteria as free text, which grounding deliberately ignores, so this gives
 them a checkable form. For mechanical rules, the extractor can produce the
 examples itself: one row matching the condition, one not.
+
+**Decided (2026-11-02).** Scheduled before the remap, but written by the
+acceptance pass (TODO.md, Acceptance), not the map: the pass already
+reads the cited code and the nearest tests, so the examples need no map
+prompt change. Extractor examples stay out: they would be tautological.
 
 ## 6. Rank chunks to skip low-value ones
 

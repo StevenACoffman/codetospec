@@ -5,9 +5,12 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/domainmodel"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/mapper"
+	"github.com/StevenACoffman/codetospec/internal/vocabulary"
+	"github.com/StevenACoffman/indomain/pkg/model"
 )
 
 // factIndex is what the LLM phases are allowed to cite or must know, per
@@ -19,11 +22,21 @@ type factIndex struct {
 	symbols         map[string][]mapper.SymbolContext
 	mechanical      map[string][]mapper.Note
 	docs            map[string][]mapper.Note
+	// vocabulary is the condition variables the map may name.
+	vocabulary vocabulary.Vocabulary
 }
 
-// indexFacts gathers, from the merged facts, what the LLM phases may cite.
-func indexFacts(facts []extract.Fact) factIndex {
+// indexFacts gathers, from the merged facts and the human domain models
+// (nil without --domain-model), what the LLM phases may cite.
+func indexFacts(facts []extract.Fact, models *domainmodel.Set) factIndex {
+	var parsed []*model.Model
+	if models != nil {
+		for i := range models.Models {
+			parsed = append(parsed, models.Models[i].Model)
+		}
+	}
 	return factIndex{
+		vocabulary:      vocabulary.Build(facts, parsed),
 		entities:        entityIDs(facts),
 		allEndpoints:    allEndpointIDs(facts),
 		endpointsByPath: endpointsByPath(facts),

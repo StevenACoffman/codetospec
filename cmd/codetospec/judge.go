@@ -4,13 +4,16 @@ import (
 	"context"
 	"path/filepath"
 
+	"github.com/StevenACoffman/codetospec/internal/acceptance"
 	"github.com/StevenACoffman/codetospec/internal/crosscheck"
 	"github.com/StevenACoffman/codetospec/internal/drift"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/grounding"
 	"github.com/StevenACoffman/codetospec/internal/llm"
+	"github.com/StevenACoffman/codetospec/internal/locale"
 	"github.com/StevenACoffman/codetospec/internal/mapper"
+	"github.com/StevenACoffman/codetospec/internal/nfrtarget"
 	"github.com/StevenACoffman/codetospec/internal/quality"
 	"github.com/StevenACoffman/codetospec/internal/render"
 	"github.com/StevenACoffman/codetospec/internal/state"
@@ -23,12 +26,13 @@ type judged struct {
 	nodes         []graph.Node
 	tally         crosscheck.Tally
 	reviewedFiles map[string][]byte // the rule files a person owns, kept as they are
+	unusedTargets []string          // targets.yaml ids no non-functional rule takes
 }
 
 // judge runs the passes over the built graph: the LLM crosscheck and
 // quality passes (each when enabled), the mechanical stamps (grounding,
-// digests, stated thresholds, test reach), then puts back the rules a
-// person owns.
+// digests, stated thresholds, a person's targets), the acceptance pass (when enabled), test
+// reach, then puts back the rules a person owns.
 func (p *pipeline) judge(
 	ctx context.Context,
 	nodes []graph.Node,
@@ -48,12 +52,22 @@ func (p *pipeline) judge(
 	}
 	nodes = stamp(p.cfg.Roots(), nodes, facts, groundingOpts)
 	nodes = quality.AnnotateThresholds(nodes, groundingOpts.DecimalSeparator)
+	nodes, unusedTargets := nfrtarget.Annotate(nodes, prior.Targets)
+	// After the stamps: a condition the cited code does not ground is gone,
+	// so no example tests it.
+	if nodes, err = p.acceptance(ctx, nodes, groundingOpts,
+		func(rule *graph.Node) []extract.Ref { return nearest(rule.Sources) }); err != nil {
+		return judged{}, err
+	}
 	nodes = testreach.Annotate(nodes, facts)
 	nodes, reviewedFiles := p.keepReviewed(nodes, prior.Reviewed)
 	if p.cfg.Crosscheck && len(reviewedFiles) > 0 {
 		tally = crosscheck.Count(nodes) // the kept rules' verdicts, not the replaced ones'
 	}
-	return judged{nodes: nodes, tally: tally, reviewedFiles: reviewedFiles}, nil
+	return judged{
+		nodes: nodes, tally: tally, reviewedFiles: reviewedFiles,
+		unusedTargets: unusedTargets,
+	}, nil
 }
 
 // crosscheckTests is how many of the nearest tests the reviewer reads
@@ -156,4 +170,44 @@ func (p *pipeline) quality(ctx context.Context, nodes []graph.Node) ([]graph.Nod
 		return nil, err
 	}
 	return quality.Annotate(nodes, attributes), nil
+}
+
+// acceptance writes each LLM rule's acceptance facts when --acceptance is
+// set, the nearest tests of each rule (testsFor) shown as evidence, and
+// with --crosscheck has each observable reviewed; without it, the nodes
+// unchanged.
+func (p *pipeline) acceptance(
+	ctx context.Context,
+	nodes []graph.Node,
+	groundingOpts grounding.Options,
+	testsFor func(rule *graph.Node) []extract.Ref,
+) ([]graph.Node, error) {
+	if !p.cfg.Acceptance {
+		return nodes, nil
+	}
+	if err := p.enter("acceptance", nil); err != nil {
+		return nil, err
+	}
+	writer := &acceptance.Writer{
+		LLM:       p.client,
+		Log:       p.logger,
+		Model:     p.cfg.Model,
+		Lang:      p.cfg.Lang,
+		Workers:   p.cfg.Workers,
+		OutDir:    filepath.Join(p.cfg.Out, ".codetospec", "acceptance"),
+		Roots:     p.cfg.Roots(),
+		Grounding: groundingOpts,
+		TestsFor:  testsFor,
+		Review:    p.cfg.Crosscheck,
+		OnUnit: func(usage llm.Usage) {
+			p.record(ctx, func(s *state.State) {
+				s.AddTokens("acceptance", usage.PromptTokens, usage.CompletionTokens)
+			})
+		},
+	}
+	results, err := writer.Run(ctx, nodes)
+	if err != nil {
+		return nil, err
+	}
+	return acceptance.Annotate(nodes, results, locale.For(p.cfg.Lang)), nil
 }

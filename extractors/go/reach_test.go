@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -137,5 +138,30 @@ func TestSharedRoots(t *testing.T) {
 				t.Fatalf("roots = %+v, err %v; want module %s", roots, err, tc.wantModule)
 			}
 		})
+	}
+}
+
+// TestSharedStructFacts: a shared struct type the module reaches gets a
+// struct fact cited under the shared root; one it does not reach gets
+// none.
+func TestSharedStructFacts(t *testing.T) {
+	ws := writeWorkspace(t)
+	shared, err := sharedRoots([]string{"pkg=" + filepath.Join(ws, "shared")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, ok := loadPackages(filepath.Join(ws, "app"), func(format string, a ...any) {
+		t.Logf(format, a...)
+	})
+	if !ok {
+		t.Fatal("workspace did not load")
+	}
+	var got []string
+	for _, f := range SharedStructFacts(m.pkgs, m.fset, &shared[0]) {
+		got = append(got, f.ID+" "+f.Attrs["name"]+": "+f.Attrs["fields"]+" @"+f.Source.Root)
+	}
+	want := []string{"struct.@pkg/lib.go#Account lib.Account: ID @pkg"}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }

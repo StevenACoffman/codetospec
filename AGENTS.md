@@ -92,7 +92,10 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   (`Tests: true`) but all other facts read the packages without tests
   (`loadedModule.pkgs`), otherwise the test variants would duplicate
   symbols and calls; an object of a test variant is not the package's: the
-  declarations are indexed by position.
+  declarations are indexed by position. `config.DefaultExclude` leaves
+  `*_test.go` out of the map: the Go tests are evidence (read by the Go
+  extractor itself, not by the walk), never behavior to map; other
+  languages' tests are still mapped.
   Calls through an interface (`extractors/go/dispatch.go`): `x.M()` on an
   interface *of the module* gives one `call`/`test` fact per
   implementation, marked `dispatch: interface` (`Fact.ViaDispatch`). Each

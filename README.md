@@ -388,7 +388,9 @@ parallelism), `--max-tokens N` (raise it if a large domain truncates its
 reduce output), `--lang fr|en` (output language: EARS requirements, node labels, README and
 llms.txt; default `en`),
 `--exclude 'vendor,node_modules,*.md,*.csv'` (directory names and
-file globs), `--facts extra.facts.json` (inject facts from anywhere),
+file globs; replaces the defaults `vendor`, `node_modules`, `storage`,
+`dist`, `build`, `.git` and `*_test.go` — Go tests are evidence the Go
+extractor links to rules, not behavior to map), `--facts extra.facts.json` (inject facts from anywhere),
 `--ref-root name=dir` (repeatable; also on `verify` and `drift`: an extra
 source tree extractor rules may cite, see below).
 

@@ -109,9 +109,14 @@ type Config struct {
 	WriteDomainModel bool
 }
 
-// DefaultExclude lists the directories ignored by default.
+// DefaultExclude lists the names and globs ignored by default: dependency
+// and build directories, and Go test files. A Go test is not behavior to
+// map but evidence of it, which the Go extractor's test facts link to the
+// rules it reaches (internal/testreach); mapping it would only spend tokens
+// on rules about the tests. Other languages' tests stay: no extractor
+// indexes them, so the map is the only reader of what they check.
 func DefaultExclude() []string {
-	return []string{"vendor", "node_modules", "storage", "dist", "build", ".git"}
+	return []string{"vendor", "node_modules", "storage", "dist", "build", ".git", "*_test.go"}
 }
 
 // stringList is a repeatable string flag.

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/StevenACoffman/codetospec/internal/config"
 	"github.com/StevenACoffman/codetospec/internal/source"
 )
 
@@ -90,6 +91,32 @@ func TestWalkExcludesDirsAndGlobs(t *testing.T) {
 		t.Run(path, func(t *testing.T) {
 			if got[path] != want {
 				t.Errorf("kept = %v, want %v", got[path], want)
+			}
+		})
+	}
+}
+
+// TestWalkDefaultExclude: the default exclusions leave Go tests out of the
+// map, but keep other languages' tests and test fixtures, which no
+// extractor indexes.
+func TestWalkDefaultExclude(t *testing.T) {
+	cases := map[string]bool{
+		"pay/pay.go":              true,
+		"pay/pay_test.go":         false,
+		"pay/testdata/input.go":   true,
+		"tests/PayTest.php":       true,
+		"vendor/lib/lib.go":       false,
+		"node_modules/x/index.js": false,
+	}
+	files := make(map[string][]byte, len(cases))
+	for rel := range cases {
+		files[rel] = []byte("package x\n")
+	}
+	got := walked(t, writeTree(t, files), config.DefaultExclude())
+	for rel, kept := range cases {
+		t.Run(rel, func(t *testing.T) {
+			if got[rel] != kept {
+				t.Errorf("kept = %v, want %v", got[rel], kept)
 			}
 		})
 	}

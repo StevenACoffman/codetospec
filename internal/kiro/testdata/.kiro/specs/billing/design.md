@@ -12,5 +12,6 @@ The design is the existing code; the properties below are the acceptance criteri
 
 - A join on day 16 of 30 bills 15 days.
 - A join on day 1 bills the month.
+- Observable: The stored invoice holds 15 days.
 
 **Validates: Requirements 3.1**

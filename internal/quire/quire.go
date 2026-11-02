@@ -78,6 +78,11 @@ type frontmatter struct {
 	Criteria   string `yaml:"codetospec_criteria,omitempty"`  // CriteriaFromRequirement
 	Threshold  string `yaml:"codetospec_threshold,omitempty"` // NFR: ThresholdStated or Unknown
 	Question   string `yaml:"codetospec_question,omitempty"`  // NFR: the question asking for it
+	// Observable names the criterion that is the acceptance pass's
+	// observable ("FR-001-AC-3"); NonClaims what the rule does not claim,
+	// which as criteria would read as requirements to test an absence.
+	Observable string   `yaml:"codetospec_observable,omitempty"`
+	NonClaims  []string `yaml:"codetospec_non_claims,omitempty"`
 }
 
 // indexFrontmatter is the index document's frontmatter.
@@ -167,6 +172,10 @@ func frDocument(id string, rule *graph.Node) ([]byte, error) {
 	if len(criteria) == 0 {
 		criteria, front.Criteria = []string{requirement}, CriteriaFromRequirement
 	}
+	if observable := graph.RuleObservable(rule.Body); observable != "" {
+		criteria = append(criteria, observable)
+		front.Observable = fmt.Sprintf("%s-AC-%d", id, len(criteria))
+	}
 	var b strings.Builder
 	if err := writeHeading(&b, &front); err != nil {
 		return nil, err
@@ -252,6 +261,7 @@ func baseFrontmatter(id, kind string, rule *graph.Node) frontmatter {
 		Type:       kind,
 		Rule:       rule.ID,
 		Crosscheck: rule.Extra["crosscheck"],
+		NonClaims:  graph.RuleNonClaims(rule.Body),
 	}
 	if attribute := rule.Extra[graph.ExtraQualityAttribute]; quality.IsAttribute(attribute) {
 		front.Quality = attribute

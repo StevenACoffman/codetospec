@@ -48,7 +48,10 @@ func TestExport(t *testing.T) {
 			"**Requirement (EARS)**: WHILE the plan is active, WHEN a subscriber joins "+
 				"mid-month, the system shall bill the remaining days.\n\n"+
 				"**Acceptance criteria**:\n1. A join on day 16 of 30 bills 15 days.\n"+
-				"2. A join on day 1 bills the month.",
+				"2. A join on day 1 bills the month.\n\n"+
+				"**Observable** (how to tell success from an imitation): (state, test) "+
+				"The stored invoice holds 15 days.\n\n"+
+				"**Does not claim**:\n- does not prorate a cancellation",
 			"supported", map[string]string{graph.ExtraEARSActions: "bill"}),
 		rule("billing", "nightly",
 			"**Requirement (EARS)**: The scheduler shall close the invoices at midnight.",

@@ -57,7 +57,10 @@ func TestExport(t *testing.T) {
 		rule(
 			"activate",
 			"Activate",
-			"**Requirement (EARS)**: WHEN a plan starts, the system shall bill it.",
+			"**Requirement (EARS)**: WHEN a plan starts, the system shall bill it.\n\n"+
+				"**Observable** (how to tell success from an imitation): (response, code) "+
+				"The response holds the first invoice.\n\n"+
+				"**Does not claim**:\n- does not charge the card\n- does not email the receipt",
 			"unchecked",
 			map[string]string{graph.ExtraQualityAttribute: "not-an-attribute"},
 		),

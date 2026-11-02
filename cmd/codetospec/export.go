@@ -21,7 +21,7 @@ import (
 var errExportTarget = errors.New("export target is not empty")
 
 // export writes the rules of the graph at cfg.Out as a spec under
-// cfg.To, in cfg.Format: Quire FRs (the default) or Kiro specs. It is a
+// cfg.To, in cfg.Format: Quire FRs and NFRs (the default) or Kiro specs. It is a
 // one-time bootstrap: once a team edits the exported documents, a second
 // export would overwrite their work, so the target must be new or empty.
 func (c cli) export(cfg *config.Config) int {
@@ -44,8 +44,10 @@ func (c cli) export(cfg *config.Config) int {
 	}
 	c.logRefuted(spec.Refuted)
 	_, _ = fmt.Fprintf(c.stdout,
-		"export: %d functional requirement(s) written to %s, %d refuted rule(s) left out\n",
-		len(spec.Files)-1, filepath.Join(cfg.To, quire.Directory), len(spec.Refuted))
+		"export: %d functional requirement(s) written to %s, %d non-functional to %s, "+
+			"%d refuted rule(s) left out\n",
+		spec.FRs, filepath.Join(cfg.To, quire.Directory),
+		spec.NFRs, filepath.Join(cfg.To, quire.NFRDirectory), len(spec.Refuted))
 	return exitOK
 }
 

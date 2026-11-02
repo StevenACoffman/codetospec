@@ -248,7 +248,7 @@ bin/codetospec verify --src <repo> --out <graph>   # re-check citations, exit 1 
 bin/codetospec drift  --src <repo> --out <graph>   # flag rules whose cited code changed, exit 1 on drift
 bin/codetospec stats  --out <graph>                # phase counters; tokens of the last run and all runs
 bin/codetospec diff   --old <graph> --new <graph>  # rules added, removed, renamed or changed between two runs
-bin/codetospec export --out <graph> --to <dir>     # the rules as ISO 29148 FRs in the Quire format (quoin)
+bin/codetospec export --out <graph> --to <dir>     # the rules as ISO 29148 FRs and NFRs in the Quire format (quoin)
 bin/codetospec export --out <graph> --to <dir> --format kiro  # the rules as Kiro specs
 ```
 
@@ -264,8 +264,19 @@ rule (`codetospec_rule`, `codetospec_crosscheck`). A rule with no criteria
 criterion, marked `codetospec_criteria: requirement`; a rule the crosscheck
 refuted is left out. It bootstraps a spec a team then edits in quoin, so
 `<dir>` must be new or empty: a second export would overwrite their work.
-Not exported: NFRs (they need a measured target and threshold the code does
-not state) and enumerations (another module's object types).
+A technical rule serving a quality (`--quality`, other than
+`functional_suitability`) is a non-functional requirement instead:
+`<dir>/non-functional/NFR-001-<domain>-<slug>.md` with `## Statement`,
+`## Measurement and Evaluation` (one `Metric | Target | Threshold |
+Method` row) and `## Verification`. The code rarely states a target: when
+the rule's requirement states a number that grounding found in the cited
+code, the run records it (`threshold: "30 seconds"` in the rule's
+frontmatter) and the NFR exports it, `codetospec_threshold: stated`;
+otherwise the row says the target is unknown, `codetospec_threshold:
+unknown`, and names the `nfr_target` question of `questions.json`
+(`codetospec_question`) a person answers. A business rule serving a
+quality (authorization is `security`) stays an FR. Not exported:
+enumerations (another module's object types).
 
 `export --format kiro` writes one [Kiro](https://kiro.dev) spec per
 domain, `<dir>/.kiro/specs/<domain>/`: `requirements.md` (Introduction

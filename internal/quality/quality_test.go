@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/grounding"
 	"github.com/StevenACoffman/codetospec/internal/llm"
 	"github.com/StevenACoffman/codetospec/internal/quality"
 )
@@ -186,5 +187,62 @@ func classifier(t *testing.T, model llm.Chatter, dir string) *quality.Classifier
 		Model:     "test-model",
 		Workers:   2,
 		CachePath: filepath.Join(dir, "quality.json"),
+	}
+}
+
+// technical is the nature of the rules a non-functional requirement can be.
+const technical = "technical"
+
+// grounded is the grounding status of a rule whose stated values all
+// occur in its cited code.
+const grounded = string(grounding.StatusGrounded)
+
+// TestAnnotateThresholds: a grounded non-functional rule records the
+// quantities its requirement states; any other rule, or one whose values
+// grounding did not find in the code, records none.
+func TestAnnotateThresholds(t *testing.T) {
+	cases := map[string]struct {
+		nature, attribute, grounding, requirement string
+		want                                      string
+	}{
+		"grounded NFR stating a number": {
+			technical, quality.PerformanceEfficiency, grounded,
+			"The system shall time out a request after 30 seconds.", "30 seconds",
+		},
+		"several numbers": {
+			technical, quality.Reliability, grounded,
+			"The system shall retry 3 times, 2 seconds apart.", "3 times; 2 seconds",
+		},
+		"ungrounded": {
+			technical, quality.PerformanceEfficiency, "ungrounded",
+			"The system shall time out a request after 30 seconds.", "",
+		},
+		"no number": {
+			technical, quality.Security, "unchecked",
+			"The system shall accept only signed webhooks.", "",
+		},
+		"business rule": {
+			"business", quality.Security, grounded,
+			"The system shall lock an account after 5 failed logins.", "",
+		},
+		"plain functionality": {
+			technical, quality.FunctionalSuitability, grounded,
+			"The system shall round to 2 decimals.", "",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			n := rule("rule.api.x", tc.nature, tc.requirement)
+			n.Extra[graph.ExtraQualityAttribute] = tc.attribute
+			n.Extra["grounding"] = tc.grounding
+			in := []graph.Node{n}
+			got := quality.AnnotateThresholds(in, '.')
+			if v := got[0].Extra[graph.ExtraThreshold]; v != tc.want {
+				t.Errorf("threshold = %q, want %q", v, tc.want)
+			}
+			if _, set := in[0].Extra[graph.ExtraThreshold]; set {
+				t.Error("the input node was modified")
+			}
+		})
 	}
 }

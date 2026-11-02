@@ -179,6 +179,7 @@ func frontmatterExtras() []extraField {
 		{key: "acceptance"},
 		{key: "nature"},
 		{key: graph.ExtraQualityAttribute},
+		{key: graph.ExtraThreshold, quoted: true},
 		{key: "origin"},
 		{key: "confidence"},
 		{key: "crosscheck"},

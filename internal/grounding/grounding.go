@@ -249,10 +249,11 @@ var (
 	placeholder = regexp.MustCompile(`<[^<>]+>`)
 )
 
-// located is a literal and its byte offset in the requirement.
+// located is a literal and the byte offsets where it starts and ends in
+// the requirement.
 type located struct {
-	at  int
-	lit literal
+	at, end int
+	lit     literal
 }
 
 // extractLiterals returns the numbers and quoted strings stated in text, in
@@ -288,7 +289,7 @@ func quotedLiterals(text string) ([]located, [][]int) {
 				continue
 			}
 			if lit, ok := quoted(text[m[0]:m[1]], text[m[g]:m[g+1]]); ok {
-				found = append(found, located{m[0], lit})
+				found = append(found, located{m[0], m[1], lit})
 			}
 		}
 	}
@@ -296,11 +297,39 @@ func quotedLiterals(text string) ([]located, [][]int) {
 		inner := text[m[2]:m[3]]
 		spans = append(spans, m[2:4])
 		if lit, ok := quoted("'"+inner+"'", inner); ok {
-			found = append(found, located{m[2], lit})
+			found = append(found, located{m[2], m[3], lit})
 		}
 	}
 	return found, spans
 }
+
+// StatedNumbers returns each number text states, as written, followed by
+// the word after it when there is one, its unit as a requirement writes it
+// ("30 seconds", "5 failed"; "10 %" is its own unit): in order, without
+// duplicates. A
+// number inside quotes belongs to a string, not to a quantity. The numbers
+// are read with decimalSeparator, as Check reads them.
+//
+// Requires: decimalSeparator is ',' or '.'.
+func StatedNumbers(text string, decimalSeparator byte) []string {
+	_, quoteSpans := quotedLiterals(text)
+	var out []string
+	for _, f := range numberLiterals(text, quoteSpans, decimalSeparator) {
+		stated := strings.TrimSpace(text[f.at:f.end])
+		unit := unitWord.FindStringSubmatch(text[f.end:])
+		if unit != nil && !f.lit.percent { // a percent sign is its unit
+			stated += " " + unit[1]
+		}
+		if !slices.Contains(out, stated) {
+			out = append(out, stated)
+		}
+	}
+	return out
+}
+
+// unitWord matches the word right after a number: a unit, or what is
+// counted.
+var unitWord = regexp.MustCompile(`^[ \x{00A0}\x{202F}]+(\p{L}[\p{L}'-]*)`)
 
 // numberLiterals returns the numbers in text outside quoteSpans: a number
 // inside a quoted string is checked as part of that string.
@@ -318,7 +347,7 @@ func numberLiterals(text string, quoteSpans [][]int, decimalSeparator byte) []lo
 			continue
 		}
 		if lit, ok := number(text, m); ok {
-			found = append(found, located{m[2], lit})
+			found = append(found, located{m[2], m[1], lit})
 		}
 	}
 	return found

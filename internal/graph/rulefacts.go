@@ -73,6 +73,11 @@ const ExtraSourceHashes = "source_hashes"
 // characteristic a rule serves (see package quality).
 const ExtraQualityAttribute = "quality_attribute"
 
+// ExtraThreshold is the frontmatter key of the threshold a
+// non-functional rule's code states: the quantities of its requirement,
+// each found in the cited code (see quality.AnnotateThresholds).
+const ExtraThreshold = "threshold"
+
 // Frontmatter keys of the tests reaching a rule's cited code (see
 // testreach.Annotate): how many, the depth of the nearest (1 when it uses
 // the cited definition itself) and the nearest few, as "path#TestName".

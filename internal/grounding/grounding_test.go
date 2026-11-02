@@ -1,6 +1,7 @@
 package grounding_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -233,6 +234,50 @@ func TestCheckCodeLayout(t *testing.T) {
 			got := grounding.Check(requirement, citations, grounding.Options{DecimalSeparator: '.'})
 			if got.Status != tc.want {
 				t.Fatalf("status = %q, want %q (missing: %s)", got.Status, tc.want, got.Summary())
+			}
+		})
+	}
+}
+
+// TestStatedNumbers: each stated number with the word after it, as
+// written, in the decimal convention of the language; quoted numbers are
+// strings, not quantities.
+func TestStatedNumbers(t *testing.T) {
+	cases := map[string]struct {
+		text      string
+		separator byte
+		want      []string
+	}{
+		"number and unit": {
+			"The system shall time out a request after 30 seconds.", '.',
+			[]string{"30 seconds"},
+		},
+		"several, in order, duplicates once": {
+			"The system shall retry 3 times, waiting 2.5 seconds, at most 3 times.", '.',
+			[]string{"3 times", "2.5 seconds"},
+		},
+		"percent": {
+			"The system shall alert when 10 % of requests fail.", '.',
+			[]string{"10 %"},
+		},
+		"no unit word": {
+			"The system shall cap the page size at 100.", '.',
+			[]string{"100"},
+		},
+		"decimal comma": {
+			"Le système doit attendre 1,5 seconde.", ',',
+			[]string{"1,5 seconde"},
+		},
+		"quoted number is a string": {
+			`The system shall reply "404 not found" to an unknown id.`, '.',
+			nil,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := grounding.StatedNumbers(tc.text, tc.separator)
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("StatedNumbers = %q, want %q", got, tc.want)
 			}
 		})
 	}

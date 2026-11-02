@@ -29,6 +29,7 @@ import (
 
 	"github.com/StevenACoffman/codetospec/internal/atomicfs"
 	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/grounding"
 	"github.com/StevenACoffman/codetospec/internal/llm"
 	"github.com/StevenACoffman/codetospec/internal/workpool"
 )
@@ -312,6 +313,41 @@ func Annotate(nodes []graph.Node, attributes map[string]string) []graph.Node {
 			out[i].Extra = map[string]string{}
 		}
 		out[i].Extra[graph.ExtraQualityAttribute] = attribute
+	}
+	return out
+}
+
+// IsNFR reports whether rule is a non-functional requirement: a technical
+// rule serving a quality other than plain functionality. A business rule
+// with an attribute (authorization is security) stays functional: what the
+// system does, which also serves a quality.
+func IsNFR(rule *graph.Node) bool {
+	attribute := rule.Extra[graph.ExtraQualityAttribute]
+	return rule.Type == graph.TypeRule && rule.Extra["nature"] == "technical" &&
+		IsAttribute(attribute) && attribute != FunctionalSuitability
+}
+
+// AnnotateThresholds records the threshold each non-functional rule's code
+// states: the quantities of its requirement (grounding.StatedNumbers, read
+// with decimalSeparator), when grounding found every stated value in the
+// cited code. A threshold the code does not state is left for a person
+// (questions.KindNFRTarget).
+//
+// Requires: nodes annotated by quality.Annotate then grounding.Annotate.
+// Ensures:  nodes is not modified; only grounded NFRs stating a number get
+// the field.
+func AnnotateThresholds(nodes []graph.Node, decimalSeparator byte) []graph.Node {
+	out := slices.Clone(nodes)
+	for i := range out {
+		if !IsNFR(&out[i]) || out[i].Extra["grounding"] != string(grounding.StatusGrounded) {
+			continue
+		}
+		stated := grounding.StatedNumbers(graph.RuleRequirement(out[i].Body), decimalSeparator)
+		if len(stated) == 0 {
+			continue
+		}
+		out[i].Extra = maps.Clone(out[i].Extra)
+		out[i].Extra[graph.ExtraThreshold] = strings.Join(stated, "; ")
 	}
 	return out
 }

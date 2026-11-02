@@ -15,6 +15,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/config"
 	"github.com/StevenACoffman/codetospec/internal/drift"
 	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/quality"
 )
 
 // checkDriftJSON: on the unchanged tree, `drift --format json` lists every
@@ -177,23 +178,26 @@ func checkExport(t *testing.T, outDir string, nodes []graph.Node) {
 	if code := c.export(&config.Config{Out: outDir, To: to}); code != exitOK {
 		t.Fatalf("export exit = %d, want %d", code, exitOK)
 	}
-	written, err := fs.Glob(os.DirFS(to), "functional/FR-*.md")
+	frs, err := fs.Glob(os.DirFS(to), "functional/FR-*.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	rules := 0
-	for _, n := range nodes {
-		if n.Type == graph.TypeRule {
-			rules++
+	nfrs, err := fs.Glob(os.DirFS(to), "non-functional/NFR-*.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFRs, wantNFRs := 0, 0
+	for i := range nodes {
+		switch {
+		case quality.IsNFR(&nodes[i]):
+			wantNFRs++
+		case nodes[i].Type == graph.TypeRule:
+			wantFRs++
 		}
 	}
-	if len(written) != rules {
-		t.Errorf(
-			"exported %d FRs, want one per rule (%d): %s",
-			len(written),
-			rules,
-			stdout.String(),
-		)
+	if len(frs) != wantFRs || len(nfrs) != wantNFRs || wantNFRs == 0 {
+		t.Errorf("exported %d FRs and %d NFRs, want %d and %d (at least one NFR): %s",
+			len(frs), len(nfrs), wantFRs, wantNFRs, stdout.String())
 	}
 	if code := c.export(&config.Config{Out: outDir, To: to}); code != exitFailure {
 		t.Errorf("second export into %s: exit = %d, want %d", to, code, exitFailure)

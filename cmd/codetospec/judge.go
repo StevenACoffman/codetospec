@@ -27,7 +27,8 @@ type judged struct {
 
 // judge runs the passes over the built graph: the LLM crosscheck and
 // quality passes (each when enabled), the mechanical stamps (grounding,
-// digests, test reach), then puts back the rules a person owns.
+// digests, stated thresholds, test reach), then puts back the rules a
+// person owns.
 func (p *pipeline) judge(
 	ctx context.Context,
 	nodes []graph.Node,
@@ -44,6 +45,7 @@ func (p *pipeline) judge(
 		return judged{}, err
 	}
 	nodes = stamp(p.cfg.Roots(), nodes, facts, groundingOpts)
+	nodes = quality.AnnotateThresholds(nodes, groundingOpts.DecimalSeparator)
 	nodes = testreach.Annotate(nodes, facts)
 	nodes, reviewedFiles := p.keepReviewed(nodes, prior.Reviewed)
 	if p.cfg.Crosscheck && len(reviewedFiles) > 0 {

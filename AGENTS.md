@@ -129,9 +129,16 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   files (`ast.IsGenerated`) ignored: their enumerations mirror an external
   schema. Few transitions on real code (4 in districts): state changes
   mostly in SQL.
-- `internal/quire` — `export --out --to` command: rules → FRs in Quire
+- `internal/quire` — `export --out --to` command: rules → FRs, and
+  technical rules serving a quality (`quality.IsNFR`) → NFRs, in Quire
   format (spec-artifacts-iso 0.3.0, pinned in the package doc: the only
-  place that knows the format). Pure (`Export` returns the files); the CLI
+  place that knows the format). An NFR's threshold is the run's
+  `threshold` frontmatter (`quality.AnnotateThresholds`: the numbers of a
+  grounded requirement, `grounding.StatedNumbers`, read with `--lang`'s
+  decimal separator), else unknown + the `nfr_target` question id
+  (`questions.KindNFRTarget`). NFR shape verified with the downloaded
+  `nfr-frontmatter.schema.json` and the skeleton's section rules
+  (`docs/verification/quire-nfr-export-2026-11-01.md`). Pure (`Export` returns the files); the CLI
   refuses a non-empty `--to` (one-time bootstrap, the team then edits in
   quoin). Without criteria (reduce `merge`), the EARS requirement becomes
   the only criterion (`codetospec_criteria: requirement`); a rule refuted by

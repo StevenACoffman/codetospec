@@ -7,8 +7,9 @@
 // value absent from its citation (KindUngrounded), one whose requirement
 // lacks the form of its EARS kind (KindEARSIssue), one the crosscheck
 // refuted (KindRefuted), an inherited rule whose shared code changed since
-// its verdict (KindStaleVerdict), and code of a domain that produced no
-// rule (KindCoverageGap). Pair findings (near-duplicates) and the
+// its verdict (KindStaleVerdict), a non-functional rule whose code states
+// no threshold (KindNFRTarget: the target is the person's to set), and code
+// of a domain that produced no rule (KindCoverageGap). Pair findings (near-duplicates) and the
 // domain-model gaps are not questions yet.
 package questions
 
@@ -21,6 +22,7 @@ import (
 
 	"github.com/StevenACoffman/codetospec/internal/crosscheck"
 	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/quality"
 )
 
 // Question kinds.
@@ -29,6 +31,7 @@ const (
 	KindEARSIssue    = "ears_issue"
 	KindRefuted      = "refuted"
 	KindStaleVerdict = "stale_verdict"
+	KindNFRTarget    = "nfr_target"
 	KindCoverageGap  = "coverage_gap"
 )
 
@@ -76,6 +79,10 @@ func List(nodes []graph.Node, gaps []graph.CoverageGap) []Question {
 		}
 		if stale := n.Extra[graph.ExtraStaleVerdict]; stale != "" {
 			add(KindStaleVerdict, n.ID, stale, stale, digest)
+		}
+		if quality.IsNFR(n) && n.Extra[graph.ExtraThreshold] == "" {
+			attribute := n.Extra[graph.ExtraQualityAttribute]
+			add(KindNFRTarget, n.ID, attribute, attribute, digest)
 		}
 	}
 	for _, g := range gaps {

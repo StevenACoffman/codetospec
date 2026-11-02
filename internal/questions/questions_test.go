@@ -177,3 +177,49 @@ func TestLoad(t *testing.T) {
 		})
 	}
 }
+
+// technical is the nature of a non-functional rule.
+const technical = "technical"
+
+// TestListNFRTarget: a non-functional rule asks for its target until its
+// code states a threshold; a business rule serving a quality, and a
+// technical one of plain functionality, ask nothing.
+func TestListNFRTarget(t *testing.T) {
+	cases := map[string]struct {
+		nature, attribute, threshold string
+		want                         []string
+	}{
+		"no stated threshold": {
+			nature: technical, attribute: "performance_efficiency",
+			want: []string{"nfr_target performance_efficiency"},
+		},
+		"threshold stated in code": {
+			nature: technical, attribute: "performance_efficiency", threshold: "30 seconds",
+		},
+		"business rule serving security": {nature: "business", attribute: "security"},
+		"plain functionality": {
+			nature:    "technical",
+			attribute: "functional_suitability",
+		},
+		"not classified": {nature: technical},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			extra := map[string]string{"nature": tc.nature}
+			if tc.attribute != "" {
+				extra[graph.ExtraQualityAttribute] = tc.attribute
+			}
+			if tc.threshold != "" {
+				extra[graph.ExtraThreshold] = tc.threshold
+			}
+			var got []string
+			for _, q := range questions.List(
+				[]graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}}, nil) {
+				got = append(got, q.Kind+" "+q.Detail)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("questions = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

@@ -22,7 +22,7 @@ code under `internal/`, and zen-go links prebuilt Rust archives through cgo.
 Licenses: feelc and gortex are Apache-2.0 (copied code needs NOTICE
 attribution); zen-go, go-rule-engine and codegraph-go are MIT.
 
-## Status (2026-10-13)
+## Status (2026-10-13, #11 updated 2026-11-01)
 
 Each item was measured on the users and districts runs (and, for the
 extractor, on admin, ai-guide and content-editing) before being built.
@@ -40,7 +40,8 @@ extractor, on admin, ai-guide and content-editing) before being built.
 | 4, 8 | Deferred | 0 aliased `acl`/`permissions` imports in any service; ~4 cross-package access calls; cost = type-checked fixture + slower extractor |
 | 6 | **Rejected by measurement** | rules per 1,000 lines are flat with distance from resolvers (users 46 at hop 0 vs 49 unreached; districts 33 vs 24): skipping far chunks drops rules in proportion |
 | 7 | **Rejected by measurement** | exact Type-2 clones: users 6.1% of map lines (mostly mocks, testutil, a data list, now excluded by `scanwebapp.sh`), districts 1.5% |
-| 10–13 | Deferred | no consumer yet |
+| 11 | **Done** (2026-11-01) | tests linked to the rules they reach (`testreach`, frontmatter `tested_by`), `*_test.go` left out of the map by default, the two nearest tests shown to the crosscheck: eval 15/15 faults, 0 false alarms, incl. a mock-only planted rule (`docs/verification/crosscheck-tests-evidence-2026-11-01.md`) |
+| 10, 12, 13 | Deferred | no consumer yet |
 
 Go is now 1.27 (go.mod), and gonum v0.17.0 is a dependency of the main
 module. Go 1.27's vet also required wrapping tree-sitter's `QueryError` by

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "subsystems": [
+    {"name": "extractor", "packages": ["github.com/StevenACoffman/codetospec/extractors/webapp/..."], "interface": ["github.com/StevenACoffman/codetospec/extractors/webapp"]}
+  ],
+  "fitness": {
+    "requireAssigned": true,
+    "calls": [
+      {"name": "facts-to-stdout", "from": ["github.com/StevenACoffman/codetospec/extractors/webapp/..."],
+       "callees": ["os.WriteFile", "os.Create", "os.OpenFile", "os.Rename", "os.RemoveAll"],
+       "reason": "an extractor writes its facts to stdout for codetospec to read, and never touches the file system itself", "qualityAttribute": "reliability"}
+    ]
+  }
+}

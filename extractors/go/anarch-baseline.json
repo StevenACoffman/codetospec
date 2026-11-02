@@ -1,0 +1,205 @@
+{
+  "schema": "anarch-lint.baseline.v1",
+  "modelHash": "21641516080f9359bad6a0b0372ae7eae602da93a35074eb1ce7ade89754994e",
+  "findings": [
+    {
+      "fingerprint": "e6751f10fab9db6c",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/go.ConstantFacts"
+    },
+    {
+      "fingerprint": "e5439bccfd4e5687",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/go.ExecutedFacts"
+    },
+    {
+      "fingerprint": "c0d24424745f077c",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/go.ExtractRoutes"
+    },
+    {
+      "fingerprint": "6db25329f10fe9e7",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/go.ReachFacts"
+    },
+    {
+      "fingerprint": "cca1e1e6c6789387",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/go.assigned"
+    },
+    {
+      "fingerprint": "476fefb5642533ae",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/go.groupPrefixes"
+    },
+    {
+      "fingerprint": "d7668cfb2d97d49d",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/go.packageTestFacts"
+    },
+    {
+      "fingerprint": "bae2acf128bca663",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/go.parseColumns"
+    },
+    {
+      "fingerprint": "a87ff32ae284a95b",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/go.sharedDecls"
+    },
+    {
+      "fingerprint": "78732e69de841c6a",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/go.sqlFiles"
+    },
+    {
+      "fingerprint": "e4cdfd4ea65e4893",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/go.ExecutedFacts"
+    },
+    {
+      "fingerprint": "d2d174bf618c646f",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/go.ExtractRoutes"
+    },
+    {
+      "fingerprint": "9a1753369c77174e",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/go.assigned"
+    },
+    {
+      "fingerprint": "afe8454ca3ca23cd",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/go.calleesOf"
+    },
+    {
+      "fingerprint": "c9da92001b670080",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/go.declareEnums"
+    },
+    {
+      "fingerprint": "eea3860268e258e1",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/go.funcDecls"
+    },
+    {
+      "fingerprint": "22015a265faf7c50",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/go.implementations"
+    },
+    {
+      "fingerprint": "c1c4b329eb4c0155",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/go.packageTestFacts"
+    },
+    {
+      "fingerprint": "7c8a2b3237125854",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/go.sharedDecls"
+    },
+    {
+      "fingerprint": "93f5cd7ba1b4d580",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/go.testHelpers"
+    },
+    {
+      "fingerprint": "a6fdcefc912c2b1d",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/go.testUses.of"
+    },
+    {
+      "fingerprint": "74e35244a936a6cb",
+      "rule": "large-func",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/go.run"
+    },
+    {
+      "fingerprint": "4299af5921f73727",
+      "rule": "rule-without-reason",
+      "severity": "warning",
+      "subject": "interfaces"
+    }
+  ],
+  "metrics": [
+    {
+      "name": "mmi.low",
+      "value": 3.66,
+      "higherIsBetter": true
+    },
+    {
+      "name": "types.inCycles",
+      "value": 0,
+      "higherIsBetter": false
+    },
+    {
+      "name": "types.maxCycleGroup",
+      "value": 0,
+      "higherIsBetter": false
+    },
+    {
+      "name": "types.relativeCyclicity",
+      "value": 0,
+      "higherIsBetter": false
+    },
+    {
+      "name": "types.sdi",
+      "value": 0,
+      "higherIsBetter": false
+    },
+    {
+      "name": "subsystems.inCycles",
+      "value": 0,
+      "higherIsBetter": false
+    },
+    {
+      "name": "subsystems.sdi",
+      "value": 0,
+      "higherIsBetter": false
+    },
+    {
+      "name": "fitness.cycles.subsystems",
+      "value": 0,
+      "higherIsBetter": false
+    },
+    {
+      "name": "fitness.cycles.types",
+      "value": 0,
+      "higherIsBetter": false
+    },
+    {
+      "name": "fitness.nccd.packages",
+      "value": 1,
+      "higherIsBetter": false
+    },
+    {
+      "name": "fitness.nccd.subsystems",
+      "value": 1,
+      "higherIsBetter": false
+    }
+  ],
+  "build": {
+    "platform": "darwin/arm64",
+    "tags": []
+  }
+}

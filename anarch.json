@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "subsystems": [
+    {"name": "cli", "packages": ["github.com/StevenACoffman/codetospec", "github.com/StevenACoffman/codetospec/cmd/...", "github.com/StevenACoffman/codetospec/tools/..."],
+     "interface": ["github.com/StevenACoffman/codetospec/cmd/codetospec"]},
+    {"name": "output", "packages": ["github.com/StevenACoffman/codetospec/internal/render", "github.com/StevenACoffman/codetospec/internal/verify", "github.com/StevenACoffman/codetospec/internal/kiro", "github.com/StevenACoffman/codetospec/internal/quire", "github.com/StevenACoffman/codetospec/internal/state", "github.com/StevenACoffman/codetospec/internal/ui", "github.com/StevenACoffman/codetospec/internal/corpus"],
+     "interface": ["github.com/StevenACoffman/codetospec/internal/render", "github.com/StevenACoffman/codetospec/internal/verify", "github.com/StevenACoffman/codetospec/internal/kiro", "github.com/StevenACoffman/codetospec/internal/quire", "github.com/StevenACoffman/codetospec/internal/state", "github.com/StevenACoffman/codetospec/internal/ui", "github.com/StevenACoffman/codetospec/internal/corpus"]},
+    {"name": "review", "packages": ["github.com/StevenACoffman/codetospec/internal/crosscheck", "github.com/StevenACoffman/codetospec/internal/quality", "github.com/StevenACoffman/codetospec/internal/questions", "github.com/StevenACoffman/codetospec/internal/consistency", "github.com/StevenACoffman/codetospec/internal/drift", "github.com/StevenACoffman/codetospec/internal/grounding", "github.com/StevenACoffman/codetospec/internal/inherit", "github.com/StevenACoffman/codetospec/internal/specdiff", "github.com/StevenACoffman/codetospec/internal/testreach", "github.com/StevenACoffman/codetospec/internal/domainmodel", "github.com/StevenACoffman/codetospec/internal/position"],
+     "interface": ["github.com/StevenACoffman/codetospec/internal/crosscheck", "github.com/StevenACoffman/codetospec/internal/quality", "github.com/StevenACoffman/codetospec/internal/questions", "github.com/StevenACoffman/codetospec/internal/consistency", "github.com/StevenACoffman/codetospec/internal/drift", "github.com/StevenACoffman/codetospec/internal/grounding", "github.com/StevenACoffman/codetospec/internal/inherit", "github.com/StevenACoffman/codetospec/internal/specdiff", "github.com/StevenACoffman/codetospec/internal/testreach", "github.com/StevenACoffman/codetospec/internal/domainmodel", "github.com/StevenACoffman/codetospec/internal/position"]},
+    {"name": "graph", "packages": ["github.com/StevenACoffman/codetospec/internal/graph"],
+     "interface": ["github.com/StevenACoffman/codetospec/internal/graph"]},
+    {"name": "phases", "packages": ["github.com/StevenACoffman/codetospec/internal/mapper", "github.com/StevenACoffman/codetospec/internal/reducer"],
+     "interface": ["github.com/StevenACoffman/codetospec/internal/mapper", "github.com/StevenACoffman/codetospec/internal/reducer"]},
+    {"name": "model", "packages": ["github.com/StevenACoffman/codetospec/internal/extract", "github.com/StevenACoffman/codetospec/internal/source", "github.com/StevenACoffman/codetospec/internal/config", "github.com/StevenACoffman/codetospec/internal/callers", "github.com/StevenACoffman/codetospec/internal/locale"],
+     "interface": ["github.com/StevenACoffman/codetospec/internal/extract", "github.com/StevenACoffman/codetospec/internal/source", "github.com/StevenACoffman/codetospec/internal/config", "github.com/StevenACoffman/codetospec/internal/callers", "github.com/StevenACoffman/codetospec/internal/locale"]},
+    {"name": "foundation", "packages": ["github.com/StevenACoffman/codetospec/internal/atomicfs", "github.com/StevenACoffman/codetospec/internal/ears", "github.com/StevenACoffman/codetospec/internal/llm", "github.com/StevenACoffman/codetospec/internal/sitter", "github.com/StevenACoffman/codetospec/internal/textsim", "github.com/StevenACoffman/codetospec/internal/workpool", "github.com/StevenACoffman/codetospec/internal/communities"],
+     "interface": ["github.com/StevenACoffman/codetospec/internal/atomicfs", "github.com/StevenACoffman/codetospec/internal/ears", "github.com/StevenACoffman/codetospec/internal/llm", "github.com/StevenACoffman/codetospec/internal/sitter", "github.com/StevenACoffman/codetospec/internal/textsim", "github.com/StevenACoffman/codetospec/internal/workpool", "github.com/StevenACoffman/codetospec/internal/communities"]}
+  ],
+  "subsystemOrder": ["cli", "output", "review", "graph", "phases", "model", "foundation"],
+  "layers": [
+    {"name": "command", "packages": ["github.com/StevenACoffman/codetospec", "github.com/StevenACoffman/codetospec/cmd/...", "github.com/StevenACoffman/codetospec/tools/..."]},
+    {"name": "output", "packages": ["github.com/StevenACoffman/codetospec/internal/render", "github.com/StevenACoffman/codetospec/internal/verify", "github.com/StevenACoffman/codetospec/internal/kiro", "github.com/StevenACoffman/codetospec/internal/quire", "github.com/StevenACoffman/codetospec/internal/state", "github.com/StevenACoffman/codetospec/internal/ui", "github.com/StevenACoffman/codetospec/internal/corpus"]},
+    {"name": "review", "packages": ["github.com/StevenACoffman/codetospec/internal/crosscheck", "github.com/StevenACoffman/codetospec/internal/quality", "github.com/StevenACoffman/codetospec/internal/questions", "github.com/StevenACoffman/codetospec/internal/consistency", "github.com/StevenACoffman/codetospec/internal/drift", "github.com/StevenACoffman/codetospec/internal/grounding", "github.com/StevenACoffman/codetospec/internal/inherit", "github.com/StevenACoffman/codetospec/internal/specdiff", "github.com/StevenACoffman/codetospec/internal/testreach", "github.com/StevenACoffman/codetospec/internal/domainmodel", "github.com/StevenACoffman/codetospec/internal/position"]},
+    {"name": "graph", "packages": ["github.com/StevenACoffman/codetospec/internal/graph"]},
+    {"name": "phases", "packages": ["github.com/StevenACoffman/codetospec/internal/mapper", "github.com/StevenACoffman/codetospec/internal/reducer"]},
+    {"name": "model", "packages": ["github.com/StevenACoffman/codetospec/internal/extract", "github.com/StevenACoffman/codetospec/internal/source", "github.com/StevenACoffman/codetospec/internal/config", "github.com/StevenACoffman/codetospec/internal/callers", "github.com/StevenACoffman/codetospec/internal/locale"]},
+    {"name": "foundation", "packages": ["github.com/StevenACoffman/codetospec/internal/atomicfs", "github.com/StevenACoffman/codetospec/internal/ears", "github.com/StevenACoffman/codetospec/internal/llm", "github.com/StevenACoffman/codetospec/internal/sitter", "github.com/StevenACoffman/codetospec/internal/textsim", "github.com/StevenACoffman/codetospec/internal/workpool", "github.com/StevenACoffman/codetospec/internal/communities"]}
+  ],
+  "findingRules": {
+    "layer-order-violation": {"reason": "the pipeline runs bottom up: foundations, the fact model, the MAP and REDUCE phases, the graph, the reviews of it, and the outputs, each reading only what is below it", "qualityAttribute": "maintainability"},
+    "subsystem-order-violation": {"reason": "the subsystems follow the layers, so each can be tested with what lies below it", "qualityAttribute": "maintainability"},
+    "interface-bypass": {"reason": "every package of a subsystem is its interface here, so this rule only guards against a new package left out of the model", "qualityAttribute": "maintainability"}
+  },
+  "fitness": {
+    "requireAssigned": true,
+    "calls": [
+      {"name": "writes-through-atomicfs", "only": true,
+       "from": ["github.com/StevenACoffman/codetospec/internal/atomicfs"],
+       "callees": ["os.WriteFile", "os.Create", "os.OpenFile", "os.Rename", "os.RemoveAll"],
+       "reason": "internal/atomicfs is the only writer of output, so an interrupted run never leaves a half-written file (AGENTS.md)", "qualityAttribute": "reliability"}
+    ],
+    "dependents": [
+      {"name": "llm-only-in-phases", "packages": ["github.com/StevenACoffman/codetospec/internal/llm"],
+       "onlyFrom": ["github.com/StevenACoffman/codetospec/internal/mapper", "github.com/StevenACoffman/codetospec/internal/reducer", "github.com/StevenACoffman/codetospec/internal/crosscheck", "github.com/StevenACoffman/codetospec/internal/quality", "github.com/StevenACoffman/codetospec/internal/ui", "github.com/StevenACoffman/codetospec/cmd/...", "github.com/StevenACoffman/codetospec/tools/..."],
+       "reason": "only the phases that ask a model, and the commands that wire them, reach the LLM client; the deterministic checks never do", "qualityAttribute": "reliability"}
+    ]
+  }
+}

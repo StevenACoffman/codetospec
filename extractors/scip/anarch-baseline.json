@@ -1,0 +1,79 @@
+{
+  "schema": "anarch-lint.baseline.v1",
+  "modelHash": "8b35e802587499e1949669008ff04b7af24dff7c970c612f51f81bd27d79220a",
+  "findings": [
+    {
+      "fingerprint": "e7fee6355ef068c0",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/extractors/scip.convert"
+    },
+    {
+      "fingerprint": "4299af5921f73727",
+      "rule": "rule-without-reason",
+      "severity": "warning",
+      "subject": "interfaces"
+    }
+  ],
+  "metrics": [
+    {
+      "name": "mmi.low",
+      "value": 3.71,
+      "higherIsBetter": true
+    },
+    {
+      "name": "types.inCycles",
+      "value": 0,
+      "higherIsBetter": false
+    },
+    {
+      "name": "types.maxCycleGroup",
+      "value": 0,
+      "higherIsBetter": false
+    },
+    {
+      "name": "types.relativeCyclicity",
+      "value": 0,
+      "higherIsBetter": false
+    },
+    {
+      "name": "types.sdi",
+      "value": 0,
+      "higherIsBetter": false
+    },
+    {
+      "name": "subsystems.inCycles",
+      "value": 0,
+      "higherIsBetter": false
+    },
+    {
+      "name": "subsystems.sdi",
+      "value": 0,
+      "higherIsBetter": false
+    },
+    {
+      "name": "fitness.cycles.subsystems",
+      "value": 0,
+      "higherIsBetter": false
+    },
+    {
+      "name": "fitness.cycles.types",
+      "value": 0,
+      "higherIsBetter": false
+    },
+    {
+      "name": "fitness.nccd.packages",
+      "value": 1,
+      "higherIsBetter": false
+    },
+    {
+      "name": "fitness.nccd.subsystems",
+      "value": 1,
+      "higherIsBetter": false
+    }
+  ],
+  "build": {
+    "platform": "darwin/arm64",
+    "tags": []
+  }
+}

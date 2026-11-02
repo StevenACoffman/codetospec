@@ -223,3 +223,34 @@ func TestListNFRTarget(t *testing.T) {
 		})
 	}
 }
+
+// TestListConditionMismatch: a rule whose condition and EARS text
+// disagree asks which is right, with the disagreement as detail.
+func TestListConditionMismatch(t *testing.T) {
+	cases := map[string]struct {
+		disagreement string
+		want         []string
+	}{
+		"disagree": {
+			"text 30 (not cited)",
+			[]string{questions.KindConditionMismatch + " text 30 (not cited)"},
+		},
+		"agree": {"", nil},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			extra := map[string]string{"nature": "business"}
+			if tc.disagreement != "" {
+				extra[graph.ExtraConditionDisagreement] = tc.disagreement
+			}
+			var got []string
+			for _, q := range questions.List(
+				[]graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}}, nil) {
+				got = append(got, q.Kind+" "+q.Detail)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("questions = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

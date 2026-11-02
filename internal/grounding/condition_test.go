@@ -1,0 +1,91 @@
+package grounding_test
+
+import (
+	"testing"
+	"testing/fstest"
+
+	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/grounding"
+)
+
+// retry.go: lines 1-3 retry while 0 to 2 attempts were made, for tier
+// PRO.
+const retryFile = "if attempts >= 0 && attempts < 3 && tier == \"PRO\" {\n\tretry()\n}\n"
+
+// TestAnnotateConditions: a condition whose values the cited lines lack is
+// dropped; a kept one that states other values than the EARS text, or
+// conditions a rule whose text states none, is flagged, each value marked
+// cited or not; an agreeing one is left alone.
+func TestAnnotateConditions(t *testing.T) {
+	fsys := fstest.MapFS{"retry.go": {Data: []byte(retryFile)}}
+	const (
+		agrees    = `{"var":"attempts","op":"less_than","value":3}`
+		notInCode = `{"var":"attempts","op":"less_than","value":5}`
+		withTier  = `{"all":[{"var":"attempts","op":"less_than","value":3},{"var":"tier","op":"equal","value":"PRO"}]}`
+		noValues  = `{"exists":"session"}`
+		// fewer states the check the code makes.
+		fewer = "WHILE fewer than 3 attempts were made, the system shall retry."
+	)
+	cases := map[string]struct {
+		requirement, condition string
+		wantKept               bool
+		wantDropped            string
+		wantDisagreement       string
+	}{
+		"agrees": {
+			fewer, agrees,
+			true, "", "",
+		},
+		"value not in the code: dropped": {
+			"WHILE fewer than 5 attempts were made, the system shall retry.", notInCode,
+			false, "5", "",
+		},
+		"condition states more": {
+			fewer, withTier,
+			true, "", `condition "PRO" (cited)`,
+		},
+		"text states a value the code lacks": {
+			"WHILE fewer than 30 attempts were made, the system shall retry.", agrees,
+			true, "", "condition 3 (cited); text 30 (not cited)",
+		},
+		"zero, stated in words": {
+			"WHILE the attempts are not negative, the system shall retry.",
+			`{"var":"attempts","op":"greater_or_equal","value":0}`,
+			true, "", "",
+		},
+		"text states no condition": {
+			"The system shall retry.", noValues,
+			true, "", "text none",
+		},
+		"no condition": {
+			fewer, "",
+			false, "", "",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			node := graph.Node{
+				ID:      "rule.retry.attempts",
+				Type:    graph.TypeRule,
+				Body:    "**Requirement (EARS)**: " + tc.requirement,
+				Sources: []extract.Ref{{Path: "retry.go", Lines: "1-3"}},
+				Extra:   map[string]string{},
+			}
+			if tc.condition != "" {
+				node.Extra[graph.ExtraCondition] = tc.condition
+			}
+			got := grounding.Annotate(extract.Roots{Src: fsys}, []graph.Node{node},
+				grounding.Options{DecimalSeparator: '.'})[0]
+			if kept := got.Extra[graph.ExtraCondition] != ""; kept != tc.wantKept {
+				t.Errorf("condition kept = %v, want %v", kept, tc.wantKept)
+			}
+			if d := got.Extra[graph.ExtraConditionDropped]; d != tc.wantDropped {
+				t.Errorf("dropped = %q, want %q", d, tc.wantDropped)
+			}
+			if d := got.Extra[graph.ExtraConditionDisagreement]; d != tc.wantDisagreement {
+				t.Errorf("disagreement = %q, want %q", d, tc.wantDisagreement)
+			}
+		})
+	}
+}

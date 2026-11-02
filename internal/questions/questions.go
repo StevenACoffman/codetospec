@@ -9,8 +9,9 @@
 // refuted (KindRefuted), an inherited rule whose shared code changed since
 // its verdict (KindStaleVerdict), a non-functional rule whose code states
 // no threshold (KindNFRTarget: the target is the person's to set), a rule
-// whose nature its code's layer contradicts (KindNatureMismatch), and code
-// of a domain that produced no rule (KindCoverageGap). Pair findings (near-duplicates) and the
+// whose nature its code's layer contradicts (KindNatureMismatch), one whose
+// condition and EARS text state different checks (KindConditionMismatch),
+// and code of a domain that produced no rule (KindCoverageGap). Pair findings (near-duplicates) and the
 // domain-model gaps are not questions yet.
 package questions
 
@@ -34,7 +35,10 @@ const (
 	KindStaleVerdict   = "stale_verdict"
 	KindNFRTarget      = "nfr_target"
 	KindNatureMismatch = "nature_mismatch"
-	KindCoverageGap    = "coverage_gap"
+	// KindConditionMismatch: a rule's condition and its EARS text state
+	// different checks (graph.ExtraConditionDisagreement).
+	KindConditionMismatch = "condition_mismatch"
+	KindCoverageGap       = "coverage_gap"
 )
 
 // Question is one finding a person may resolve.
@@ -68,27 +72,8 @@ func List(nodes []graph.Node, gaps []graph.CoverageGap) []Question {
 		if n.Type != graph.TypeRule {
 			continue
 		}
-		digest := n.Extra[graph.ExtraDigest]
-		if n.Extra["grounding"] == "ungrounded" {
-			missing := n.Extra["grounding_missing"]
-			add(KindUngrounded, n.ID, missing, missingValues(missing), digest)
-		}
-		if issue := n.Extra[graph.ExtraEARSIssue]; issue != "" {
-			add(KindEARSIssue, n.ID, issue, issue, digest)
-		}
-		if n.Extra["crosscheck"] == crosscheck.VerdictUnsupported {
-			add(KindRefuted, n.ID, n.Extra["crosscheck"], "", digest)
-		}
-		if stale := n.Extra[graph.ExtraStaleVerdict]; stale != "" {
-			add(KindStaleVerdict, n.ID, stale, stale, digest)
-		}
-		if positional := n.Extra[graph.ExtraNatureByPosition]; positional != "" {
-			detail := positional + " by position, " + n.Extra["nature"] + " by text"
-			add(KindNatureMismatch, n.ID, detail, positional, digest)
-		}
-		if quality.IsNFR(n) && n.Extra[graph.ExtraThreshold] == "" {
-			attribute := n.Extra[graph.ExtraQualityAttribute]
-			add(KindNFRTarget, n.ID, attribute, attribute, digest)
+		for _, f := range ruleFindings(n) {
+			add(f.kind, n.ID, f.detail, f.key, n.Extra[graph.ExtraDigest])
 		}
 	}
 	for _, g := range gaps {
@@ -100,6 +85,41 @@ func List(nodes []graph.Node, gaps []graph.CoverageGap) []Question {
 	}
 	slices.SortFunc(qs, func(a, b Question) int { return cmp.Compare(a.ID, b.ID) })
 	return qs
+}
+
+// finding is one question a rule raises: its kind, detail and stable key.
+type finding struct{ kind, detail, key string }
+
+// ruleFindings lists the questions rule n raises.
+func ruleFindings(n *graph.Node) []finding {
+	var found []finding
+	if n.Extra["grounding"] == "ungrounded" {
+		missing := n.Extra["grounding_missing"]
+		found = append(found, finding{KindUngrounded, missing, missingValues(missing)})
+	}
+	// The findings a frontmatter key states as is: its value is both the
+	// detail and the stable key.
+	for _, k := range []struct{ kind, extra string }{
+		{KindEARSIssue, graph.ExtraEARSIssue},
+		{KindStaleVerdict, graph.ExtraStaleVerdict},
+		{KindConditionMismatch, graph.ExtraConditionDisagreement},
+	} {
+		if v := n.Extra[k.extra]; v != "" {
+			found = append(found, finding{k.kind, v, v})
+		}
+	}
+	if n.Extra["crosscheck"] == crosscheck.VerdictUnsupported {
+		found = append(found, finding{KindRefuted, n.Extra["crosscheck"], ""})
+	}
+	if positional := n.Extra[graph.ExtraNatureByPosition]; positional != "" {
+		detail := positional + " by position, " + n.Extra["nature"] + " by text"
+		found = append(found, finding{KindNatureMismatch, detail, positional})
+	}
+	if quality.IsNFR(n) && n.Extra[graph.ExtraThreshold] == "" {
+		attribute := n.Extra[graph.ExtraQualityAttribute]
+		found = append(found, finding{KindNFRTarget, attribute, attribute})
+	}
+	return found
 }
 
 // gapFinding identifies a coverage gap among its domain's.

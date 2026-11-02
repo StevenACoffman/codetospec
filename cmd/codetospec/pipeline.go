@@ -174,6 +174,7 @@ func (p *pipeline) run(ctx context.Context) error {
 	})
 	meta.Reviewed = reviewedFiles
 	meta.Resolutions = prior.Resolutions
+	meta.UnusedTargets = result.unusedTargets
 	written, err := p.domainModel(models, nodes, tablesOf(ext.facts, domainOf))
 	if err != nil {
 		return err

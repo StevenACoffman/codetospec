@@ -10,8 +10,12 @@ import (
 
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/nfrtarget"
 	"github.com/StevenACoffman/codetospec/internal/quire"
 )
+
+// technical is the nature of a non-functional rule.
+const technical = "technical"
 
 // rule is a billing rule with body, verdict and extras.
 func rule(slug, title, body, verdict string, extra map[string]string) graph.Node {
@@ -70,7 +74,7 @@ func TestExport(t *testing.T) {
 			"**Requirement (EARS)**: The system shall time out a payment call after 30 seconds.",
 			"supported",
 			map[string]string{
-				"nature":                    "technical",
+				"nature":                    technical,
 				graph.ExtraQualityAttribute: "performance_efficiency",
 				graph.ExtraThreshold:        "30 seconds",
 			},
@@ -82,7 +86,7 @@ func TestExport(t *testing.T) {
 				"**Acceptance criteria**:\n1. An unsigned webhook is rejected with 401.",
 			"supported",
 			map[string]string{
-				"nature":                    "technical",
+				"nature":                    technical,
 				graph.ExtraQualityAttribute: "security",
 				graph.ExtraDigest:           "d1",
 			},
@@ -90,7 +94,7 @@ func TestExport(t *testing.T) {
 		{ID: "domain.billing", Type: graph.TypeDomain, Title: "Billing"},
 	}
 
-	spec, err := quire.Export(nodes)
+	spec, err := quire.Export(nodes, nil)
 	if err != nil {
 		t.Fatalf("Export: %v", err)
 	}
@@ -115,6 +119,62 @@ func TestExport(t *testing.T) {
 	for _, rel := range want {
 		t.Run(rel, func(t *testing.T) {
 			checkGolden(t, filepath.Join("testdata", filepath.FromSlash(rel)), spec.Files[rel])
+		})
+	}
+}
+
+// TestExportTargets: a target a person set wins over the stated threshold
+// and fills the NFR by kind: a measure the Measurement row, a policy an
+// Acceptance Criteria row the row points to, an example the reference
+// case; a target set for code that changed since names the stale_target
+// question. A rule without a target keeps its stated threshold.
+func TestExportTargets(t *testing.T) {
+	nfr := func(slug, title, digest string, extra map[string]string) graph.Node {
+		extra = maps.Clone(extra)
+		if extra == nil {
+			extra = map[string]string{}
+		}
+		extra["nature"] = technical
+		extra[graph.ExtraDigest] = digest
+		extra[graph.ExtraQualityAttribute] = "performance_efficiency"
+		return rule(slug, title, "**Requirement (EARS)**: The system shall answer "+title+".",
+			"supported", extra)
+	}
+	nodes := []graph.Node{
+		nfr("latency", "quickly", "d2", map[string]string{
+			graph.ExtraThreshold:   "must 200 ms; plan 120 ms",
+			graph.ExtraTarget:      "measure",
+			graph.ExtraTargetStale: "d1",
+		}),
+		nfr("audit", "with an audit trail", "d3", nil),
+		nfr("usable", "plainly", "d4", nil),
+		nfr("timeout", "within 30 seconds", "d5", map[string]string{graph.ExtraThreshold: "30"}),
+	}
+	nfrTargets := map[string]nfrtarget.Target{
+		"rule.billing.latency": {Digest: "d1", Measure: &nfrtarget.Measure{
+			Scale: "p95 latency of POST /invoices", Meter: "load test, 10 minutes",
+			Must: "200 ms", Plan: "120 ms",
+		}},
+		"rule.billing.audit": {
+			Digest: "d3",
+			Policy: "Every change to an invoice is logged with its author.",
+		},
+		"rule.billing.usable": {Digest: "d4", Example: "the checkout of the 2026 redesign"},
+	}
+	spec, err := quire.Export(nodes, nfrTargets)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	for _, rel := range slices.Sorted(maps.Keys(spec.Files)) {
+		if strings.HasSuffix(rel, "index.md") {
+			continue
+		}
+		t.Run(rel, func(t *testing.T) {
+			checkGolden(
+				t,
+				filepath.Join("testdata", "with-set", filepath.FromSlash(rel)),
+				spec.Files[rel],
+			)
 		})
 	}
 }

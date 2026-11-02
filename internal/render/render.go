@@ -76,6 +76,9 @@ type Meta struct {
 	// Resolutions are a person's answers to the run's questions, by id
 	// (questions.Load): a resolved finding is not listed in the README.
 	Resolutions map[string]questions.Resolution
+	// UnusedTargets are the rule ids of targets.yaml that no
+	// non-functional rule of the run takes (see nfrtarget.Annotate).
+	UnusedTargets []string
 	// Actors is the glossary of the actors rules may name (config
 	// actors), kept in graph.json for exports (LoadActors).
 	Actors map[string]string
@@ -190,6 +193,8 @@ func frontmatterExtras() []extraField {
 		{key: graph.ExtraNatureByPosition},
 		{key: graph.ExtraQualityAttribute},
 		{key: graph.ExtraThreshold, quoted: true},
+		{key: graph.ExtraTarget},
+		{key: graph.ExtraTargetStale},
 		{key: "origin"},
 		{key: "confidence"},
 		{key: "crosscheck"},
@@ -563,7 +568,7 @@ func readme(nodes []graph.Node, meta *Meta, ledger *questions.Ledger, text *loca
 	b.WriteString(unusedActorsLine(nodes, meta.Actors, text))
 	b.WriteString(testedLine(nodes, text))
 	b.WriteString(executedLine(nodes, text))
-	b.WriteString(resolutionsLine(ledger, text))
+	b.WriteString(resolutionsLine(ledger, meta.UnusedTargets, text))
 	b.WriteString(ungroundedSection(nodes, ledger, text))
 	b.WriteString(gapsSection(meta.CoverageGaps, ledger, text))
 	b.WriteString(splitSection(meta.DomainSplits, text))

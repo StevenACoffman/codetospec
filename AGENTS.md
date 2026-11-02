@@ -185,11 +185,12 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
 - `internal/quire` — `export --out --to` command: rules → FRs, and
   technical rules serving a quality (`quality.IsNFR`) → NFRs, in Quire
   format (spec-artifacts-iso 0.3.0, pinned in the package doc: the only
-  place that knows the format). An NFR's threshold is the run's
-  `threshold` frontmatter (`quality.AnnotateThresholds`: the numbers of a
-  grounded requirement, `grounding.StatedNumbers`, read with `--lang`'s
-  decimal separator), else unknown + the `nfr_target` question id
-  (`questions.KindNFRTarget`). NFR shape verified with the downloaded
+  place that knows the format). An NFR's threshold is the target a person
+  set (`internal/nfrtarget`, `codetospec_threshold: set`, mapped by kind),
+  else the run's `threshold` frontmatter (`quality.AnnotateThresholds`:
+  the numbers of a grounded requirement, `grounding.StatedNumbers`, read
+  with `--lang`'s decimal separator), else unknown + the `nfr_target`
+  question id (`questions.KindNFRTarget`). NFR shape verified with the downloaded
   `nfr-frontmatter.schema.json` and the skeleton's section rules
   (`docs/verification/quire-nfr-export-2026-11-01.md`). Pure (`Export` returns the files); the CLI
   refuses a non-empty `--to` (one-time bootstrap, the team then edits in
@@ -198,6 +199,17 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   the crosscheck: dropped. Verified against the downloaded frontmatter
   schemas (jsonschema) on roster and districts; no local `quire validate`
   (no published binary).
+- `internal/nfrtarget` — a person's answers to `nfr_target`:
+  `<out>/targets.yaml` (never written), keyed by rule id (a question id
+  hashes the cited code; a rule id survives edits and renames), each one
+  of `measure` (Planguage scale, meter, must/plan), `policy` or `example`,
+  with the `digest` it was set for. Loaded by `render.LoadPrior` (a
+  malformed entry stops the run before any LLM call); `Annotate` (in
+  `judge`, after `AnnotateThresholds`) sets the NFR's `threshold` (over a
+  stated one: the person's target is the requirement, and the question
+  closes) and `target`; another digest → `target_stale` →
+  `stale_target` question. A target with no NFR of its id is counted in
+  the README, never an error. `export` passes the file to `quire.Export`.
 - `internal/kiro` — `export --format kiro`: one Kiro spec per domain
   (`.kiro/specs/<domain>/requirements.md`, `design.md`), format pinned in
   the package doc (Kiro docs + example spec from kirodotdev/Kiro

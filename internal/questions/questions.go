@@ -11,9 +11,13 @@
 // no threshold (KindNFRTarget: the target is the person's to set), a rule
 // whose nature its code's layer contradicts (KindNatureMismatch), one whose
 // condition and EARS text state different checks (KindConditionMismatch),
-// one whose condition contradicts an example (KindExampleContradicted), and code
-// of a domain that produced no rule (KindCoverageGap). Pair findings (near-duplicates) and the
-// domain-model gaps are not questions yet.
+// one whose condition contradicts an example (KindExampleContradicted), one
+// whose target a person set for code that has changed since
+// (KindStaleTarget), and code of a domain that produced no rule
+// (KindCoverageGap). Pair findings (near-duplicates) and the domain-model
+// gaps are not questions yet. A target (KindNFRTarget's answer) is set in
+// targets.yaml (package nfrtarget), not resolved here: it closes the
+// question by setting the threshold.
 package questions
 
 import (
@@ -43,7 +47,11 @@ const (
 	// rule's condition contradicts (graph.ExtraExamplesContradicted): the
 	// requirement or the condition is wrong.
 	KindExampleContradicted = "example_contradicted"
-	KindCoverageGap         = "coverage_gap"
+	// KindStaleTarget: a non-functional rule's target was set for other
+	// code than it cites now (graph.ExtraTargetStale): check it still
+	// holds, then update its digest in targets.yaml.
+	KindStaleTarget = "stale_target"
+	KindCoverageGap = "coverage_gap"
 )
 
 // Question is one finding a person may resolve.
@@ -109,6 +117,7 @@ func ruleFindings(n *graph.Node) []finding {
 		{KindStaleVerdict, graph.ExtraStaleVerdict},
 		{KindConditionMismatch, graph.ExtraConditionDisagreement},
 		{KindExampleContradicted, graph.ExtraExamplesContradicted},
+		{KindStaleTarget, graph.ExtraTargetStale},
 	} {
 		if v := n.Extra[k.extra]; v != "" {
 			found = append(found, finding{k.kind, v, v})

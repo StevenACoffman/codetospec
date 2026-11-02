@@ -113,7 +113,7 @@ rest.
     differ: production, development, or the default in code.
   - Otherwise leave config unread: a person's target answer covers the gap.
 
-- [ ] Read a person's NFR target answer back into the export. Today an NFR
+- [x] Read a person's NFR target answer back into the export. Today an NFR
       without a stated threshold exports `codetospec_threshold: unknown` and
       raises an `nfr_target` question, and nothing reads the answer.
   - Decided (2026-11-02): a separate `targets.yaml` keyed by rule id, not a
@@ -132,6 +132,10 @@ rest.
     keep the target and raise a `stale_target` question, as inherited rules
     raise `stale_verdict`. Report an answer whose rule no longer exists,
     like a resolution without a question.
+  - Done: `internal/nfrtarget` as decided; the Quire export maps a measure
+    to the Measurement row, a policy to an Acceptance Criteria row, an
+    example to the reference case (validated against the schemas). A
+    person's target also wins over a stated threshold.
 
 ## Acceptance
 

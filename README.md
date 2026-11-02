@@ -281,6 +281,37 @@ unknown`, and names the `nfr_target` question of `questions.json`
 quality (authorization is `security`) stays an FR. Not exported:
 enumerations (another module's object types).
 
+A person answers an `nfr_target` question in `<out>/targets.yaml`, keyed
+by rule id (stable across runs, where a question id changes with the
+cited code), with one of three kinds of target and the rule's `digest`:
+
+```yaml
+rule.billing.invoice-latency:
+  digest: 3f2a9c01d4e5b6a7
+  measure:                       # Planguage: scale, meter, must and/or plan
+    scale: p95 latency of POST /invoices
+    meter: load test, 10 minutes
+    must: 200 ms
+    plan: 120 ms
+rule.billing.audit-trail:
+  digest: 9b0c1d2e3f4a5b6c
+  policy: Every change to an invoice is logged with its author.
+rule.checkout.plain-forms:
+  digest: 0a1b2c3d4e5f6a7b
+  example: the checkout of the 2026 redesign   # a reference case
+```
+
+The run sets the rule's `threshold` from it (`target: measure`), which
+closes the question, and the NFR exports `codetospec_threshold: set`: a
+measure fills the Measurement row, a policy becomes an Acceptance
+Criteria row (the NFR skeleton's place for a policy), an example the
+reference case. A person's target wins over a threshold the code states.
+When the cited code changes, the target is kept, the rule gets
+`target_stale` and a `stale_target` question asks whether it still holds
+(update the digest once checked). A target whose rule is gone, or no
+longer non-functional, is counted in the README; a malformed entry stops
+the run before any LLM call. codetospec never writes the file.
+
 `export --format kiro` writes one [Kiro](https://kiro.dev) spec per
 domain, `<dir>/.kiro/specs/<domain>/`: `requirements.md` (Introduction
 from the domain summary, a Glossary of the system and the actors the rules
@@ -552,6 +583,7 @@ Copy a model back into your repository, edit it, and pass it with
 ├── graph.json        # whole graph, machine format
 ├── questions.json    # findings to review, with their ids
 ├── resolutions.yaml  # yours: answers to questions (never written by codetospec)
+├── targets.yaml      # yours: NFR targets by rule id (never written by codetospec)
 └── nodes/
     ├── domains/<slug>.md
     ├── entities/<slug>.md

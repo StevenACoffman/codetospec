@@ -116,8 +116,18 @@ const (
 
 // ExtraThreshold is the frontmatter key of the threshold a
 // non-functional rule's code states: the quantities of its requirement,
-// each found in the cited code (see quality.AnnotateThresholds).
+// each found in the cited code (see quality.AnnotateThresholds); or the
+// target a person set (see package nfrtarget).
 const ExtraThreshold = "threshold"
+
+// ExtraTarget is the frontmatter key of the kind of target a person set
+// for a non-functional rule (measure, policy or example), and
+// ExtraTargetStale that of the digest of the code it was set for, when the
+// rule's cited code has changed since (see package nfrtarget).
+const (
+	ExtraTarget      = "target"
+	ExtraTargetStale = "target_stale"
+)
 
 // Frontmatter keys of the tests reaching a rule's cited code (see
 // testreach.Annotate): how many, the depth of the nearest (1 when it uses

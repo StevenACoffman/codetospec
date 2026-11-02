@@ -14,6 +14,7 @@ import (
 	"sort"
 
 	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/nfrtarget"
 	"github.com/StevenACoffman/codetospec/internal/questions"
 )
 
@@ -32,6 +33,9 @@ type Prior struct {
 	// Resolutions are the answers of questions.ResolutionsFile, by
 	// question id: a person's, like the reviewed rules, never rewritten.
 	Resolutions map[string]questions.Resolution
+	// Targets are the NFR targets of nfrtarget.File, by rule id: a person's
+	// too.
+	Targets map[string]nfrtarget.Target
 }
 
 // Reviewed is a rule file a person owns.
@@ -62,7 +66,11 @@ func LoadPrior(outDir string) (Prior, error) {
 	if err != nil {
 		return Prior{}, err
 	}
-	prior := Prior{Reviewed: map[string]Reviewed{}, Resolutions: resolutions}
+	nfrTargets, err := nfrtarget.Load(outDir)
+	if err != nil {
+		return Prior{}, err
+	}
+	prior := Prior{Reviewed: map[string]Reviewed{}, Resolutions: resolutions, Targets: nfrTargets}
 	for _, path := range paths {
 		data, readErr := os.ReadFile(filepath.Clean(path))
 		if readErr != nil {

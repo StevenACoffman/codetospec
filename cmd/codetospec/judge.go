@@ -13,6 +13,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/llm"
 	"github.com/StevenACoffman/codetospec/internal/locale"
 	"github.com/StevenACoffman/codetospec/internal/mapper"
+	"github.com/StevenACoffman/codetospec/internal/nfrtarget"
 	"github.com/StevenACoffman/codetospec/internal/quality"
 	"github.com/StevenACoffman/codetospec/internal/render"
 	"github.com/StevenACoffman/codetospec/internal/state"
@@ -25,11 +26,12 @@ type judged struct {
 	nodes         []graph.Node
 	tally         crosscheck.Tally
 	reviewedFiles map[string][]byte // the rule files a person owns, kept as they are
+	unusedTargets []string          // targets.yaml ids no non-functional rule takes
 }
 
 // judge runs the passes over the built graph: the LLM crosscheck and
 // quality passes (each when enabled), the mechanical stamps (grounding,
-// digests, stated thresholds), the acceptance pass (when enabled), test
+// digests, stated thresholds, a person's targets), the acceptance pass (when enabled), test
 // reach, then puts back the rules a person owns.
 func (p *pipeline) judge(
 	ctx context.Context,
@@ -50,6 +52,7 @@ func (p *pipeline) judge(
 	}
 	nodes = stamp(p.cfg.Roots(), nodes, facts, groundingOpts)
 	nodes = quality.AnnotateThresholds(nodes, groundingOpts.DecimalSeparator)
+	nodes, unusedTargets := nfrtarget.Annotate(nodes, prior.Targets)
 	// After the stamps: a condition the cited code does not ground is gone,
 	// so no example tests it.
 	if nodes, err = p.acceptance(ctx, nodes, groundingOpts,
@@ -61,7 +64,10 @@ func (p *pipeline) judge(
 	if p.cfg.Crosscheck && len(reviewedFiles) > 0 {
 		tally = crosscheck.Count(nodes) // the kept rules' verdicts, not the replaced ones'
 	}
-	return judged{nodes: nodes, tally: tally, reviewedFiles: reviewedFiles}, nil
+	return judged{
+		nodes: nodes, tally: tally, reviewedFiles: reviewedFiles,
+		unusedTargets: unusedTargets,
+	}, nil
 }
 
 // crosscheckTests is how many of the nearest tests the reviewer reads

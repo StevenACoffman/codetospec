@@ -13,6 +13,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/config"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/kiro"
+	"github.com/StevenACoffman/codetospec/internal/nfrtarget"
 	"github.com/StevenACoffman/codetospec/internal/quire"
 	"github.com/StevenACoffman/codetospec/internal/render"
 )
@@ -33,7 +34,12 @@ func (c cli) export(cfg *config.Config) int {
 	if cfg.Format == config.ExportKiro {
 		return c.exportKiro(cfg, nodes)
 	}
-	spec, err := quire.Export(nodes)
+	nfrTargets, err := nfrtarget.Load(cfg.Out)
+	if err != nil {
+		c.logger.Error("cannot load the NFR targets", "err", err)
+		return exitFailure
+	}
+	spec, err := quire.Export(nodes, nfrTargets)
 	if err != nil {
 		c.logger.Error("cannot export", "err", err)
 		return exitFailure

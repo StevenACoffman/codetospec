@@ -120,6 +120,7 @@ type ReadmeCoverage struct {
 	ExecutedFmt                             string // %d rules with executed cited code, of %d recorded
 	QuestionsFmt                            string // %d questions, %d resolved
 	UnusedResolutionsFmt                    string // %d resolutions matching no question
+	UnusedTargetsFmt                        string // %d targets matching no non-functional rule
 }
 
 // ReadmeReview lists rules for review and the domain graph heading.
@@ -527,6 +528,10 @@ func newReadmeCoverage(tr translate) ReadmeCoverage {
 		UnusedResolutionsFmt: tr(
 			" ; %d résolutions ne correspondent plus à aucune question (code cité modifié, ou constat disparu) : à retirer",
 			"; %d resolutions match no question any more (cited code changed, or the finding is gone): remove them",
+		),
+		UnusedTargetsFmt: tr(
+			" ; %d cibles de `targets.yaml` ne correspondent à aucune règle non fonctionnelle (règle disparue, renommée ou devenue fonctionnelle)",
+			"; %d targets in `targets.yaml` match no non-functional rule (rule gone, renamed, or now functional)",
 		),
 		ExecutedFmt: tr(
 			"- Exécution (profil de couverture) : %d règles sur %d ont du code cité exécuté par les tests (`executed`)",

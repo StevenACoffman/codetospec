@@ -15,7 +15,8 @@ make run-fixture                               # real run on testdata/fixture (n
 ```
 
 - Lint: the repo's `.golangci.yml` (copy of `~/Documents/git/.golangci.yml`),
-  golangci-lint ≥ v2.14 (2.13 cannot read go1.27.2 export data). Never
+  golangci-lint v2.15.0, pinned in `mise.toml` and CI (2.13 cannot read
+  Go 1.27.3 export data). Never
   relax it; a `//nolint:<linter> // <reason>` only when the code is correct
   by design (nolintlint requires the reason).
 - `make corpus` (`internal/corpus`, tag `corpus`) replays grounding, verify

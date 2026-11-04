@@ -83,6 +83,12 @@ const ExtraJourney = "journey"
 // nature (see package position).
 const ExtraNatureByPosition = "nature_by_position"
 
+// ExtraNatureEvidence is the frontmatter key of the structural evidence
+// for a rule's nature (entities it touches, endpoints, conditions on an
+// entity, its quality attribute), set beside ExtraNatureByPosition (see
+// package position).
+const ExtraNatureEvidence = "nature_evidence"
+
 // ExtraCondition is the frontmatter key of a rule's condition, in the
 // canonical compact notation (condition.Condition.Canonical), and
 // ExtraConditionHash that of its hash: two rules checking the same thing

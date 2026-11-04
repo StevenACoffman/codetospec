@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/StevenACoffman/codetospec/internal/config"
@@ -53,6 +55,20 @@ func modulePath(goMod []byte) string {
 		}
 	}
 	return ""
+}
+
+// modelEntities is the names of the entities of models, sorted; none
+// without --domain-model.
+func modelEntities(models *domainmodel.Set) []string {
+	if models == nil {
+		return nil
+	}
+	var names []string
+	for i := range models.Models {
+		names = append(names, slices.Collect(maps.Keys(models.Models[i].Model.Entities))...)
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
 }
 
 // humanInputs is what people wrote about the code, beside it: domain

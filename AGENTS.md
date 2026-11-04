@@ -59,7 +59,11 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   validates its output (2 corrections max then a traced failure). The map
   prefixes each line of code with its absolute number (`numberedContent`):
   otherwise the model *counts* lines and drifts (off-by-N citations on big
-  chunks). The crosscheck (`--crosscheck`) refutes each rule, reading beside its
+  chunks). Pitfall: every field added to a map rule's JSON (EARS
+  components, condition) made the model write fewer technical rules;
+  the prompt names observable technical behaviour as a rule to hold
+  them (`docs/verification/map-technical-rules-2026-11-04.md`). Measure
+  candidates by nature before and after any map-prompt change. The crosscheck (`--crosscheck`) refutes each rule, reading beside its
   cited code the two nearest tests reaching it (`testreach.NearestTests`,
   `Checker.TestsFor`; folded into the cache key; the prompt forbids
   crediting what only a test does,
@@ -405,10 +409,18 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   `<src>/anarch.json`, import paths cut by `go.mod`'s module; the two keys
   exclude each other, checked before any LLM call, `cmd/.../position.go`).
   A rule whose every citation under `--src` is in layers of one nature,
-  different from its own, gets `nature_by_position` and a
-  `nature_mismatch` question; its `nature` never changes (measured: the
-  text is the better reading more often,
-  `docs/verification/positional-nature-2026-11-01.md`).
+  different from its own, gets `nature_by_position` and, when it has any,
+  `nature_evidence`: structural evidence only, no words of its text
+  (business: `touches`, `exposed_by`, a condition variable on an entity
+  node's table or a `--domain-model` entity; technical: a quality
+  attribute other than security, safety, compliance, usability,
+  functional suitability). A `nature_mismatch` question only when that
+  evidence backs the position (`position.Asks`); its `nature` never
+  changes (measured: the text is the better reading more often,
+  `docs/verification/positional-nature-2026-11-01.md`; 226 → 49 questions
+  on districts, `docs/verification/nature-evidence-2026-11-04.md`). Each
+  layer's placed / disagreeing / asked rules: "Layers" section of the
+  output README (`position.Layer`), a check on the mapping.
 - `graph.SharedEntities` — entities touched by rules of several domains
   (`touches` links from the reduce), "Shared entities" section of the
   output README: shared kernel or misplaced boundary.

@@ -19,6 +19,26 @@ rest.
     them loses their evidence.
   - Done: `config.DefaultExclude` names `*_test.go` (Go only); `source`
     test through the real walk.
+- [x] Find which map-prompt change lost the technical rules after the
+      remap (`docs/verification/remap-rule-drop-2026-11-04.md`: pkg's
+      candidates 1,477 → 1,212, technical 786 → 550), and correct it.
+  - Measured (2026-11-04): no single change; EARS components and the
+    structured condition each cost a third of the technical rules, and
+    together drop a quarter of all rules on big chunks. Not truncation.
+    Naming observable technical behaviour as a rule restores the old
+    count (`docs/verification/map-technical-rules-2026-11-04.md`).
+  - Done: the map prompt says so. It changes the prompt key: the next
+    run of every output re-maps.
+- [ ] Measure run-to-run variance after the next remap. Remap one output
+      (pkg) twice with the same prompt and model into two `--out`
+      directories, then compare candidates per chunk and by nature, and
+      the rules `diff --old --new` reports removed or added. Decide from
+      it how large a change in rule counts (the corpus baselines, a
+      prompt change's A/B) is a real one. The 4-reply ablation on 60
+      chunks gave a per-chunk sd of ~0.5 rules; a whole run's is unknown.
+  - Also check the new prompt on the full run: technical candidates back
+    near 786, small chunks not inflated (the ablation gave +29 % rules
+    on chunks under 100 lines).
 
 ## Requirement Classification
 
@@ -77,13 +97,25 @@ rest.
   - Decided (2026-11-04): build neither. Fold it into `DOMAIN_PLAN.md`
     recommendation 4 (below).
 
-- [ ] Fold `nature_mismatch` into the subject-matter / technical split of
+- [x] Fold `nature_mismatch` into the subject-matter / technical split of
       `DOMAIN_PLAN.md` (recommendation 4). Position becomes one evidence
       signal beside the plan's; a question only when the signals
       conflict, listing each with its evidence (recommendation 15), never
       a majority vote. Each layer's disagreement rate goes in the output
-      README as a check on the mapping, not as a question. One-off
-      `cmd/` commands get the plan's cruft question (recommendation 21).
+      README as a check on the mapping, not as a question.
+  - Decided (2026-11-04): structural evidence only (touched entities,
+    endpoints, conditions on an entity's columns or a domain model's
+    attributes, a technical quality attribute), no word lists: they are
+    English and hand-made. A disagreement is asked only when that
+    evidence backs the position; evidence backing the text, or none,
+    leaves it recorded (`nature_evidence`) and counted per layer.
+  - Done: on districts with mapping A, 226 questions → 49
+    (`docs/verification/nature-evidence-2026-11-04.md`).
+- [ ] Ask "still needed?" about one-off `cmd/` commands (`DOMAIN_PLAN.md`
+      recommendation 21): backfills, purges, seeds (`CLASS-15005-purge`,
+      `dist-4399-backfill`). Telling a one-off command from a lasting one
+      (`validate`, `rosterutil`) needs a convention the code does not
+      state; decide one first.
 
 ## Nonfunctional Requirements
 

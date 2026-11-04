@@ -1,6 +1,7 @@
 package position_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -8,6 +9,9 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/position"
 )
+
+// middleware is a technical layer's package pattern.
+const middleware = "internal/middleware"
 
 // cites is the sources of a rule citing paths under --src.
 func cites(paths ...string) []extract.Ref {
@@ -24,7 +28,7 @@ func cites(paths ...string) []extract.Ref {
 // another root say nothing.
 func TestOf(t *testing.T) {
 	m, err := position.Parse(map[string][]string{
-		position.Technical:    {"internal/middleware", "cmd/..."},
+		position.Technical:    {middleware, "cmd/..."},
 		position.Presentation: {"internal/render/..."},
 		position.Business:     {"internal/render/rules"},
 	})
@@ -111,35 +115,86 @@ func TestFromAnarch(t *testing.T) {
 }
 
 // TestAnnotate: only a rule whose position contradicts its nature records
-// the positional one; its own nature is kept, and the input untouched.
+// the positional one, with its structural evidence; its own nature is
+// kept, and the input untouched. Each layer counts its rules, their
+// disagreements and the questions among them.
 func TestAnnotate(t *testing.T) {
-	m, err := position.Parse(map[string][]string{position.Technical: {"internal/middleware"}})
+	m, err := position.Parse(map[string][]string{
+		position.Technical: {middleware},
+		position.Business:  {"billing/..."},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	rule := func(id, nature, file string) graph.Node {
+	rule := func(id, nature, file string, edges ...graph.Edge) graph.Node {
 		return graph.Node{
-			ID: id, Type: graph.TypeRule, Sources: cites(file),
+			ID: id, Type: graph.TypeRule, Sources: cites(file), Edges: edges,
 			Extra: map[string]string{"nature": nature},
 		}
 	}
+	touches := graph.Edge{Type: graph.EdgeTouches, To: "entity.invoices"}
+	backedByCondition := rule("rule.b.condition", position.Technical, "billing/pay.go")
+	backedByCondition.Extra[graph.ExtraCondition] = `{"var":"invoices.total","op":"greater_than","value":0}`
+	technicalQuality := rule("rule.a.quality", position.Business, "internal/middleware/auth.go")
+	technicalQuality.Extra[graph.ExtraQualityAttribute] = "reliability"
 	in := []graph.Node{
-		rule("rule.a.disagrees", position.Business, "internal/middleware/auth.go"),
+		{ID: "entity.invoices", Type: graph.TypeEntity, Title: "invoices"},
+		rule("rule.a.disagrees", position.Business, "internal/middleware/auth.go", touches),
 		rule("rule.a.agrees", position.Technical, "internal/middleware/auth.go"),
-		rule("rule.a.unmapped", position.Business, "internal/billing/pay.go"),
+		rule("rule.a.unmapped", position.Business, "internal/other/pay.go"),
+		technicalQuality,
+		backedByCondition,
+		rule("rule.b.none", position.Technical, "billing/x/refund.go"),
 	}
-	out := position.Annotate(in, &m)
-	want := map[string]string{"rule.a.disagrees": position.Technical}
+	out, layers := position.Annotate(in, &m, nil)
+	want := map[string]struct {
+		positional, evidence string
+		asks                 bool
+	}{
+		"rule.a.disagrees": {position.Technical, "business: touches entity.invoices", false},
+		"rule.a.quality":   {position.Technical, "technical: quality_attribute reliability", true},
+		"rule.b.condition": {position.Business, "business: condition invoices.total", true},
+		"rule.b.none":      {position.Business, "", false},
+	}
 	for i := range out {
-		got := out[i].Extra[graph.ExtraNatureByPosition]
-		if got != want[out[i].ID] {
-			t.Errorf("%s: nature_by_position = %q, want %q", out[i].ID, got, want[out[i].ID])
+		w := want[out[i].ID]
+		if got := out[i].Extra[graph.ExtraNatureByPosition]; got != w.positional {
+			t.Errorf("%s: nature_by_position = %q, want %q", out[i].ID, got, w.positional)
+		}
+		if got := out[i].Extra[graph.ExtraNatureEvidence]; got != w.evidence {
+			t.Errorf("%s: nature_evidence = %q, want %q", out[i].ID, got, w.evidence)
+		}
+		if got := position.Asks(&out[i]); got != w.asks {
+			t.Errorf("%s: Asks = %v, want %v", out[i].ID, got, w.asks)
 		}
 		if out[i].Extra["nature"] != in[i].Extra["nature"] {
 			t.Errorf("%s: nature changed", out[i].ID)
 		}
 	}
-	if _, set := in[0].Extra[graph.ExtraNatureByPosition]; set {
+	if _, set := in[1].Extra[graph.ExtraNatureByPosition]; set {
 		t.Error("the input node was modified")
+	}
+	wantLayers := []position.Layer{
+		{
+			Pattern: middleware, Nature: position.Technical,
+			Placed: 3, Disagree: 2, Asked: 1,
+		},
+		{
+			Pattern: "billing/...", Nature: position.Business,
+			Placed: 2, Disagree: 2, Asked: 1,
+		},
+	}
+	if !slices.Equal(layers, wantLayers) {
+		t.Errorf("layers = %+v, want %+v", layers, wantLayers)
+	}
+}
+
+// TestAnnotateWithoutLayers: an empty Map leaves the nodes and lists no
+// layer.
+func TestAnnotateWithoutLayers(t *testing.T) {
+	in := []graph.Node{{ID: "rule.a.b", Type: graph.TypeRule, Sources: cites("a/b.go")}}
+	out, layers := position.Annotate(in, &position.Map{}, nil)
+	if len(layers) != 0 || out[0].Extra != nil {
+		t.Errorf("layers = %v, extra = %v", layers, out[0].Extra)
 	}
 }

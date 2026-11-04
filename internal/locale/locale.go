@@ -131,6 +131,8 @@ type ReadmeReview struct {
 	SplitsHeading, SplitsIntroFmt         string // %d split domains
 	SplitFmt                              string // %d files, %d communities
 	SharedHeading, SharedIntroFmt         string // %d shared entities
+	LayersHeading, LayersIntro            string
+	LayersColumns                         string // the table's header rows
 	AndMoreFmt                            string // %d omitted entries
 	DomainsHeading                        string
 }
@@ -577,6 +579,18 @@ func newReadmeReview(tr translate) ReadmeReview {
 		SharedIntroFmt: tr(
 			"%d entités sont touchées par des règles de plusieurs domaines : un noyau partagé à nommer comme tel, ou une frontière de domaine qui traverse un concept ?",
 			"%d entities are touched by rules of several domains: a shared kernel to name as such, or a domain boundary running through one concept?",
+		),
+		LayersHeading: tr(
+			"## Couches",
+			"## Layers",
+		),
+		LayersIntro: tr(
+			"Les règles de chaque couche de `nature_by_path` ou `nature_by_layer` dont le texte donne une autre nature que la couche : une part élevée dit que la correspondance est fausse, pas les règles. Une règle n'est une question que si ses propres indices (une entité touchée, un endpoint, une condition sur une entité, son attribut de qualité) appuient la couche.",
+			"The rules of each layer of `nature_by_path` or `nature_by_layer` whose text gives another nature than the layer: a high share says the mapping is wrong, not the rules. A rule is a question only when its own evidence (an entity it touches, an endpoint, a condition on an entity, its quality attribute) backs the layer.",
+		),
+		LayersColumns: tr(
+			"| couche | nature | règles | en désaccord | questions |\n|---|---|---:|---:|---:|",
+			"| layer | nature | rules | disagree | questions |\n|---|---|---:|---:|---:|",
 		),
 		DuplicatesHeading: tr(
 			"## Doublons candidates",

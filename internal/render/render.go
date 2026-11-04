@@ -23,6 +23,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/locale"
+	"github.com/StevenACoffman/codetospec/internal/position"
 	"github.com/StevenACoffman/codetospec/internal/questions"
 )
 
@@ -79,6 +80,9 @@ type Meta struct {
 	// UnusedTargets are the rule ids of targets.yaml that no
 	// non-functional rule of the run takes (see nfrtarget.Annotate).
 	UnusedTargets []string
+	// Layers compares the rules of each layer of the positional nature
+	// with it (see position.Annotate); nil without a layer mapping.
+	Layers []position.Layer
 	// Actors is the glossary of the actors rules may name (config
 	// actors), kept in graph.json for exports (LoadActors).
 	Actors map[string]string
@@ -193,6 +197,7 @@ func frontmatterExtras() []extraField {
 		{key: graph.ExtraExamplesContradicted, quoted: true},
 		{key: "nature"},
 		{key: graph.ExtraNatureByPosition},
+		{key: graph.ExtraNatureEvidence, quoted: true},
 		{key: graph.ExtraQualityAttribute},
 		{key: graph.ExtraThreshold, quoted: true},
 		{key: graph.ExtraTarget},
@@ -575,6 +580,7 @@ func readme(nodes []graph.Node, meta *Meta, ledger *questions.Ledger, text *loca
 	b.WriteString(gapsSection(meta.CoverageGaps, ledger, text))
 	b.WriteString(splitSection(meta.DomainSplits, text))
 	b.WriteString(sharedSection(meta.SharedEntities, text))
+	b.WriteString(layersSection(meta.Layers, text))
 
 	if len(meta.DuplicatePairs) > 0 {
 		intra, cross := 0, 0
@@ -968,6 +974,26 @@ func sharedSection(shared []graph.SharedEntity, text *locale.Text) string {
 			e.Title, e.ID, strings.Join(e.Domains, "`, `")))
 	}
 	return "\n" + text.SharedHeading + "\n" + itemList(text.SharedIntroFmt, items, text)
+}
+
+// layersSection tables, per layer of the positional nature, how many of
+// its rules disagree with it and how many of those are asked about.
+func layersSection(layers []position.Layer, text *locale.Text) string {
+	if len(layers) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n" + text.LayersHeading + "\n\n" + text.LayersIntro + "\n\n")
+	b.WriteString(text.LayersColumns + "\n")
+	for _, l := range layers {
+		disagree := strconv.Itoa(l.Disagree)
+		if l.Placed > 0 {
+			disagree += fmt.Sprintf(" (%.0f%%)", float64(l.Disagree)*percentScale/float64(l.Placed))
+		}
+		fmt.Fprintf(&b, "| `%s` | %s | %d | %s | %d |\n",
+			l.Pattern, l.Nature, l.Placed, disagree, l.Asked)
+	}
+	return b.String()
 }
 
 func splitSection(splits []communities.Split, text *locale.Text) string {

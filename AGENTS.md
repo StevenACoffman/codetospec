@@ -59,7 +59,11 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   validates its output (2 corrections max then a traced failure). The map
   prefixes each line of code with its absolute number (`numberedContent`):
   otherwise the model *counts* lines and drifts (off-by-N citations on big
-  chunks). The crosscheck (`--crosscheck`) refutes each rule, reading beside its
+  chunks). Pitfall: every field added to a map rule's JSON (EARS
+  components, condition) made the model write fewer technical rules;
+  the prompt names observable technical behaviour as a rule to hold
+  them (`docs/verification/map-technical-rules-2026-11-04.md`). Measure
+  candidates by nature before and after any map-prompt change. The crosscheck (`--crosscheck`) refutes each rule, reading beside its
   cited code the two nearest tests reaching it (`testreach.NearestTests`,
   `Checker.TestsFor`; folded into the cache key; the prompt forbids
   crediting what only a test does,

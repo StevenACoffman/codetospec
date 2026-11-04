@@ -19,6 +19,26 @@ rest.
     them loses their evidence.
   - Done: `config.DefaultExclude` names `*_test.go` (Go only); `source`
     test through the real walk.
+- [x] Find which map-prompt change lost the technical rules after the
+      remap (`docs/verification/remap-rule-drop-2026-11-04.md`: pkg's
+      candidates 1,477 → 1,212, technical 786 → 550), and correct it.
+  - Measured (2026-11-04): no single change; EARS components and the
+    structured condition each cost a third of the technical rules, and
+    together drop a quarter of all rules on big chunks. Not truncation.
+    Naming observable technical behaviour as a rule restores the old
+    count (`docs/verification/map-technical-rules-2026-11-04.md`).
+  - Done: the map prompt says so. It changes the prompt key: the next
+    run of every output re-maps.
+- [ ] Measure run-to-run variance after the next remap. Remap one output
+      (pkg) twice with the same prompt and model into two `--out`
+      directories, then compare candidates per chunk and by nature, and
+      the rules `diff --old --new` reports removed or added. Decide from
+      it how large a change in rule counts (the corpus baselines, a
+      prompt change's A/B) is a real one. The 4-reply ablation on 60
+      chunks gave a per-chunk sd of ~0.5 rules; a whole run's is unknown.
+  - Also check the new prompt on the full run: technical candidates back
+    near 786, small chunks not inflated (the ablation gave +29 % rules
+    on chunks under 100 lines).
 
 ## Requirement Classification
 

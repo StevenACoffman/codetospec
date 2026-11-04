@@ -185,6 +185,7 @@ const (
 	technical   = "technical"
 	performance = "performance_efficiency"
 	nature      = "nature"
+	business    = "business"
 )
 
 // TestListNFRTarget: a non-functional rule asks for its target until its
@@ -202,7 +203,7 @@ func TestListNFRTarget(t *testing.T) {
 		"threshold stated in code": {
 			nature: technical, attribute: performance, threshold: "30 seconds",
 		},
-		"business rule serving security": {nature: "business", attribute: "security"},
+		"business rule serving security": {nature: business, attribute: "security"},
 		"plain functionality": {
 			nature:    "technical",
 			attribute: "functional_suitability",
@@ -282,6 +283,40 @@ func TestListStaleTarget(t *testing.T) {
 				nature: technical, graph.ExtraQualityAttribute: performance,
 			}
 			maps.Copy(extra, tc.extra)
+			var got []string
+			for _, q := range questions.List(
+				[]graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}}, nil) {
+				got = append(got, q.Kind+" "+q.Detail)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("questions = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestListNatureMismatch: a rule whose layer contradicts its nature asks
+// only when its own evidence backs the layer; evidence backing the text,
+// or none, leaves the disagreement recorded but not asked.
+func TestListNatureMismatch(t *testing.T) {
+	cases := map[string]struct {
+		evidence string
+		want     []string
+	}{
+		"evidence backs the layer": {
+			evidence: "business: touches entity.invoices; technical: quality_attribute reliability",
+			want: []string{"nature_mismatch technical by position, business by text; " +
+				"business: touches entity.invoices; technical: quality_attribute reliability"},
+		},
+		"evidence backs the text": {evidence: "business: touches entity.invoices"},
+		"no evidence":             {},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			extra := map[string]string{nature: business, graph.ExtraNatureByPosition: technical}
+			if tc.evidence != "" {
+				extra[graph.ExtraNatureEvidence] = tc.evidence
+			}
 			var got []string
 			for _, q := range questions.List(
 				[]graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}}, nil) {

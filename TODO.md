@@ -77,13 +77,25 @@ rest.
   - Decided (2026-11-04): build neither. Fold it into `DOMAIN_PLAN.md`
     recommendation 4 (below).
 
-- [ ] Fold `nature_mismatch` into the subject-matter / technical split of
+- [x] Fold `nature_mismatch` into the subject-matter / technical split of
       `DOMAIN_PLAN.md` (recommendation 4). Position becomes one evidence
       signal beside the plan's; a question only when the signals
       conflict, listing each with its evidence (recommendation 15), never
       a majority vote. Each layer's disagreement rate goes in the output
-      README as a check on the mapping, not as a question. One-off
-      `cmd/` commands get the plan's cruft question (recommendation 21).
+      README as a check on the mapping, not as a question.
+  - Decided (2026-11-04): structural evidence only (touched entities,
+    endpoints, conditions on an entity's columns or a domain model's
+    attributes, a technical quality attribute), no word lists: they are
+    English and hand-made. A disagreement is asked only when that
+    evidence backs the position; evidence backing the text, or none,
+    leaves it recorded (`nature_evidence`) and counted per layer.
+  - Done: on districts with mapping A, 226 questions → 49
+    (`docs/verification/nature-evidence-2026-11-04.md`).
+- [ ] Ask "still needed?" about one-off `cmd/` commands (`DOMAIN_PLAN.md`
+      recommendation 21): backfills, purges, seeds (`CLASS-15005-purge`,
+      `dist-4399-backfill`). Telling a one-off command from a lasting one
+      (`validate`, `rosterutil`) needs a convention the code does not
+      state; decide one first.
 
 ## Nonfunctional Requirements
 

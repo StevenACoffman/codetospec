@@ -17,6 +17,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/locale"
+	"github.com/StevenACoffman/codetospec/internal/position"
 	"github.com/StevenACoffman/codetospec/internal/render"
 )
 
@@ -338,6 +339,10 @@ func TestWriteEnglish(t *testing.T) {
 	meta.SharedEntities = []graph.SharedEntity{
 		{ID: "entity.invoice", Title: "Invoice", Domains: []string{"billing", "tax"}},
 	}
+	meta.Layers = []position.Layer{
+		{Pattern: "cmd/...", Nature: position.Technical, Placed: 8, Disagree: 6, Asked: 1},
+		{Pattern: "internal/old", Nature: position.Business},
+	}
 	meta.DomainModel = &domainmodel.Report{
 		Models: []string{"billing.modelith.yaml"},
 		Entities: []domainmodel.Entity{
@@ -369,6 +374,9 @@ func TestWriteEnglish(t *testing.T) {
 				", 1 unchecked", "## Ungrounded rules", "## Domains",
 				"## Scattered domains", "- `main`: 6 files in 2 communities",
 				"## Shared entities", "- `Invoice` (`entity.invoice`): `billing`, `tax`",
+				"## Layers", "| layer | nature | rules | disagree | questions |",
+				"| `cmd/...` | technical | 8 | 6 (75%) | 1 |",
+				"| `internal/old` | business | 0 | 0 | 0 |",
 				"## Domain model", "- Model entities found in the code: 1/2",
 				"- `billing.Customer`",
 				"- Model actions a rule performs (same verb): 1/2",

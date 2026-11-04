@@ -510,9 +510,14 @@ nature_by_path:
 (`nature_by_layer: {adapter: technical, domain: business}` reads the layers
 of the target's anarch-lint `anarch.json` instead.) A rule whose cited
 code lies in layers of another nature than the one its text was given
-gets `nature_by_position` in its frontmatter and a `nature_mismatch`
-question; its `nature` is never changed: a layer says where code lives,
-not what a rule is about.
+gets `nature_by_position` in its frontmatter, with its structural
+evidence in `nature_evidence` (entities it touches, endpoints, a
+condition on an entity, a technical quality attribute). It is a
+`nature_mismatch` question only when that evidence backs the layer; its
+`nature` is never changed: a layer says where code lives, not what a rule
+is about. The output README's "Layers" table gives each layer's rules,
+disagreements and questions: a layer that disagrees with most of its
+rules is likely mapped wrong.
 
 **Human domain models.** `--domain-model billing.modelith.yaml` (repeatable;
 or `domain_models:` in `codetospec.yaml`, relative to `--src`) compares the

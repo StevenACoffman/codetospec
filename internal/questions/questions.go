@@ -9,7 +9,8 @@
 // refuted (KindRefuted), an inherited rule whose shared code changed since
 // its verdict (KindStaleVerdict), a non-functional rule whose code states
 // no threshold (KindNFRTarget: the target is the person's to set), a rule
-// whose nature its code's layer contradicts (KindNatureMismatch), one whose
+// whose nature its code's layer contradicts, with its own evidence
+// backing the layer (KindNatureMismatch), one whose
 // condition and EARS text state different checks (KindConditionMismatch),
 // one whose condition contradicts an example (KindExampleContradicted), one
 // whose observable the review refuted (KindObservableRefuted), one
@@ -30,6 +31,7 @@ import (
 
 	"github.com/StevenACoffman/codetospec/internal/crosscheck"
 	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/position"
 	"github.com/StevenACoffman/codetospec/internal/quality"
 )
 
@@ -137,8 +139,12 @@ func ruleFindings(n *graph.Node) []finding {
 	if reason := n.Extra[graph.ExtraObservableRefuted]; reason != "" {
 		found = append(found, finding{KindObservableRefuted, reason, ""})
 	}
-	if positional := n.Extra[graph.ExtraNatureByPosition]; positional != "" {
-		detail := positional + " by position, " + n.Extra["nature"] + " by text"
+	// The evidence is the detail, not the key: an edge the reduce adds
+	// rewords it, the disagreement stays.
+	if position.Asks(n) {
+		positional := n.Extra[graph.ExtraNatureByPosition]
+		detail := positional + " by position, " + n.Extra["nature"] + " by text; " +
+			n.Extra[graph.ExtraNatureEvidence]
 		found = append(found, finding{KindNatureMismatch, detail, positional})
 	}
 	if quality.IsNFR(n) && n.Extra[graph.ExtraThreshold] == "" {

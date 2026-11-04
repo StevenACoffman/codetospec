@@ -157,7 +157,7 @@ func (p *pipeline) run(ctx context.Context) error {
 		return err
 	}
 	nodes, tally, reviewedFiles := result.nodes, result.tally, result.reviewedFiles
-	nodes = position.Annotate(nodes, &human.positions)
+	nodes, layers := position.Annotate(nodes, &human.positions, modelEntities(models))
 	if err = p.verify(ctx, nodes); err != nil {
 		return err
 	}
@@ -175,6 +175,7 @@ func (p *pipeline) run(ctx context.Context) error {
 	meta.Reviewed = reviewedFiles
 	meta.Resolutions = prior.Resolutions
 	meta.UnusedTargets = result.unusedTargets
+	meta.Layers = layers
 	written, err := p.domainModel(models, nodes, tablesOf(ext.facts, domainOf))
 	if err != nil {
 		return err

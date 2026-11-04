@@ -56,7 +56,7 @@ rest.
     careful mapping, text usually right
     (`docs/verification/positional-nature-2026-11-01.md`).
 
-- [ ] After the remap, measure how many questions the narrowed
+- [x] After the remap, measure how many questions the narrowed
       `nature_mismatch` rules would raise, then decide. Today every
       disagreement is a question: one placed rule in five on districts
       with a careful mapping, mostly answered "the text is right".
@@ -68,7 +68,22 @@ rest.
     high, to fix the mapping or split a package that mixes concerns
     (a lead for the anarch-lint rule proposals). Choose the threshold
     from the measured rates.
-  - Count both on the remapped districts graph before building either.
+  - Measured (2026-11-04): per rule, 226 questions → 81; per layer, `cmd`
+    88 %, `handlers` 94 %, `models` 26 %, the rest ≤ 4 %. Against
+    `DOMAIN_PLAN.md`'s evidence, text and evidence agree against the
+    position in 128 of 226, almost all in `cmd/` (one-off backfills) and
+    `handlers/`: mapping errors
+    (`docs/verification/post-remap-measurements-2026-11-04.md`).
+  - Decided (2026-11-04): build neither. Fold it into `DOMAIN_PLAN.md`
+    recommendation 4 (below).
+
+- [ ] Fold `nature_mismatch` into the subject-matter / technical split of
+      `DOMAIN_PLAN.md` (recommendation 4). Position becomes one evidence
+      signal beside the plan's; a question only when the signals
+      conflict, listing each with its evidence (recommendation 15), never
+      a majority vote. Each layer's disagreement rate goes in the output
+      README as a check on the mapping, not as a question. One-off
+      `cmd/` commands get the plan's cruft question (recommendation 21).
 
 ## Nonfunctional Requirements
 
@@ -100,7 +115,7 @@ rest.
     `grounding.StatedNumbers` of a grounded NFR); such an NFR exports
     `codetospec_threshold: stated`. Config files are not read.
 
-- [ ] Measure whether config files hold the missing NFR thresholds, then
+- [x] Measure whether config files hold the missing NFR thresholds, then
       decide whether to read them. Today a threshold comes only from the
       numbers in an NFR's cited code (`quality.AnnotateThresholds`); values
       set in YAML, environment variables or flags are never read.
@@ -112,6 +127,20 @@ rest.
     cited code reads. First decide which value counts when environments
     differ: production, development, or the default in code.
   - Otherwise leave config unread: a person's target answer covers the gap.
+  - Measured (2026-11-04): 2,280 `nfr_target` questions, 1,229 distinct
+    rules. None of 23 sampled states a quantity, so none has one in
+    config: most are technical behaviour classified as a quality. 175
+    carry a measurable word; where a quantity exists it lives in code (a
+    package constant or variable, a field the caller sets)
+    (`docs/verification/post-remap-measurements-2026-11-04.md`).
+  - Decided (2026-11-04): config stays unread.
+
+- [ ] Ask `nfr_target` only for an NFR that states or names a quantity
+      (a number, or a timeout, limit, TTL… the cited code names), not for
+      every technical rule with a quality attribute. Let a threshold come
+      from a named constant the cited code reads (the `constant` facts,
+      as grounding maps `400` ↔ `http.StatusBadRequest`), beside the
+      numbers stated in the requirement.
 
 - [x] Read a person's NFR target answer back into the export. Today an NFR
       without a stated threshold exports `codetospec_threshold: unknown` and
@@ -250,6 +279,15 @@ rest.
     remap: decide from the per-layer `nature_mismatch` counts (above)
     whether they, or the enum transitions (a `fields` write rule per
     state field), give proposals worth a file.
+  - Measured (2026-11-04): neither. The high per-layer rates are mapping
+    errors, not dependencies to forbid; 10 enum transitions over every
+    output (`docs/verification/post-remap-measurements-2026-11-04.md`).
+  - Decided (2026-11-04): re-scope to state-field writers. Have the Go
+    extractor report which packages write each enum-typed struct field
+    (guarded or not, not only transitions), then measure whether that
+    gives `fitness.fields` proposals worth a file, with the rules citing
+    the writes as each proposal's reason. A proposal records today's
+    writers, not intent: a person judges each.
 
 ## Conditions
 
@@ -274,6 +312,19 @@ examples) land before the remap. Decided 2026-11-02:
       question, whose detail says which side's values occur in the cited
       code. Never an automatic override; measure the volume and precision
       after the remap.
+  - Measured (2026-11-04): 2,133 disagreements; extractor rules 788 (none
+    useful as a question: 490 only names the condition carries in a
+    variable path, 298 also a check's scope or a rate limit the
+    extractor's condition leaves out), LLM rules 924 (condition side 0 of
+    19 useful, text side about 1 in 4)
+    (`docs/verification/post-remap-measurements-2026-11-04.md`).
+
+- [ ] Narrow `condition_mismatch`. Count a value as present when it
+      occurs in a condition variable's name or as a constant a variable
+      names; drop the condition side (a condition's values are already
+      grounded in the cited code, so it only says the text is vaguer).
+- [ ] Have the webapp extractor's conditions carry what its EARS text
+      states: a permission check's scope and a rate limit's numbers.
 - [x] Executable examples (#5): written by the acceptance pass (see
       Acceptance), not the map, as `{given, expect}` rows checked against
       the condition with go-rule-engine; a contradicted example flags a
@@ -297,6 +348,11 @@ examples) land before the remap. Decided 2026-11-02:
     struct is named. Coined variables 62/64 → 39/66, variables shared by
     two rules 7 → 13; 20 of 21 vocabulary uses right
     (`docs/verification/condition-vocabulary-go-structs-2026-11-02.md`).
-- [ ] Measure conditions on webapp after the remap: its extractor
+- [x] Measure conditions on webapp after the remap: its extractor
       conditions (34 in the goldens) are the vocabulary's richest source,
       and how often map conditions reuse them is unmeasured.
+  - Measured (2026-11-04): 74 of 6,531 map conditions (1.1 %) name an
+    extractor variable, 5 hash equal to one: expected, since the map is
+    told not to restate `MECHANICAL_RULES`. 35 % name a vocabulary
+    variable, mostly struct fields
+    (`docs/verification/post-remap-measurements-2026-11-04.md`).

@@ -74,6 +74,13 @@ func TestParseRunActors(t *testing.T) {
 			wantErr: `already stands for "the notifier"`,
 		},
 		"not text": {yaml: "actors:\n  the scheduler: [1]\n", wantErr: `"the scheduler"`},
+		"owns": {yaml: "actors:\n  the scheduler:\n    description: Runs the nightly " +
+			"jobs.\n    owns: [a.Job, roster]\n"},
+		"owned twice": {
+			yaml: "actors:\n  the scheduler:\n    owns: [a.Job]\n" +
+				"  the notifier:\n    owns: [a.Job]\n",
+			wantErr: `already owned by "the notifier"`,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -91,7 +98,8 @@ func TestParseRunActors(t *testing.T) {
 			if tc.wantErr == "" {
 				if err != nil ||
 					cfg.Actors.Descriptions["the scheduler"] != "Runs the nightly jobs." ||
-					(name == "aliases") != (cfg.Actors.Aliases["the job runner"] == "the scheduler") {
+					(name == "aliases") != (cfg.Actors.Aliases["the job runner"] == "the scheduler") ||
+					(name == "owns") != (cfg.Actors.Owners["roster"] == "the scheduler") {
 					t.Fatalf("cfg.Actors = %v, err %v", cfg, err)
 				}
 				return

@@ -214,9 +214,10 @@ and shown live.
 
 Rule ids are **stable across runs**. The model names each rule's slug, so a
 re-reduced domain could rename every rule in it. Instead, a new rule that
-restates a rule of the previous output (same domain, and the same
-requirement, or overlapping citations with a similar requirement or the same
-id) keeps that rule's id. Extractor rules take their ids first, so theirs
+restates a rule of the previous output (the same requirement, or
+overlapping citations with a similar requirement or the same id) keeps that
+rule's id. A rule that moved to another domain keeps its id too when its
+citations overlap; its id keeps the old domain's slug, a historical name. Extractor rules take their ids first, so theirs
 depend on the extractor alone, and an id the previous output held is never
 given to a different rule in the next one.
 
@@ -510,9 +511,14 @@ nature_by_path:
 (`nature_by_layer: {adapter: technical, domain: business}` reads the layers
 of the target's anarch-lint `anarch.json` instead.) A rule whose cited
 code lies in layers of another nature than the one its text was given
-gets `nature_by_position` in its frontmatter, with its structural
-evidence in `nature_evidence` (entities it touches, endpoints, a
-condition on an entity, a technical quality attribute). It is a
+gets `nature_by_position` in its frontmatter. Every rule with structural
+evidence (entities it touches, endpoints, a condition on an entity, a
+technical quality attribute, platform code) records it in
+`nature_evidence`, and the nature that evidence alone gives in
+`nature_by_evidence` (business, technical, or open when it holds both);
+the output README tables them per domain ("Nature by evidence"). A
+security rule that checks something gets `facets: access`: access control
+is a facet of the concept it guards, not a domain. It is a
 `nature_mismatch` question only when that evidence backs the layer; its
 `nature` is never changed: a layer says where code lives, not what a rule
 is about. The output README's "Layers" table gives each layer's rules,
@@ -576,14 +582,35 @@ writes modelith models under `<out>/models/`, never into the source tree:
   definition is replaced by the entity's authored description when there is
   one. Columns the entity lacks become attributes. Single-entity ubiquitous
   rules that no invariant states become invariants.
-- one `generated/<domain>.modelith.yaml` per domain for the code entities no
-  human model names. An entity is defined by its description or, failing
-  that, a placeholder; the README lists those placeholders as questions.
+- one proposed concepts model, `generated/concepts.modelith.yaml`, for the
+  concepts no human model names: code tables, and the API entity types the
+  code owns (`@key` types it declares) that no table stands for. A table
+  with a NOT NULL foreign key to a single parent is `owned` by it; other
+  keys are `referenced`. Types the code only extends (other services'
+  concepts) and deprecated ones are named in its description, never
+  defined. One model for the whole output, not one per domain: today's
+  domains are code layers, and a proposal must not carry them into the
+  concepts. An entity is defined by its description or, failing that, a
+  placeholder; the README lists those placeholders as questions.
 - `models/provenance.json`, which says where each field codetospec decided
   comes from (human, description, placeholder, column or rule).
 
 Copy a model back into your repository, edit it, and pass it with
 `--domain-model` next time: definitions you write are kept.
+
+**Concepts.** With `--domain-model`, each rule whose evidence says business
+is placed in a concept of the models: the entity whose table it touches or
+whose columns its condition reads (`concept`, `concept_evidence`). A rule
+touching several goes to their nearest common owner (an `owned`
+relationship); concepts with none in common are a `concept_conflict`
+question listing each with its evidence. The output README's "Concepts"
+table gives each concept's rules and the domains they sit in today: the
+size of a regrouping by concept, which is not applied yet. An actor of
+`codetospec.yaml` that `owns` concepts (`owns: [assignments.Assignments]`,
+or a whole model by its scope) becomes the EARS subject of the rules
+placed in them, the sentence rewritten from its components without an
+LLM; a reviewed rule keeps its own. An owned concept no model declares
+stops the run before any LLM call.
 
 ## Output
 

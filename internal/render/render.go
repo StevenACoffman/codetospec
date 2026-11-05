@@ -17,6 +17,7 @@ import (
 
 	"github.com/StevenACoffman/codetospec/internal/atomicfs"
 	"github.com/StevenACoffman/codetospec/internal/communities"
+	"github.com/StevenACoffman/codetospec/internal/concept"
 	"github.com/StevenACoffman/codetospec/internal/consistency"
 	"github.com/StevenACoffman/codetospec/internal/domainmodel"
 	"github.com/StevenACoffman/codetospec/internal/ears"
@@ -66,6 +67,9 @@ type Meta struct {
 	// whose definition is still a placeholder.
 	ModelFiles     []string
 	ModelUndefined map[string][]string
+	// Concepts is how the rules fall into the confirmed models' concepts
+	// (concept.Assign); nil without --domain-model.
+	Concepts *concept.Report
 	// DomainModel compares the graph with human modelith models; nil when
 	// none was given (--domain-model).
 	DomainModel *domainmodel.Report
@@ -198,6 +202,11 @@ func frontmatterExtras() []extraField {
 		{key: "nature"},
 		{key: graph.ExtraNatureByPosition},
 		{key: graph.ExtraNatureEvidence, quoted: true},
+		{key: graph.ExtraNatureByEvidence},
+		{key: graph.ExtraFacets},
+		{key: concept.ExtraConcept},
+		{key: concept.ExtraConceptEvidence, quoted: true},
+		{key: concept.ExtraConceptConflict, quoted: true},
 		{key: graph.ExtraQualityAttribute},
 		{key: graph.ExtraThreshold, quoted: true},
 		{key: graph.ExtraTarget},
@@ -581,11 +590,14 @@ func readme(nodes []graph.Node, meta *Meta, ledger *questions.Ledger, text *loca
 	b.WriteString(splitSection(meta.DomainSplits, text))
 	b.WriteString(sharedSection(meta.SharedEntities, text))
 	b.WriteString(layersSection(meta.Layers, text))
+	b.WriteString(evidenceSection(nodes, text))
+	b.WriteString(conceptsSection(meta.Concepts, text))
 
 	if len(meta.DuplicatePairs) > 0 {
+		domains := domainsByRule(nodes)
 		intra, cross := 0, 0
 		for _, p := range meta.DuplicatePairs {
-			if ruleDomain(p.A) == ruleDomain(p.B) {
+			if domains[p.A] == domains[p.B] {
 				intra++
 			} else {
 				cross++
@@ -798,14 +810,17 @@ func mermaidID(slug string) string {
 	return strings.ReplaceAll(slug, "-", "_")
 }
 
-// ruleDomain extracts the domain segment of a rule id ("rule.<domain>.<slug>").
-func ruleDomain(ruleID string) string {
-	_, rest, found := strings.Cut(ruleID, ".")
-	if !found {
-		return ""
+// domainsByRule maps each rule id to the domain it belongs to: its
+// belongs_to edge, not its id, whose domain segment a moved rule keeps
+// (graph.MatchRules).
+func domainsByRule(nodes []graph.Node) map[string]string {
+	domains := map[string]string{}
+	for i := range nodes {
+		if nodes[i].Type == graph.TypeRule {
+			domains[nodes[i].ID] = graph.RuleDomain(&nodes[i])
+		}
 	}
-	domain, _, _ := strings.Cut(rest, ".")
-	return domain
+	return domains
 }
 
 // splitSection lists the domains whose files fall into several code
@@ -992,6 +1007,77 @@ func layersSection(layers []position.Layer, text *locale.Text) string {
 		}
 		fmt.Fprintf(&b, "| `%s` | %s | %d | %s | %d |\n",
 			l.Pattern, l.Nature, l.Placed, disagree, l.Asked)
+	}
+	return b.String()
+}
+
+// evidenceSection tables, per domain, its rules by the nature their
+// evidence gives (position.Annotate), and how many of those disagree with
+// their own nature; "" when no rule has evidence.
+func evidenceSection(nodes []graph.Node, text *locale.Text) string {
+	type counts struct{ rules, business, technical, open, none, disagree int }
+	byDomain := map[string]*counts{}
+	found := false
+	for i := range nodes {
+		n := &nodes[i]
+		if n.Type != graph.TypeRule {
+			continue
+		}
+		domain := graph.RuleDomain(n)
+		c := byDomain[domain]
+		if c == nil {
+			c = &counts{}
+			byDomain[domain] = c
+		}
+		c.rules++
+		verdict := n.Extra[graph.ExtraNatureByEvidence]
+		switch verdict {
+		case "":
+			c.none++
+		case position.Open:
+			c.open++
+		case position.Business:
+			c.business++
+		default:
+			c.technical++
+		}
+		if verdict != "" {
+			found = true
+		}
+		if verdict != "" && verdict != position.Open && verdict != n.Extra["nature"] {
+			c.disagree++
+		}
+	}
+	if !found {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n" + text.EvidenceHeading + "\n\n" + text.EvidenceIntro + "\n\n")
+	b.WriteString(text.EvidenceColumns + "\n")
+	for _, domain := range slices.Sorted(maps.Keys(byDomain)) {
+		c := byDomain[domain]
+		fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d | %d |\n",
+			domain, c.rules, c.business, c.technical, c.open, c.none, c.disagree)
+	}
+	return b.String()
+}
+
+// conceptsSection tables the confirmed models' concepts with the rules
+// their evidence places in each and the domains those rules sit in now:
+// the size of the regrouping a person decides on; "" without models.
+func conceptsSection(report *concept.Report, text *locale.Text) string {
+	if report == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n" + text.ConceptsHeading + "\n\n")
+	fmt.Fprintf(&b, text.ConceptsIntroFmt+"\n", report.Conflicts, report.Unplaced)
+	if len(report.Concepts) == 0 {
+		return b.String()
+	}
+	b.WriteString("\n" + text.ConceptsColumns + "\n")
+	for _, c := range report.Concepts {
+		fmt.Fprintf(&b, "| `%s` | %d | %s |\n", c.Concept, c.Rules, strings.Join(c.Domains, ", "))
 	}
 	return b.String()
 }

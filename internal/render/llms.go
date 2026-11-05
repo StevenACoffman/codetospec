@@ -67,7 +67,7 @@ func llmsRules(nodes []graph.Node) string {
 			}
 		}
 		line += lineSb681.String()
-		domain := ruleDomain(n.ID)
+		domain := graph.RuleDomain(n)
 		byDomain[domain] = append(byDomain[domain], line)
 	}
 	if len(byDomain) == 0 {

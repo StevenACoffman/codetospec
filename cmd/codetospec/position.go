@@ -90,6 +90,9 @@ func loadHumanInputs(cfg *config.Config) (humanInputs, error) {
 		}
 		in.models = models
 	}
+	if err := domainmodel.CheckOwned(in.models, cfg.Actors.Owners); err != nil {
+		return humanInputs{}, err
+	}
 	positions, err := loadPositions(cfg)
 	if err != nil {
 		return humanInputs{}, err

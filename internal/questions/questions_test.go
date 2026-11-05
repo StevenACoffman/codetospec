@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/StevenACoffman/codetospec/internal/concept"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/questions"
 )
@@ -326,5 +327,37 @@ func TestListNatureMismatch(t *testing.T) {
 				t.Errorf("questions = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestListConceptConflict: a rule naming concepts with no common owner is
+// a question listing each with its evidence; rewording the evidence keeps
+// its id, another option opens a new one.
+func TestListConceptConflict(t *testing.T) {
+	ask := func(options string) questions.Question {
+		t.Helper()
+		got := questions.List([]graph.Node{{
+			ID: ruleID, Type: graph.TypeRule,
+			Extra: map[string]string{concept.ExtraConceptConflict: options},
+		}}, nil)
+		if len(got) != 1 || got[0].Kind != questions.KindConceptConflict {
+			t.Fatalf("questions = %+v, want one concept_conflict", got)
+		}
+		return got[0]
+	}
+	first := ask("a.Config: touches entity.configs; c.Classroom: touches entity.classrooms")
+	if first.Detail != "a.Config: touches entity.configs; c.Classroom: touches entity.classrooms" {
+		t.Errorf("detail = %q", first.Detail)
+	}
+	reworded := ask(
+		"a.Config: condition configs.x, touches entity.configs; c.Classroom: touches entity.classrooms",
+	)
+	if reworded.ID != first.ID {
+		t.Error("new evidence for the same options opened another question")
+	}
+	if other := ask(
+		"a.Config: touches entity.configs; u.User: touches entity.users",
+	); other.ID == first.ID {
+		t.Error("other options kept the question's id")
 	}
 }

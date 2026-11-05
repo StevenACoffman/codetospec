@@ -8,10 +8,16 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/position"
+	"github.com/StevenACoffman/codetospec/internal/quality"
 )
 
-// middleware is a technical layer's package pattern.
-const middleware = "internal/middleware"
+// Names the tests share: a technical layer's package pattern, an entity
+// rules touch, and the root of shared platform code.
+const (
+	middleware     = "internal/middleware"
+	invoicesEntity = "entity.invoices"
+	platformRoot   = "pkg"
+)
 
 // cites is the sources of a rule citing paths under --src.
 func cites(paths ...string) []extract.Ref {
@@ -49,7 +55,7 @@ func TestOf(t *testing.T) {
 			position.Technical,
 		},
 		"citations disagree":       {cites("cmd/a/a.go", "internal/render/r.go"), ""},
-		"another root is unmapped": {[]extract.Ref{{Root: "pkg", Path: "cmd/x.go"}}, ""},
+		"another root is unmapped": {[]extract.Ref{{Root: platformRoot, Path: "cmd/x.go"}}, ""},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -132,13 +138,13 @@ func TestAnnotate(t *testing.T) {
 			Extra: map[string]string{"nature": nature},
 		}
 	}
-	touches := graph.Edge{Type: graph.EdgeTouches, To: "entity.invoices"}
+	touches := graph.Edge{Type: graph.EdgeTouches, To: invoicesEntity}
 	backedByCondition := rule("rule.b.condition", position.Technical, "billing/pay.go")
 	backedByCondition.Extra[graph.ExtraCondition] = `{"var":"invoices.total","op":"greater_than","value":0}`
 	technicalQuality := rule("rule.a.quality", position.Business, "internal/middleware/auth.go")
 	technicalQuality.Extra[graph.ExtraQualityAttribute] = "reliability"
 	in := []graph.Node{
-		{ID: "entity.invoices", Type: graph.TypeEntity, Title: "invoices"},
+		{ID: invoicesEntity, Type: graph.TypeEntity, Title: "invoices"},
 		rule("rule.a.disagrees", position.Business, "internal/middleware/auth.go", touches),
 		rule("rule.a.agrees", position.Technical, "internal/middleware/auth.go"),
 		rule("rule.a.unmapped", position.Business, "internal/other/pay.go"),
@@ -196,5 +202,102 @@ func TestAnnotateWithoutLayers(t *testing.T) {
 	out, layers := position.Annotate(in, &position.Map{}, nil)
 	if len(layers) != 0 || out[0].Extra != nil {
 		t.Errorf("layers = %v, extra = %v", layers, out[0].Extra)
+	}
+}
+
+// TestAnnotateNatureByEvidence: the nature a rule's evidence alone gives,
+// layers or not: business or technical when only one kind is present,
+// open when both are, none without evidence; platform code (inherited, or
+// cited only in another root) is technical evidence; access is the facet
+// of a security rule that checks something.
+func TestAnnotateNatureByEvidence(t *testing.T) {
+	touches := graph.Edge{Type: graph.EdgeTouches, To: invoicesEntity}
+	pkg := []extract.Ref{{Path: "lib/retry.go", Lines: "1-2", Root: platformRoot}}
+	cases := map[string]struct {
+		edges    []graph.Edge
+		sources  []extract.Ref
+		extra    map[string]string
+		evidence string
+		nature   string
+		facets   string
+	}{
+		"none": {},
+		"business": {
+			edges:    []graph.Edge{touches},
+			evidence: "business: touches entity.invoices",
+			nature:   position.Business,
+		},
+		"technical quality": {
+			extra:    map[string]string{graph.ExtraQualityAttribute: "reliability"},
+			evidence: "technical: quality_attribute reliability",
+			nature:   position.Technical,
+		},
+		"both": {
+			edges:    []graph.Edge{touches},
+			extra:    map[string]string{graph.ExtraQualityAttribute: "performance_efficiency"},
+			evidence: "business: touches entity.invoices; technical: quality_attribute performance_efficiency",
+			nature:   position.Open,
+		},
+		"inherited": {
+			sources:  pkg,
+			extra:    map[string]string{graph.ExtraInheritedFrom: platformRoot},
+			evidence: "technical: inherited_from pkg",
+			nature:   position.Technical,
+		},
+		"other root only": {
+			sources:  pkg,
+			evidence: "technical: root pkg",
+			nature:   position.Technical,
+		},
+		"root and src": {
+			sources: append(cites("billing/pay.go"), pkg...),
+		},
+		"access, mechanical": {
+			extra: map[string]string{
+				graph.ExtraQualityAttribute: quality.Security, graph.ExtraExtractedBy: "webapp",
+			},
+			facets: position.FacetAccess,
+		},
+		"access, condition": {
+			extra: map[string]string{
+				graph.ExtraQualityAttribute: quality.Security,
+				graph.ExtraCondition:        `{"var":"user.kaid","op":"equal","value":""}`,
+			},
+			facets: position.FacetAccess,
+		},
+		"security, no check": {
+			extra: map[string]string{graph.ExtraQualityAttribute: quality.Security},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			sources := tc.sources
+			if sources == nil {
+				sources = cites("billing/pay.go")
+			}
+			rule := graph.Node{
+				ID: "rule.billing.x", Type: graph.TypeRule, Edges: tc.edges,
+				Sources: sources, Extra: tc.extra,
+			}
+			out, _ := position.Annotate([]graph.Node{rule}, &position.Map{}, nil)
+			got := out[0].Extra
+			if got[graph.ExtraNatureEvidence] != tc.evidence {
+				t.Errorf(
+					"nature_evidence = %q, want %q",
+					got[graph.ExtraNatureEvidence],
+					tc.evidence,
+				)
+			}
+			if got[graph.ExtraNatureByEvidence] != tc.nature {
+				t.Errorf(
+					"nature_by_evidence = %q, want %q",
+					got[graph.ExtraNatureByEvidence],
+					tc.nature,
+				)
+			}
+			if got[graph.ExtraFacets] != tc.facets {
+				t.Errorf("facets = %q, want %q", got[graph.ExtraFacets], tc.facets)
+			}
+		})
 	}
 }

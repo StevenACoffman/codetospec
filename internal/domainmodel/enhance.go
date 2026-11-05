@@ -27,16 +27,32 @@ type Table struct {
 	Columns     []string // "name:type"
 	Description string   // authored description; "" when none
 	Source      extract.Ref
-	// Domain is the domain of its declaration, used when no rule touching
-	// it says otherwise.
-	Domain string
+	// References are its foreign keys (extract.ParseReferences).
+	References []extract.Reference
+}
+
+// APIType is an entity type of an API the code serves (an api_type fact):
+// a concept seed.
+type APIType struct {
+	Name string
+	// Owned is false for a type the code only extends: another service's
+	// concept, which the proposal names but never defines.
+	Owned bool
+	// Deprecated marks a type every field of which is deprecated: cruft,
+	// left out of the proposal.
+	Deprecated bool
+	Source     extract.Ref
 }
 
 // EnhanceInput is what Enhance builds models from.
 type EnhanceInput struct {
-	Set     *Set // human models; nil when none was given
-	Nodes   []graph.Node
-	Tables  []Table
+	Set      *Set // human models; nil when none was given
+	Nodes    []graph.Node
+	Tables   []Table
+	APITypes []APIType
+	// Title names the code the proposed concepts model covers (the
+	// output's source); "" names it after the generated file.
+	Title   string
 	Lang    string  // --lang: placeholder and description text
 	Options Options // entity mapping, as for Compare
 	// MirrorPath is where a human model's enhanced copy goes, relative to
@@ -79,9 +95,15 @@ const (
 // Enhance writes modelith models for the graph. Each human model is copied
 // with what the code adds: a definition from the table's description where
 // the human one is a placeholder, attributes for columns it lacks, and
-// invariants for single-entity ubiquitous rules no invariant states. Code
-// entities no human model names go into one generated model per domain,
-// defined by their description or, failing that, a placeholder.
+// invariants for single-entity ubiquitous rules no invariant states. The
+// concepts no human model names go into one proposed model
+// (ConceptsFile, DOMAIN_PLAN.md recommendation 2: never one per current
+// domain, whose names are code layers): code tables, defined by their
+// description or a placeholder, and owned API entity types no table
+// stands for; a table with a NOT NULL foreign key to a single parent is
+// owned by it, other keys are references. The types the code only extends
+// (other services' concepts) and the deprecated ones (cruft) are named in
+// its description, never defined.
 //
 // Requires: in.Set (when given) comes from Load; table ids are entity node
 // ids.
@@ -116,12 +138,11 @@ type invariantRule struct {
 
 // builder holds what Enhance derives once from its input.
 type builder struct {
-	in      *EnhanceInput
-	text    *locale.Text
-	tables  map[string]*Table
-	rules   map[string][]invariantRule // entity id → its invariant rules, by id
-	domains map[string]string          // entity id → domain of its rules
-	report  Report
+	in     *EnhanceInput
+	text   *locale.Text
+	tables map[string]*Table
+	rules  map[string][]invariantRule // entity id → its invariant rules, by id
+	report Report
 }
 
 func newBuilder(in *EnhanceInput) *builder {
@@ -134,7 +155,6 @@ func newBuilder(in *EnhanceInput) *builder {
 	for i := range in.Tables {
 		b.tables[in.Tables[i].ID] = &in.Tables[i]
 	}
-	b.domains = ruleDomains(in.Nodes)
 	for i := range in.Nodes {
 		n := &in.Nodes[i]
 		touches := touched(n)
@@ -165,51 +185,6 @@ func touched(n *graph.Node) []string {
 		}
 	}
 	return ids
-}
-
-// ruleDomains gives each entity the domain most of the rules touching it
-// belong to (ties to the smallest name).
-func ruleDomains(nodes []graph.Node) map[string]string {
-	counts := map[string]map[string]int{} // entity id → domain → rules
-	for i := range nodes {
-		n := &nodes[i]
-		if n.Type != graph.TypeRule {
-			continue
-		}
-		domain := ruleDomain(n)
-		for _, id := range touched(n) {
-			if counts[id] == nil {
-				counts[id] = map[string]int{}
-			}
-			counts[id][domain]++
-		}
-	}
-	domains := map[string]string{}
-	for id, byDomain := range counts {
-		domains[id] = majority(byDomain)
-	}
-	return domains
-}
-
-// ruleDomain is the domain a rule node belongs to.
-func ruleDomain(n *graph.Node) string {
-	for _, e := range n.Edges {
-		if e.Type == graph.EdgeBelongsTo {
-			return strings.TrimPrefix(e.To, "domain.")
-		}
-	}
-	return ""
-}
-
-// majority is the key with the highest count, ties to the smallest key.
-func majority(counts map[string]int) string {
-	best := ""
-	for key, n := range counts {
-		if n > counts[best] || n == counts[best] && (best == "" || key < best) {
-			best = key
-		}
-	}
-	return best
 }
 
 // isPlaceholder reports whether a definition is one codetospec wrote, in
@@ -410,48 +385,101 @@ func uniqueID(ruleID string, used map[string]bool) string {
 // domain.
 func (b *builder) generate(out *Enhanced) error {
 	matched := map[string]bool{}
+	named := map[string]bool{} // normalized entity names of the human models
 	for i := range b.report.Entities {
 		if id := b.report.Entities[i].Code.ID; id != "" {
 			matched[id] = true
 		}
+		_, name, _ := strings.Cut(b.report.Entities[i].Name, ".")
+		named[normalize(name)] = true
 	}
-	byDomain := map[string][]*Table{}
+	var tables []*Table
 	for i := range b.in.Tables {
-		t := &b.in.Tables[i]
-		if matched[t.ID] {
-			continue
-		}
-		domain := cmp.Or(b.domains[t.ID], t.Domain, "root")
-		byDomain[domain] = append(byDomain[domain], t)
-	}
-	domains := make([]string, 0, len(byDomain))
-	for domain := range byDomain {
-		domains = append(domains, domain)
-	}
-	slices.Sort(domains)
-	for _, domain := range domains {
-		if err := b.generateDomain(domain, byDomain[domain], out); err != nil {
-			return err
+		if t := &b.in.Tables[i]; !matched[t.ID] {
+			tables = append(tables, t)
 		}
 	}
-	return nil
+	slices.SortFunc(tables, func(a, b *Table) int { return cmp.Compare(a.ID, b.ID) })
+	types := b.proposedTypes(named)
+	if len(tables) == 0 && len(types.owned) == 0 {
+		return nil
+	}
+	return b.generateConcepts(tables, types, out)
 }
 
-// generateDomain writes the generated model of one domain.
-func (b *builder) generateDomain(domain string, tables []*Table, out *Enhanced) error {
-	slices.SortFunc(tables, func(a, b *Table) int { return cmp.Compare(a.ID, b.ID) })
-	file := "generated/" + domain + ".modelith.yaml"
+// ConceptsFile is the proposed concepts model Enhance writes, relative to
+// the models directory.
+const ConceptsFile = "generated/concepts.modelith.yaml"
+
+// proposedTypes are the API types as the proposal uses them: owned ones
+// it defines, referenced and deprecated ones it names in its description.
+type proposedTypes struct {
+	owned                  []*APIType
+	referenced, deprecated []string
+}
+
+// proposedTypes sorts the API types for the proposal: owned ones that no
+// table and no human model entity stands for (by normalized name, plurals
+// included) are defined; the others are named, sorted by name.
+func (b *builder) proposedTypes(named map[string]bool) proposedTypes {
+	tabled := map[string]bool{}
+	for i := range b.in.Tables {
+		tabled[normalize(b.in.Tables[i].Title)] = true
+	}
+	var p proposedTypes
+	for i := range b.in.APITypes {
+		api := &b.in.APITypes[i]
+		name := normalize(api.Name)
+		switch {
+		case api.Deprecated:
+			p.deprecated = append(p.deprecated, api.Name)
+		case !api.Owned:
+			p.referenced = append(p.referenced, api.Name)
+		case named[name] || tabled[name] || slices.ContainsFunc(plurals(name), func(n string) bool {
+			return tabled[n]
+		}):
+			// A table or a human model entity already stands for it.
+		default:
+			p.owned = append(p.owned, api)
+		}
+	}
+	slices.SortFunc(p.owned, func(a, b *APIType) int { return cmp.Compare(a.Name, b.Name) })
+	slices.Sort(p.referenced)
+	slices.Sort(p.deprecated)
+	return p
+}
+
+// generateConcepts writes ConceptsFile: tables and owned API types as
+// entities, foreign keys as relationships.
+func (b *builder) generateConcepts(tables []*Table, types proposedTypes, out *Enhanced) error {
+	file := ConceptsFile
+	title := cmp.Or(b.in.Title, "concepts")
 	prov := map[string]string{}
+	description := fmt.Sprintf(b.text.GeneratedDescFmt, title)
+	if len(types.referenced) > 0 {
+		description += " " + fmt.Sprintf(
+			b.text.ReferencedTypesFmt,
+			strings.Join(types.referenced, ", "),
+		)
+	}
+	if len(types.deprecated) > 0 {
+		description += " " + fmt.Sprintf(
+			b.text.DeprecatedTypesFmt,
+			strings.Join(types.deprecated, ", "),
+		)
+	}
 	doc := modelYAML{
 		Kind:        "DomainModel",
 		Version:     schema.Current,
-		Title:       domain,
-		Description: fmt.Sprintf(b.text.GeneratedDescFmt, domain),
+		Title:       title,
+		Description: description,
 		Entities:    map[string]entityYAML{},
 	}
+	names := map[string]string{} // table title → entity name
 	used := map[string]bool{}
 	for _, t := range tables {
 		name := uniqueName(entityName(t.Title), doc.Entities)
+		names[t.Title] = name
 		pointer := "/entities/" + name
 		e := entityYAML{Definition: t.Description}
 		prov[pointer+"/definition"] = "description " + sourceOf(t)
@@ -473,7 +501,90 @@ func (b *builder) generateDomain(domain string, tables []*Table, out *Enhanced) 
 		}
 		doc.Entities[name] = e
 	}
-	data, err := encodeGenerated(&doc, fmt.Sprintf(b.text.GeneratedHeaderFmt, domain))
+	for _, api := range types.owned {
+		name := uniqueName(entityName(api.Name), doc.Entities)
+		pointer := "/entities/" + name
+		src := api.Source.Path + ":" + api.Source.Lines
+		doc.Entities[name] = entityYAML{
+			Definition: fmt.Sprintf(
+				b.text.PlaceholderTypeFmt,
+				b.text.PlaceholderPrefix,
+				api.Name,
+				src,
+			),
+		}
+		prov[pointer+"/definition"] = originPlaceholder
+		out.Undefined[file] = append(out.Undefined[file], name)
+	}
+	addRelationships(&doc, tables, names, prov)
+	slices.Sort(out.Undefined[file])
+	return b.writeGenerated(file, &doc, title, prov, out)
+}
+
+// addRelationships records each table's foreign keys between the entities
+// of doc: a NOT NULL key to a single parent makes the parent own the
+// table (composition: the row cannot exist without it); any other key is
+// a reference from the table. Keys to tables outside doc are left out.
+func addRelationships(
+	doc *modelYAML,
+	tables []*Table,
+	names map[string]string,
+	prov map[string]string,
+) {
+	for _, t := range tables {
+		child := names[t.Title]
+		parents := map[string]bool{}
+		for _, r := range t.References {
+			if r.NotNull {
+				parents[r.Table] = true
+			}
+		}
+		for _, r := range t.References {
+			parent, ok := names[r.Table]
+			if !ok || parent == child {
+				continue
+			}
+			src := "references " + sourceOf(t)
+			if r.NotNull && len(parents) == 1 {
+				e := doc.Entities[parent]
+				if slices.ContainsFunc(e.Relationships, func(rel relationshipYAML) bool {
+					return rel.Entity == child
+				}) {
+					continue
+				}
+				prov[fmt.Sprintf("/entities/%s/relationships/%d", parent, len(e.Relationships))] = src
+				e.Relationships = append(e.Relationships,
+					relationshipYAML{Entity: child, Cardinality: "1:n", Ownership: ownershipOwned})
+				doc.Entities[parent] = e
+				continue
+			}
+			e := doc.Entities[child]
+			prov[fmt.Sprintf("/entities/%s/relationships/%d", child, len(e.Relationships))] = src
+			e.Relationships = append(
+				e.Relationships,
+				relationshipYAML{
+					Entity:      parent,
+					Cardinality: "n:1",
+					Ownership:   ownershipReferenced,
+				},
+			)
+			doc.Entities[child] = e
+		}
+	}
+}
+
+// The modelith relationship ownerships the proposal writes.
+const (
+	ownershipOwned      = "owned"
+	ownershipReferenced = "referenced"
+)
+
+// writeGenerated encodes doc to file, requires it to pass the full lint,
+// and records it in out.
+func (b *builder) writeGenerated(
+	file string, doc *modelYAML, title string, prov map[string]string, out *Enhanced,
+) error {
+	data, err := encodeGenerated(doc, fmt.Sprintf(b.text.GeneratedHeaderFmt, title))
 	if err != nil {
 		return fmt.Errorf("generated model %s: %w", file, err)
 	}
@@ -575,9 +686,15 @@ type (
 		Entities    map[string]entityYAML `yaml:"entities"`
 	}
 	entityYAML struct {
-		Definition string          `yaml:"definition"`
-		Attributes []attributeYAML `yaml:"attributes,omitempty"`
-		Invariants []invariantYAML `yaml:"invariants,omitempty"`
+		Definition    string             `yaml:"definition"`
+		Attributes    []attributeYAML    `yaml:"attributes,omitempty"`
+		Relationships []relationshipYAML `yaml:"relationships,omitempty"`
+		Invariants    []invariantYAML    `yaml:"invariants,omitempty"`
+	}
+	relationshipYAML struct {
+		Entity      string `yaml:"entity"`
+		Cardinality string `yaml:"cardinality"`
+		Ownership   string `yaml:"ownership"`
 	}
 	attributeYAML struct {
 		Name        string `yaml:"name"`

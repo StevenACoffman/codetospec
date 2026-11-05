@@ -29,6 +29,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/concept"
 	"github.com/StevenACoffman/codetospec/internal/crosscheck"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/position"
@@ -59,8 +60,24 @@ const (
 	// code than it cites now (graph.ExtraTargetStale): check it still
 	// holds, then update its digest in targets.yaml.
 	KindStaleTarget = "stale_target"
-	KindCoverageGap = "coverage_gap"
+	// KindConceptConflict: a business rule whose evidence names concepts of
+	// the confirmed model that share no owner (concept.ExtraConceptConflict,
+	// each option with its evidence): the rule belongs to one of them, or
+	// the model lacks an owner.
+	KindConceptConflict = "concept_conflict"
+	KindCoverageGap     = "coverage_gap"
 )
+
+// conceptNames is the concepts of a concept conflict, "A, B", without
+// their evidence.
+func conceptNames(options string) string {
+	var names []string
+	for part := range strings.SplitSeq(options, "; ") {
+		name, _, _ := strings.Cut(part, ": ")
+		names = append(names, name)
+	}
+	return strings.Join(names, ", ")
+}
 
 // Question is one finding a person may resolve.
 type Question struct {
@@ -146,6 +163,11 @@ func ruleFindings(n *graph.Node) []finding {
 		detail := positional + " by position, " + n.Extra["nature"] + " by text; " +
 			n.Extra[graph.ExtraNatureEvidence]
 		found = append(found, finding{KindNatureMismatch, detail, positional})
+	}
+	// The options are the key, not their evidence: an edge the reduce adds
+	// rewords the evidence, the choice stays.
+	if options := n.Extra[concept.ExtraConceptConflict]; options != "" {
+		found = append(found, finding{KindConceptConflict, options, conceptNames(options)})
 	}
 	if quality.IsNFR(n) && n.Extra[graph.ExtraThreshold] == "" {
 		attribute := n.Extra[graph.ExtraQualityAttribute]

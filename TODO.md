@@ -111,11 +111,83 @@ rest.
     leaves it recorded (`nature_evidence`) and counted per layer.
   - Done: on districts with mapping A, 226 questions → 49
     (`docs/verification/nature-evidence-2026-11-04.md`).
+## Business Concepts (`DOMAIN_PLAN.md`)
+
+- [x] Keep rule ids across a domain move (recommendation 25):
+      `graph.MatchRules` matches across domains when the cited code
+      overlaps (`docs/verification/cross-domain-ids-2026-11-04.md`).
+- [x] Split subject matter from technical by structural evidence
+      (recommendations 4, 13, 19): `nature_by_evidence`, `facets: access`
+      (`docs/verification/nature-by-evidence-2026-11-04.md`).
+- [x] Concept seeds from code (recommendations 7, 10): `api_type` facts
+      (webapp), foreign keys on `table` facts (Go extractor).
+- [x] One proposed concepts model instead of one per domain
+      (recommendations 1, 2, 10;
+      `docs/verification/concept-proposal-2026-11-04.md`).
+- [x] Concept assignment from a confirmed model, recorded and sized
+      (recommendations 3, 12, 15;
+      `docs/verification/concept-assignment-2026-11-04.md`).
+- [x] Actors that own concepts are the EARS subject (recommendation 23).
+- [ ] Apply the concept regrouping: move each rule with a `concept` into
+      its model's context (domain), on a person-confirmed model. Measure
+      first on the assignments pilot: coverage, conflicts, and id churn
+      with cross-domain matching
+      (`docs/verification/concept-assignment-2026-11-04.md`: 625 of 794
+      business rules placed, `Assignments` 494 from ~20 domains). A domain
+      node carries the reduce summary, coverage, `depends_on` and the
+      per-domain exports: all must follow the move.
+- [ ] Variants (`DOMAIN_PLAN.md` recommendation 17): revisit when a
+      confirmed model names the dimension; code enums find 8 of 67 pairs
+      (`docs/verification/enum-variants-2026-11-04.md`).
+- [ ] Pilot on assignments with an expert (recommendations 26, 27): have
+      a person correct `generated/concepts.modelith.yaml` (definitions,
+      taxonomy, the change-event kinds the 11 conflicts name, vestigial
+      Datastore models), then re-measure assignment on it. Every
+      placement number so far used the unreviewed proposal.
+- [ ] Measure the EARS subject change (recommendation 23) on a real
+      output with an `owns` glossary: rules rewritten, `ears_issue`
+      count, MatchRules keeping their ids on the next run.
+- [ ] Concept evidence from endpoints (recommendation 12): rules reached
+      by the journeys of an endpoint whose type the model owns. Today
+      only `touches` edges and condition variables place a rule.
+- [ ] Declared vs computed (recommendation 16): let a person declare the
+      concept of a file or a rule, and ask when the computed one
+      disagrees. No place to declare it yet (modelith has none).
+- [ ] Taxonomy (recommendation 8): the proposal does not mark is-kind-of
+      (the six platform assignment types under Assignment); propose it
+      from an assignment-type enum or `BaseAssignment` embedding, as a
+      QUESTION for a person.
+- [ ] Terminology checks (recommendation 9): one concept under several
+      domain names (`content-assignment` / `content-assignments`), one
+      name for several concepts. The concept table shows the first;
+      nothing reports it.
+- [ ] Audit facet (recommendation 5): change events and audit trails
+      have no structural signal yet; only `access` is a facet.
+- [ ] Boundary error handling as platform (recommendation 6): the 70
+      subject → technical disagreements of
+      `nature-by-evidence-2026-11-04.md` are mostly "IF retrieving X
+      fails" inside business flows; find a structural signal (EARS
+      `if` trigger + responses that only propagate or log) before
+      deciding.
+- [ ] Cruft (recommendation 21): deprecated API types are only named in
+      the proposal's description; make them, and conditions on
+      hard-coded ids or flags, "still needed?" questions. One-off `cmd/`
+      commands: next item.
 - [ ] Ask "still needed?" about one-off `cmd/` commands (`DOMAIN_PLAN.md`
       recommendation 21): backfills, purges, seeds (`CLASS-15005-purge`,
       `dist-4399-backfill`). Telling a one-off command from a lasting one
       (`validate`, `rosterutil`) needs a convention the code does not
       state; decide one first.
+- [ ] Ownership from code paths (recommendation 10): delete and archive
+      paths, and `ALTER TABLE … REFERENCES` (not read by the Go
+      extractor's `sql.go`).
+- [ ] Lifecycle as a concept or facet (recommendation 11): 232
+      assignments rules in 30 domains mention due, archived, scheduled,
+      draft.
+- [ ] Layers by spread across concepts (recommendation 14), split/merge
+      by measured distribution (18), per-service bounds (20), thin
+      services (22), roles in modelith `actor` from guards (24): need a
+      confirmed model and the pilot first.
 
 ## Nonfunctional Requirements
 
@@ -278,6 +350,10 @@ rest.
 
 ## Repository Checks
 
+- [ ] Re-record the corpus baselines: `make corpus` skips every entry
+      since webapp moved past the baselines' commit (`88b55ce5c33` →
+      `bfad3957bf1`), so it has compared nothing since. Rescan, review,
+      then `CODETOSPEC_CORPUS_UPDATE=1 make corpus`.
 - [x] Enforce the `AGENTS.md` architecture rules that exist only as prose.
       Each failure should name the rule and the repair.
   - "`internal/atomicfs` is the only writer of output" (`AGENTS.md:239-241`):

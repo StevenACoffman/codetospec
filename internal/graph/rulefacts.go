@@ -2,6 +2,7 @@ package graph
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -88,6 +89,15 @@ const ExtraNatureByPosition = "nature_by_position"
 // entity, its quality attribute), set beside ExtraNatureByPosition (see
 // package position).
 const ExtraNatureEvidence = "nature_evidence"
+
+// ExtraNatureByEvidence is the frontmatter key of the nature a rule's
+// structural evidence alone gives (business, technical, or open when it
+// holds both), and ExtraFacets that of its facets (access): see package
+// position.
+const (
+	ExtraNatureByEvidence = "nature_by_evidence"
+	ExtraFacets           = "facets"
+)
 
 // ExtraCondition is the frontmatter key of a rule's condition, in the
 // canonical compact notation (condition.Condition.Canonical), and
@@ -335,6 +345,36 @@ func RuleComponents(n *Node) (ears.Components, bool) {
 		actions = strings.Split(recorded, actionsSeparator)
 	}
 	return ears.WithActions(&c, actions), true
+}
+
+// WithSubject returns rule with system as the actor of its EARS
+// requirement: its components read back (RuleComponents), the actor set,
+// the sentence written again in the language of its label; false, and
+// rule as is, when the sentence does not parse or already names system.
+//
+// Ensures: rule is not modified; the kind, conditions and responses stay.
+func WithSubject(rule *Node, system string) (Node, bool) {
+	c, ok := RuleComponents(rule)
+	if !ok || c.System == system {
+		return *rule, false
+	}
+	c.System = system
+	lines := strings.Split(rule.Body, "\n")
+	for i, line := range lines {
+		for _, text := range locale.All() {
+			if !strings.HasPrefix(line, text.Requirement) {
+				continue
+			}
+			lines[i] = text.Requirement + ears.Render(&c, text.Lang)
+			out := *rule
+			out.Body = strings.Join(lines, "\n")
+			out.Extra = maps.Clone(rule.Extra)
+			delete(out.Extra, ExtraEARSIssue)
+			out.Extra = withEARS(out.Extra, RuleRequirement(out.Body))
+			return out, true
+		}
+	}
+	return *rule, false
 }
 
 // ruleFactExtra is the frontmatter of a rule fact's node: a mechanical

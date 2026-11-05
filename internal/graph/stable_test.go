@@ -33,13 +33,17 @@ const (
 
 // TestMatchRules: a reworded rule on the same code keeps its old id; a
 // same-id rule on the same code is the same rule whatever its wording; an
-// identical requirement matches wherever its code moved; another domain,
-// other code with other words, or a mechanical rule never matches.
+// identical requirement matches wherever its code moved in its domain; a
+// rule that moved to another domain keeps its id when its code overlaps,
+// a same-domain pair winning a tie; other code with other words, or a
+// mechanical rule never matches.
 func TestMatchRules(t *testing.T) {
 	mechanical := stableRule("rule.billing.mech", roundReq, roundLines)
 	mechanical.Extra = map[string]string{graph.ExtraExtractedBy: webappOrigin}
-	otherDomain := stableRule("rule.ops.round", roundReq, roundLines)
-	otherDomain.Edges = []graph.Edge{{Type: graph.EdgeBelongsTo, To: "domain.ops"}}
+	inOps := func(n graph.Node) graph.Node {
+		n.Edges = []graph.Edge{{Type: graph.EdgeBelongsTo, To: "domain.ops"}}
+		return n
+	}
 
 	cases := map[string]struct {
 		prior, current []graph.Node
@@ -65,10 +69,28 @@ func TestMatchRules(t *testing.T) {
 			current: []graph.Node{stableRule("rule.billing.refund", refundReq, "40-50")},
 			want:    map[string]string{},
 		},
-		"other domain": {
-			prior:   []graph.Node{otherDomain},
+		"moved domain, same code": {
+			prior:   []graph.Node{inOps(stableRule("rule.ops.round", roundReq, roundLines))},
 			current: []graph.Node{stableRule(centsRule, roundReq, roundLines)},
+			want:    map[string]string{centsRule: "rule.ops.round"},
+		},
+		"moved domain, reworded": {
+			prior:   []graph.Node{inOps(stableRule("rule.ops.round", roundReq, roundLines))},
+			current: []graph.Node{stableRule(centsRule, reworded, "12-20")},
+			want:    map[string]string{centsRule: "rule.ops.round"},
+		},
+		"moved domain, code moved": {
+			prior:   []graph.Node{inOps(stableRule("rule.ops.round", roundReq, roundLines))},
+			current: []graph.Node{stableRule(centsRule, roundReq, "40-50")},
 			want:    map[string]string{},
+		},
+		"same domain wins a tie": {
+			prior: []graph.Node{
+				inOps(stableRule("rule.ops.round", roundReq, roundLines)),
+				stableRule(roundRule, roundReq, roundLines),
+			},
+			current: []graph.Node{stableRule(centsRule, roundReq, roundLines)},
+			want:    map[string]string{centsRule: roundRule},
 		},
 		"mechanical": {
 			prior:   []graph.Node{mechanical},

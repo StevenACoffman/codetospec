@@ -20,15 +20,24 @@ import (
 //	  the notifier:
 //	    description: Pages the owner.
 //	    aliases: [the pager]
+//	  the Assignment_Manager:
+//	    description: Owns assignments and what they hold.
+//	    owns: [assignments.Assignments, roster]
+//
+// An actor that owns concepts of the confirmed domain models (a
+// "<scope>.<Entity>", or a whole model by its scope) is the EARS subject
+// of every rule placed in them (DOMAIN_PLAN.md recommendation 23).
 type Actors struct {
 	Descriptions map[string]string // name → what the actor is
 	Aliases      map[string]string // alias → name; nil when none
+	Owners       map[string]string // owned concept or scope → name; nil when none
 }
 
 // actorEntry is one entry of the glossary in its long form.
 type actorEntry struct {
 	Description string   `yaml:"description"`
 	Aliases     []string `yaml:"aliases"`
+	Owns        []string `yaml:"owns"`
 }
 
 // UnmarshalYAML reads the glossary and checks it before any model is
@@ -65,6 +74,24 @@ func (a *Actors) UnmarshalYAML(n *yaml.Node) error {
 				return fmt.Errorf("actors: %q: alias %q: %w", name, alias, err)
 			}
 		}
+		if err := a.addOwned(name, entries[name].Owns); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// addOwned records name as the owner of each concept or scope of owns;
+// one owner each, so a rule's subject has one answer.
+func (a *Actors) addOwned(name string, owns []string) error {
+	for _, owned := range owns {
+		if other, taken := a.Owners[owned]; taken {
+			return fmt.Errorf("actors: %q: owns %q, already owned by %q", name, owned, other)
+		}
+		if a.Owners == nil {
+			a.Owners = map[string]string{}
+		}
+		a.Owners[owned] = name
 	}
 	return nil
 }

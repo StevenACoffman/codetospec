@@ -14,10 +14,13 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/graph"
 )
 
+// firstLine is the citation of the API types of the shop fixture.
+const firstLine = "1-1"
+
 // The written files of the shop fixture.
 const (
-	billingFile = "generated/billing.modelith.yaml"
-	shopFile    = "shop.modelith.yaml"
+	conceptsFile = domainmodel.ConceptsFile
+	shopFile     = "shop.modelith.yaml"
 )
 
 // shopRule is a rule of domain, of EARS kind ears, touching entities.
@@ -29,7 +32,10 @@ func shopRule(id, domain, ears, requirement string, touches ...string) graph.Nod
 }
 
 // shopInput: orders and coupons match the human Order and Coupon; invoices
-// is in no model. Only single-entity ubiquitous rules become invariants.
+// is in no model, and owns its lines by a NOT NULL foreign key. Only
+// single-entity ubiquitous rules become invariants. Of the API types,
+// Customer is a concept no table stands for, Invoice is the invoices
+// table, Store another service's and Legacy deprecated.
 func shopInput(t *testing.T, set *domainmodel.Set) *domainmodel.EnhanceInput {
 	t.Helper()
 	return &domainmodel.EnhanceInput{
@@ -38,6 +44,7 @@ func shopInput(t *testing.T, set *domainmodel.Set) *domainmodel.EnhanceInput {
 			entity("entity.orders", "orders"),
 			entity("entity.coupons", "coupons"),
 			entity("entity.invoices", "invoices"),
+			entity("entity.invoice_lines", "invoice_lines"),
 			shopRule("rule.shop.order-total", "shop", "ubiquitous",
 				"The system shall keep an order `total` equal to the sum of its lines.",
 				"entity.orders"),
@@ -50,9 +57,8 @@ func shopInput(t *testing.T, set *domainmodel.Set) *domainmodel.EnhanceInput {
 		},
 		Tables: []domainmodel.Table{
 			{
-				ID:     "entity.orders",
-				Title:  "orders",
-				Domain: "shop",
+				ID:    "entity.orders",
+				Title: "orders",
 				Columns: []string{
 					"id:int64",
 					"total:numeric(10,2)",
@@ -62,17 +68,46 @@ func shopInput(t *testing.T, set *domainmodel.Set) *domainmodel.EnhanceInput {
 				Source: extract.Ref{Path: "db/schema.sql", Lines: "1-7"},
 			},
 			{
-				ID: "entity.coupons", Title: "coupons", Domain: "shop",
+				ID: "entity.coupons", Title: "coupons",
 				Description: "A discount code a customer applies at checkout.",
 				Source:      extract.Ref{Path: "db/schema.sql", Lines: "9-12"},
 			},
 			{
-				ID: "entity.invoices", Title: "invoices", Domain: "other",
+				ID: "entity.invoices", Title: "invoices",
 				Columns: []string{"number:text"},
 				Source:  extract.Ref{Path: "db/billing.sql", Lines: "1-4"},
 			},
+			{
+				ID: "entity.invoice_lines", Title: "invoice_lines",
+				Columns: []string{"invoice_id:bigint", "coupon_id:bigint"},
+				Source:  extract.Ref{Path: "db/billing.sql", Lines: "6-10"},
+				References: []extract.Reference{
+					{Columns: []string{"invoice_id"}, Table: "invoices", NotNull: true},
+					{Columns: []string{"coupon_id"}, Table: "coupons"},
+				},
+			},
 		},
-		Lang: "en",
+		APITypes: []domainmodel.APIType{
+			{
+				Name:   "Customer",
+				Owned:  true,
+				Source: extract.Ref{Path: "customer.graphql", Lines: firstLine},
+			},
+			{
+				Name:   "Invoice",
+				Owned:  true,
+				Source: extract.Ref{Path: "billing.graphql", Lines: firstLine},
+			},
+			{Name: "Store", Source: extract.Ref{Path: "store.graphql", Lines: firstLine}},
+			{
+				Name:       "Legacy",
+				Owned:      true,
+				Deprecated: true,
+				Source:     extract.Ref{Path: "old.graphql", Lines: firstLine},
+			},
+		},
+		Title: "shop",
+		Lang:  "en",
 	}
 }
 
@@ -95,10 +130,10 @@ func TestEnhanceGolden(t *testing.T) {
 	}{
 		"with the human model": {
 			set:       loadShop(t),
-			wantFiles: []string{billingFile, shopFile},
+			wantFiles: []string{conceptsFile, shopFile},
 		},
 		"without a human model": {
-			wantFiles: []string{billingFile, "generated/shop.modelith.yaml"},
+			wantFiles: []string{conceptsFile},
 		},
 	}
 	for name, tc := range cases {
@@ -173,7 +208,13 @@ func TestEnhanceProvenance(t *testing.T) {
 			shopFile, "/entities/Order/invariants/0", "rule rule.shop.order-total",
 		},
 		"generated entity without a description": {
-			billingFile, "/entities/Invoices/definition", "placeholder",
+			conceptsFile, "/entities/Invoices/definition", "placeholder",
+		},
+		"ownership from a NOT NULL foreign key": {
+			conceptsFile, "/entities/Invoices/relationships/0", "references db/billing.sql:6-10",
+		},
+		"API type no table stands for": {
+			conceptsFile, "/entities/Customer/definition", "placeholder",
 		},
 	}
 	for name, tc := range cases {
@@ -183,7 +224,7 @@ func TestEnhanceProvenance(t *testing.T) {
 			}
 		})
 	}
-	want := map[string][]string{billingFile: {"Invoices"}}
+	want := map[string][]string{conceptsFile: {"Customer", "InvoiceLines", "Invoices"}}
 	if !reflect.DeepEqual(out.Undefined, want) {
 		t.Errorf("undefined = %v, want %v", out.Undefined, want)
 	}

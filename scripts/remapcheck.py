@@ -26,27 +26,54 @@ import statistics
 import subprocess
 import sys
 
+# Line windows (files without a grammar) share this many lines with the
+# next window (fallbackOverlap, internal/sitter/chunk.go).
+WINDOW_OVERLAP = 20
 SIZES = (("< 40", 0, 40), ("40-99", 40, 100), (">= 100", 100, 10**9))
 NATURES = ("business", "technical", "presentation")
 
 
 def load(out):
-    """chunk id -> (lines, Counter of natures), failed chunks left out."""
+    """chunk id -> (lines, Counter of natures), failed and stale chunks left out.
+
+    The map cache keeps the output of a chunk the code no longer has (its
+    file changed, so its content hash did). The current chunks overlap only
+    as adjacent line windows do, by WINDOW_OVERLAP lines, and a chunk that
+    replaced another was written after it: an entry otherwise overlapping a
+    newer one of the same file is stale. A stale entry whose span no current
+    chunk overlaps (code removed) is kept: measured, 3 of 89 on pkg.
+    """
     d = os.path.join(os.path.expanduser(out), ".codetospec", "map")
-    chunks = {}
+    entries = []
     for f in sorted(os.listdir(d)):
         if not f.endswith(".json"):
             continue
-        with open(os.path.join(d, f)) as fh:
+        path = os.path.join(d, f)
+        with open(path) as fh:
             o = json.load(fh)
-        if o.get("failed"):
+        entries.append((os.path.getmtime(path), f[:-5], o))
+    newest = collections.defaultdict(list)  # file -> spans, newest first
+    chunks = {}
+    for _, cid, o in sorted(entries, key=lambda e: (-e[0], e[1])):
+        start, end = o["start_line"], o["end_line"]
+        spans = newest[o["path"]]
+        stale = any(overlaps((start, end), span) for span in spans)
+        spans.append((start, end))
+        if stale or o.get("failed"):
             continue
-        lines = o["end_line"] - o["start_line"] + 1
-        chunks[f[:-5]] = (
-            lines,
+        chunks[cid] = (
+            end - start + 1,
             collections.Counter(r.get("nature") for r in o["rules"]),
         )
     return chunks
+
+
+def overlaps(a, b):
+    """Spans a and b share a line, other than as adjacent windows do."""
+    if a[0] > b[0]:
+        a, b = b, a
+    shared = min(a[1], b[1]) - b[0] + 1
+    return shared > 0 and not (shared == WINDOW_OVERLAP and b[1] > a[1])
 
 
 def size_of(lines):

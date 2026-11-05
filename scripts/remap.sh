@@ -38,12 +38,15 @@
 #                    coaches districts graphql-gateway users)
 #   DISTRICTS_JOBS   1|0                   (default: 1 when ~/Documents/git/districts-jobs exists)
 #   VARIANCE         1|0                   (default: 1)
+#   ACCEPTANCE       1|0                   (default: 1; the slowest pass, about
+#                    half of a service's time; only the Quire and Kiro exports
+#                    read it, and it can run later, cached per rule)
 #   WEBAPP_DIR, LLM_MODEL, WORKERS, … are passed through to scanwebapp.sh
 #   and scandistricts.sh.
 #
 # Default run flags: --quality --crosscheck --acceptance --write-domain-model
-# (the last remap's, plus the concepts proposal). Extra arguments are
-# appended to them.
+# (the last remap's, plus the concepts proposal; ACCEPTANCE=0 drops
+# --acceptance). Extra arguments are appended to them.
 set -euo pipefail
 
 # has_cmd NAME — true if NAME is an executable file on $PATH.
@@ -74,7 +77,9 @@ districts_dir=${DISTRICTS_DIR:-$HOME/Documents/git/districts-jobs}
 if [ -z "${DISTRICTS_JOBS:-}" ]; then
     if [ -d "$districts_dir" ]; then DISTRICTS_JOBS=1; else DISTRICTS_JOBS=0; fi
 fi
-flags=(--quality --crosscheck --acceptance --write-domain-model "$@")
+flags=(--quality --crosscheck)
+if [ "${ACCEPTANCE:-1}" = 1 ]; then flags+=(--acceptance); fi
+flags+=(--write-domain-model "$@")
 
 run() {
     printf '    %s\n' "$*" >&2

@@ -1,5 +1,50 @@
 [
   {
+    "kind": "api_type",
+    "id": "api_type.AIProfile",
+    "attrs": {
+      "key": "id",
+      "name": "AIProfile",
+      "owned": "true"
+    },
+    "source": {
+      "path": "federation.graphql",
+      "lines": "1-1"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "api_type",
+    "id": "api_type.RowByTeacher",
+    "attrs": {
+      "key": "teacherID kaLocale",
+      "name": "RowByTeacher",
+      "owned": "true"
+    },
+    "source": {
+      "path": "federation.graphql",
+      "lines": "6-6"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "api_type",
+    "id": "api_type.User",
+    "attrs": {
+      "key": "kaid",
+      "name": "User",
+      "owned": "true"
+    },
+    "source": {
+      "path": "user.graphql",
+      "lines": "1-1"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
     "kind": "dependency",
     "id": "dependency.webapp.tasks/invite.go:4:assignments:Mutation.acceptInvitation",
     "attrs": {

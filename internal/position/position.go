@@ -4,10 +4,15 @@
 // its text says. The layers come from codetospec.yaml (nature_by_path) or
 // from the target's anarch-lint model (anarch.json layers, nature_by_layer).
 //
+// Each rule's structural evidence (graph.ExtraNatureEvidence: entities,
+// endpoints, conditions on an entity, a technical quality attribute,
+// platform code) gives a nature of its own (graph.ExtraNatureByEvidence:
+// business, technical, or open when it holds both): DOMAIN_PLAN.md's
+// subject-matter / technical split, which concept grouping reads.
+//
 // The positional nature never overrides the LLM's: a disagreement is
-// recorded (graph.ExtraNatureByPosition) beside the rule's structural
-// evidence (graph.ExtraNatureEvidence), and asked as a question only when
-// that evidence backs the position (Asks). Position is one signal among
+// recorded (graph.ExtraNatureByPosition) beside that evidence, and asked
+// as a question only when the evidence backs the position (Asks). Position is one signal among
 // those of DOMAIN_PLAN.md's subject-matter / technical split
 // (recommendation 4), never a vote: measured, the text is the better
 // reading in most disagreements, and a layer whose rules disagree often
@@ -250,68 +255,82 @@ type Layer struct {
 	Placed, Disagree, Asked int
 }
 
-// Annotate records, on each rule whose positional nature differs from the
-// nature it was given, the positional one (graph.ExtraNatureByPosition)
-// and the rule's structural evidence (graph.ExtraNatureEvidence, when it
-// has any), and counts each layer's rules. entities are the names of the
-// domain models' entities: a condition on one of their attributes, as on
-// a column of an entity node's table, is business evidence.
+// Annotate records on each rule its structural evidence
+// (graph.ExtraNatureEvidence) and the nature that evidence alone gives
+// (graph.ExtraNatureByEvidence, DOMAIN_PLAN.md recommendation 4), its
+// facets (graph.ExtraFacets), and, when its positional nature differs
+// from the nature it was given, the positional one
+// (graph.ExtraNatureByPosition); and counts each layer's rules. entities
+// are the names of the domain models' entities: a condition on one of
+// their attributes, as on a column of an entity node's table, is business
+// evidence.
 //
-// Requires: m from Parse or FromAnarch.
-// Ensures:  nodes is not modified; a rule whose position says nothing, or
-// agrees, gets no field; no rule's nature changes; one Layer per pattern,
-// most specific first, none with an empty Map.
+// Requires: m from Parse or FromAnarch, or the zero Map (no layers).
+// Ensures:  nodes is not modified; a rule with no evidence gets no
+// evidence field, one whose position says nothing or agrees no positional
+// field; no rule's nature changes; one Layer per pattern, most specific
+// first, none with an empty Map.
 func Annotate(nodes []graph.Node, m *Map, entities []string) ([]graph.Node, []Layer) {
-	if len(m.patterns) == 0 {
-		return nodes, nil
-	}
-	layers := make([]Layer, len(m.patterns))
+	var layers []Layer
 	for i := range m.patterns {
-		layers[i] = Layer{Pattern: m.patterns[i].String(), Nature: m.patterns[i].nature}
+		layers = append(
+			layers,
+			Layer{Pattern: m.patterns[i].String(), Nature: m.patterns[i].nature},
+		)
 	}
 	concepts := conceptsOf(nodes, entities)
 	out := slices.Clone(nodes)
 	for i := range out {
-		if out[i].Type == graph.TypeRule {
-			m.annotate(&out[i], concepts, layers)
+		if out[i].Type != graph.TypeRule {
+			continue
+		}
+		rule := &out[i]
+		ev := evidenceOf(rule, concepts)
+		fields := map[string]string{}
+		if summary := ev.String(); summary != "" {
+			fields[graph.ExtraNatureEvidence] = summary
+			fields[graph.ExtraNatureByEvidence] = ev.nature()
+		}
+		if facets := facetsOf(rule); facets != "" {
+			fields[graph.ExtraFacets] = facets
+		}
+		if positional := m.disagreement(rule, ev, layers); positional != "" {
+			fields[graph.ExtraNatureByPosition] = positional
+		}
+		if len(fields) > 0 {
+			rule.Extra = maps.Clone(rule.Extra)
+			if rule.Extra == nil {
+				rule.Extra = map[string]string{}
+			}
+			maps.Copy(rule.Extra, fields)
 		}
 	}
 	return out, layers
 }
 
-// annotate records rule's positional nature and evidence when its
-// position disagrees with its nature, and counts it in its layers.
-func (m *Map) annotate(rule *graph.Node, concepts map[string]bool, layers []Layer) {
+// disagreement counts rule in its layers and returns its positional
+// nature when that differs from its nature; "" when its position says
+// nothing or agrees.
+func (m *Map) disagreement(rule *graph.Node, ev evidence, layers []Layer) string {
 	positional := m.Of(rule.Sources)
 	if positional == "" {
-		return
+		return ""
 	}
 	in, _ := m.layersOf(rule.Sources)
 	disagrees := positional != rule.Extra["nature"]
-	evidence := ""
-	if disagrees {
-		evidence = evidenceOf(rule, concepts)
-	}
 	for _, l := range in {
 		layers[l].Placed++
 		if disagrees {
 			layers[l].Disagree++
 		}
-		if disagrees && backs(evidence, positional) {
+		if disagrees && ev.backs(positional) {
 			layers[l].Asked++
 		}
 	}
 	if !disagrees {
-		return
+		return ""
 	}
-	rule.Extra = maps.Clone(rule.Extra)
-	if rule.Extra == nil {
-		rule.Extra = map[string]string{}
-	}
-	rule.Extra[graph.ExtraNatureByPosition] = positional
-	if evidence != "" {
-		rule.Extra[graph.ExtraNatureEvidence] = evidence
-	}
+	return positional
 }
 
 // Asks reports whether rule's positional nature is a question: the
@@ -320,13 +339,11 @@ func (m *Map) annotate(rule *graph.Node, concepts map[string]bool, layers []Laye
 // disagreement recorded and counted in its layer, not asked.
 func Asks(rule *graph.Node) bool {
 	positional := rule.Extra[graph.ExtraNatureByPosition]
-	return positional != "" && backs(rule.Extra[graph.ExtraNatureEvidence], positional)
-}
-
-// backs reports whether evidence names nature.
-func backs(evidence, nature string) bool {
-	for group := range strings.SplitSeq(evidence, evidenceSeparator) {
-		if n, _, _ := strings.Cut(group, ": "); n == nature && group != "" {
+	if positional == "" {
+		return false
+	}
+	for group := range strings.SplitSeq(rule.Extra[graph.ExtraNatureEvidence], evidenceSeparator) {
+		if n, _, _ := strings.Cut(group, ": "); n == positional && group != "" {
 			return true
 		}
 	}
@@ -335,6 +352,60 @@ func backs(evidence, nature string) bool {
 
 // evidenceSeparator separates the natures of an evidence summary.
 const evidenceSeparator = "; "
+
+// Open is the nature by evidence of a rule with both business and
+// technical evidence: the evidence does not decide.
+const Open = "open"
+
+// FacetAccess is the facet of a rule that controls access (DOMAIN_PLAN.md
+// recommendation 5): a facet of the concept it guards, never a domain.
+const FacetAccess = "access"
+
+// evidence is a rule's structural evidence, no LLM and no words of its
+// text, each item "<kind> <what>" ("touches entity.a"), sorted.
+type evidence struct {
+	business, technical []string
+}
+
+// nature is the nature the evidence alone gives: business or technical
+// when only one kind is present, Open when both are.
+//
+// Requires: e holds some evidence.
+func (e evidence) nature() string {
+	switch {
+	case len(e.business) > 0 && len(e.technical) > 0:
+		return Open
+	case len(e.business) > 0:
+		return Business
+	default:
+		return Technical
+	}
+}
+
+// backs reports whether e holds evidence of nature.
+func (e evidence) backs(nature string) bool {
+	switch nature {
+	case Business:
+		return len(e.business) > 0
+	case Technical:
+		return len(e.technical) > 0
+	}
+	return false
+}
+
+// String is the evidence as the frontmatter states it: "business: touches
+// entity.a, exposed_by endpoint.b; technical: quality_attribute
+// reliability", "" for none.
+func (e evidence) String() string {
+	var groups []string
+	if len(e.business) > 0 {
+		groups = append(groups, Business+": "+strings.Join(e.business, ", "))
+	}
+	if len(e.technical) > 0 {
+		groups = append(groups, Technical+": "+strings.Join(e.technical, ", "))
+	}
+	return strings.Join(groups, evidenceSeparator)
+}
 
 // isTechnicalQuality reports whether a quality attribute is technical
 // evidence. Security, safety and compliance are not: an authorization
@@ -365,37 +436,65 @@ func conceptsOf(nodes []graph.Node, entities []string) map[string]bool {
 	return concepts
 }
 
-// evidenceOf summarizes rule's structural evidence, no LLM and no words
-// of its text: business, an entity it touches, an endpoint exposing it, a
-// condition variable on a concept ("table.column"); technical, a
-// technical quality attribute. "business: touches entity.a, exposed_by
-// endpoint.b; technical: quality_attribute reliability", "" for none.
-func evidenceOf(rule *graph.Node, concepts map[string]bool) string {
-	var business, technical []string
+// evidenceOf is rule's structural evidence: business, an entity it
+// touches, an endpoint exposing it, a condition variable on a concept
+// ("table.column"); technical, a technical quality attribute, or code that
+// lives only in the platform: an inherited rule, or one citing only other
+// roots than --src (DOMAIN_PLAN.md recommendation 19).
+func evidenceOf(rule *graph.Node, concepts map[string]bool) evidence {
+	var ev evidence
 	for _, e := range rule.Edges {
 		if e.Type == graph.EdgeTouches || e.Type == graph.EdgeExposedBy {
-			business = append(business, e.Type+" "+e.To)
+			ev.business = append(ev.business, e.Type+" "+e.To)
 		}
 	}
 	if raw := rule.Extra[graph.ExtraCondition]; raw != "" {
 		if c, err := condition.Parse([]byte(raw)); err == nil {
 			for _, v := range c.Variables() {
 				if dot := strings.LastIndex(v, "."); dot > 0 && concepts[v[:dot]] {
-					business = append(business, "condition "+v)
+					ev.business = append(ev.business, "condition "+v)
 				}
 			}
 		}
 	}
 	if attribute := rule.Extra[graph.ExtraQualityAttribute]; isTechnicalQuality(attribute) {
-		technical = append(technical, graph.ExtraQualityAttribute+" "+attribute)
+		ev.technical = append(ev.technical, graph.ExtraQualityAttribute+" "+attribute)
 	}
-	var groups []string
-	if len(business) > 0 {
-		slices.Sort(business)
-		groups = append(groups, Business+": "+strings.Join(slices.Compact(business), ", "))
+	if from := rule.Extra[graph.ExtraInheritedFrom]; from != "" {
+		ev.technical = append(ev.technical, graph.ExtraInheritedFrom+" "+from)
+	} else if root := onlyRoot(rule.Sources); root != "" {
+		ev.technical = append(ev.technical, "root "+root)
 	}
-	if len(technical) > 0 {
-		groups = append(groups, Technical+": "+strings.Join(technical, ", "))
+	slices.Sort(ev.business)
+	ev.business = slices.Compact(ev.business)
+	slices.Sort(ev.technical)
+	return ev
+}
+
+// onlyRoot is the root every source cites when none is under --src, the
+// first in source order when they name several; "" otherwise.
+func onlyRoot(sources []extract.Ref) string {
+	for _, src := range sources {
+		if src.Root == "" {
+			return ""
+		}
 	}
-	return strings.Join(groups, evidenceSeparator)
+	if len(sources) == 0 {
+		return ""
+	}
+	return sources[0].Root
+}
+
+// facetsOf is rule's facets, comma-separated: access when it serves
+// security and checks something before responding (a mechanical rule an
+// extractor proved, or a structured condition); "" for none. A security
+// rule that checks nothing (an audit trail, data scoping) has no facet.
+func facetsOf(rule *graph.Node) string {
+	if rule.Extra[graph.ExtraQualityAttribute] != quality.Security {
+		return ""
+	}
+	if rule.Extra[graph.ExtraExtractedBy] != "" || rule.Extra[graph.ExtraCondition] != "" {
+		return FacetAccess
+	}
+	return ""
 }

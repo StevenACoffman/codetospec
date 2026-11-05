@@ -6,6 +6,7 @@
 package inherit
 
 import (
+	"cmp"
 	"io/fs"
 	"slices"
 	"strings"
@@ -73,11 +74,15 @@ func inheritable(n *graph.Node) bool {
 
 // ruleFact is the inherited rule fact of a spec rule node.
 func ruleFact(n *graph.Node, name string) extract.Fact {
+	// The slug comes from the id (identity), the domain from the belongs_to
+	// edge when there is one: a rule that moved keeps its old domain in its
+	// id (graph.MatchRules).
 	rest := strings.TrimPrefix(n.ID, "rule.")
-	domain, slug, found := strings.Cut(rest, ".")
+	idDomain, slug, found := strings.Cut(rest, ".")
 	if !found {
-		domain, slug = name, rest
+		idDomain, slug = name, rest
 	}
+	domain := cmp.Or(graph.RuleDomain(n), idDomain)
 	src := n.Sources[0]
 	f := extract.Fact{
 		Kind: extract.KindRule,

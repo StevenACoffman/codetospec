@@ -120,7 +120,7 @@ func endpointsByPath(facts []extract.Fact) map[string][]string {
 func preciseSymbols(facts []extract.Fact) map[string][]mapper.SymbolContext {
 	byPath := make(map[string][]mapper.SymbolContext)
 	for _, f := range facts {
-		if f.Kind != "symbol" || f.Attrs["precise"] != "true" {
+		if f.Kind != "symbol" || f.Attrs["precise"] != extract.True {
 			continue
 		}
 		start, end, err := extract.ParseLines(f.Source.Lines)

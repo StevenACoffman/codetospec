@@ -17,6 +17,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/atomicfs"
 	"github.com/StevenACoffman/codetospec/internal/callers"
 	"github.com/StevenACoffman/codetospec/internal/communities"
+	"github.com/StevenACoffman/codetospec/internal/concept"
 	"github.com/StevenACoffman/codetospec/internal/config"
 	"github.com/StevenACoffman/codetospec/internal/consistency"
 	"github.com/StevenACoffman/codetospec/internal/crosscheck"
@@ -157,7 +158,7 @@ func (p *pipeline) run(ctx context.Context) error {
 		return err
 	}
 	nodes, tally, reviewedFiles := result.nodes, result.tally, result.reviewedFiles
-	nodes, layers := position.Annotate(nodes, &human.positions, modelEntities(models))
+	nodes, placed := p.place(nodes, &human.positions, models)
 	if err = p.verify(ctx, nodes); err != nil {
 		return err
 	}
@@ -171,12 +172,12 @@ func (p *pipeline) run(ctx context.Context) error {
 		tally:    tally,
 		snapshot: &snapshot,
 		models:   models,
+		placed:   placed,
 	})
 	meta.Reviewed = reviewedFiles
 	meta.Resolutions = prior.Resolutions
 	meta.UnusedTargets = result.unusedTargets
-	meta.Layers = layers
-	written, err := p.domainModel(models, nodes, tablesOf(ext.facts, domainOf))
+	written, err := p.domainModel(models, nodes, ext.facts)
 	if err != nil {
 		return err
 	}
@@ -635,6 +636,7 @@ type metaInputs struct {
 	tally    crosscheck.Tally
 	snapshot *state.State
 	models   *domainmodel.Set // nil without --domain-model
+	placed   placement
 }
 
 // buildMeta computes the output README's summary and checks.
@@ -668,6 +670,7 @@ func buildMeta(cfg *config.Config, ext *extraction, in *metaInputs) render.Meta 
 			meta.ExtractorsFailed = append(meta.ExtractorsFailed, name)
 		}
 	}
+	meta.Layers, meta.Concepts = in.placed.layers, in.placed.concepts
 	if in.models != nil {
 		report := domainmodel.Compare(in.models, in.nodes,
 			domainmodel.Options{Entities: cfg.DomainModelEntities})
@@ -790,7 +793,7 @@ func domainGroups(
 func (p *pipeline) domainModel(
 	models *domainmodel.Set,
 	nodes []graph.Node,
-	tables []domainmodel.Table,
+	facts []extract.Fact,
 ) (domainmodel.Enhanced, error) {
 	if !p.cfg.WriteDomainModel {
 		return domainmodel.Enhanced{}, nil
@@ -798,7 +801,9 @@ func (p *pipeline) domainModel(
 	written, err := domainmodel.Enhance(&domainmodel.EnhanceInput{
 		Set:        models,
 		Nodes:      nodes,
-		Tables:     tables,
+		Tables:     tablesOf(facts),
+		APITypes:   apiTypesOf(facts),
+		Title:      filepath.Base(filepath.Clean(p.cfg.Src)),
 		Lang:       p.cfg.Lang,
 		Options:    domainmodel.Options{Entities: p.cfg.DomainModelEntities},
 		MirrorPath: mirrorPath(p.cfg.Src),
@@ -809,27 +814,49 @@ func (p *pipeline) domainModel(
 	return *written, nil
 }
 
+// placement is where the rules' code and evidence place them: each layer
+// of the positional nature, and the confirmed models' concepts (nil
+// without --domain-model).
+type placement struct {
+	layers   []position.Layer
+	concepts *concept.Report
+}
+
+// place records each rule's position and evidence (position.Annotate),
+// then, with --domain-model, its concept (concept.Assign), which reads
+// that evidence.
+func (p *pipeline) place(
+	nodes []graph.Node,
+	positions *position.Map,
+	models *domainmodel.Set,
+) ([]graph.Node, placement) {
+	var placed placement
+	nodes, placed.layers = position.Annotate(nodes, positions, modelEntities(models))
+	if models == nil {
+		return nodes, placed
+	}
+	report := domainmodel.Compare(models, nodes,
+		domainmodel.Options{Entities: p.cfg.DomainModelEntities})
+	nodes, concepts := concept.Assign(nodes, domainmodel.Concepts(models, &report))
+	nodes, _ = concept.Subjects(nodes, p.cfg.Actors.Owners)
+	placed.concepts = &concepts
+	return nodes, placed
+}
+
 // tablesOf turns the table facts into the code entities a domain model is
-// written from; domainOf places each by its declaration.
-func tablesOf(
-	facts []extract.Fact,
-	domainOf func(namespace, path string, line int) string,
-) []domainmodel.Table {
+// written from.
+func tablesOf(facts []extract.Fact) []domainmodel.Table {
 	var tables []domainmodel.Table
 	for _, f := range facts {
-		if f.Kind != "table" {
+		if f.Kind != extract.KindTable {
 			continue
 		}
-		title := cmp.Or(f.Attrs["name"], strings.TrimPrefix(f.ID, "table."))
+		title := cmp.Or(f.Attrs[extract.AttrName], strings.TrimPrefix(f.ID, "table."))
 		var columns []string
-		for column := range strings.SplitSeq(f.Attrs["columns"], ",") {
+		for column := range strings.SplitSeq(f.Attrs[extract.AttrColumns], ",") {
 			if column = strings.TrimSpace(column); column != "" {
 				columns = append(columns, column)
 			}
-		}
-		line := 0
-		if start, _, err := extract.ParseLines(f.Source.Lines); err == nil {
-			line = start
 		}
 		tables = append(tables, domainmodel.Table{
 			ID:          graph.EntityID(&f),
@@ -837,10 +864,28 @@ func tablesOf(
 			Columns:     columns,
 			Description: f.Attrs[extract.AttrDescription],
 			Source:      f.Source,
-			Domain:      domainOf(f.Attrs["namespace"], f.Source.Path, line),
+			References:  extract.ParseReferences(f.Attrs[extract.AttrReferences]),
 		})
 	}
 	return tables
+}
+
+// apiTypesOf turns the api_type facts into the concept seeds a proposed
+// model is written from.
+func apiTypesOf(facts []extract.Fact) []domainmodel.APIType {
+	var types []domainmodel.APIType
+	for _, f := range facts {
+		if f.Kind != extract.KindAPIType {
+			continue
+		}
+		types = append(types, domainmodel.APIType{
+			Name:       f.Attrs[extract.AttrName],
+			Owned:      f.Attrs[extract.AttrOwned] == extract.True,
+			Deprecated: f.Attrs[extract.AttrDeprecated] == extract.True,
+			Source:     f.Source,
+		})
+	}
+	return types
 }
 
 // mirrorPath places a human model's enhanced copy at its path relative to

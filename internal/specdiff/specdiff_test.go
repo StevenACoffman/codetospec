@@ -70,6 +70,17 @@ func TestDiff(t *testing.T) {
 				Reasons: []string{specdiff.Reworded},
 			}},
 		},
+		"moved to another domain, reworded": {
+			current: func() graph.Node {
+				n := rule("rule.invoicing.cents", reworded, "10-20", "h1", supported)
+				n.Edges = []graph.Edge{{Type: graph.EdgeBelongsTo, To: "domain.invoicing"}}
+				return n
+			}(),
+			want: []specdiff.Change{{
+				Kind: specdiff.Renamed, ID: "rule.invoicing.cents", OldID: roundID,
+				Reasons: []string{specdiff.Reworded},
+			}},
+		},
 		"replaced": {
 			current: rule("rule.billing.refund", refund, "40-50", "h3", supported),
 			want: []specdiff.Change{

@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	"github.com/StevenACoffman/codetospec/internal/communities"
+	"github.com/StevenACoffman/codetospec/internal/concept"
+	"github.com/StevenACoffman/codetospec/internal/consistency"
 	"github.com/StevenACoffman/codetospec/internal/domainmodel"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
@@ -36,7 +38,7 @@ func testNodesIn(lang string) []graph.Node {
 	}
 	return []graph.Node{
 		{
-			ID:     "domain.billing",
+			ID:     billingDomain,
 			Type:   "domain",
 			Status: graph.StatusGenerated,
 			Title:  fmt.Sprintf(l.DomainTitleFmt, "billing"),
@@ -101,7 +103,7 @@ func testNodesIn(lang string) []graph.Node {
 				{Path: "app/Services/Billing/ProrataCalculator.php", Lines: "11-24"},
 			},
 			Edges: []graph.Edge{
-				{Type: "belongs_to", To: "domain.billing"},
+				{Type: "belongs_to", To: billingDomain},
 				{Type: "touches", To: "entity.invoices"},
 				{Type: "exposed_by", To: "endpoint.post-api-activate"},
 			},
@@ -553,6 +555,115 @@ func TestReadmeTestedLine(t *testing.T) {
 		t.Errorf("README lacks %q:\n%s", want, readme)
 	}
 }
+
+// TestReadmeDuplicatesByEdge: a duplicate pair is intra-domain by the
+// domains its rules belong to, not by their ids: a moved rule keeps its
+// old domain in its id.
+func TestReadmeDuplicatesByEdge(t *testing.T) {
+	ruleIn := func(id, domain string) graph.Node {
+		return graph.Node{
+			ID: id, Type: graph.TypeRule,
+			Edges: []graph.Edge{{Type: graph.EdgeBelongsTo, To: "domain." + domain}},
+		}
+	}
+	nodes := []graph.Node{
+		ruleIn("rule.billing.a", "invoicing"), // moved from billing
+		ruleIn("rule.invoicing.b", "invoicing"),
+	}
+	meta := render.Meta{Lang: "en", DuplicatePairs: []consistency.DuplicatePair{
+		{A: "rule.billing.a", B: "rule.invoicing.b", Similarity: 0.9},
+	}}
+	outDir := t.TempDir()
+	if err := render.Write(outDir, nodes, &meta); err != nil {
+		t.Fatal(err)
+	}
+	readme, err := fs.ReadFile(os.DirFS(outDir), "README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "1 intra-domain, 0 cross-domain"
+	if !strings.Contains(string(readme), want) {
+		t.Errorf("README lacks %q:\n%s", want, readme)
+	}
+}
+
+// TestReadmeEvidenceSection: each domain's rules by the nature their
+// evidence gives, those disagreeing with their own nature counted.
+func TestReadmeEvidenceSection(t *testing.T) {
+	ruleIn := func(id, nature, byEvidence string) graph.Node {
+		n := graph.Node{
+			ID: id, Type: graph.TypeRule,
+			Edges: []graph.Edge{{Type: graph.EdgeBelongsTo, To: billingDomain}},
+			Extra: map[string]string{"nature": nature},
+		}
+		if byEvidence != "" {
+			n.Extra[graph.ExtraNatureByEvidence] = byEvidence
+		}
+		return n
+	}
+	nodes := []graph.Node{
+		ruleIn("rule.billing.a", "business", "business"),
+		ruleIn("rule.billing.b", "business", "technical"),
+		ruleIn("rule.billing.c", "technical", "open"),
+		ruleIn("rule.billing.d", "technical", ""),
+	}
+	outDir := t.TempDir()
+	if err := render.Write(outDir, nodes, &render.Meta{Lang: "en"}); err != nil {
+		t.Fatal(err)
+	}
+	readme, err := fs.ReadFile(os.DirFS(outDir), "README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "| `billing` | 4 | 1 | 1 | 1 | 1 | 1 |\n"
+	if !strings.Contains(string(readme), want) {
+		t.Errorf("README lacks %q:\n%s", want, readme)
+	}
+}
+
+// TestReadmeConceptsSection: each concept with its rules and their current
+// domains; conflicts and unplaced rules counted; no section without models.
+func TestReadmeConceptsSection(t *testing.T) {
+	readme := func(report *concept.Report) string {
+		t.Helper()
+		outDir := t.TempDir()
+		if err := render.Write(
+			outDir,
+			nil,
+			&render.Meta{Lang: "en", Concepts: report},
+		); err != nil {
+			t.Fatal(err)
+		}
+		data, err := fs.ReadFile(os.DirFS(outDir), "README.md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	got := readme(&concept.Report{
+		Concepts: []concept.Count{
+			{Concept: "a.Assignment", Rules: 3, Domains: []string{"models (2)", "resolvers (1)"}},
+		},
+		Conflicts: 1,
+		Unplaced:  2,
+	})
+	for _, want := range []string{
+		"## Concepts",
+		"1 rules name concepts with no common owner",
+		"2 business rules name no concept",
+		"| `a.Assignment` | 3 | models (2), resolvers (1) |\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("README lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(readme(nil), "## Concepts") {
+		t.Error("a Concepts section without models")
+	}
+}
+
+// billingDomain is the id of the domain node the tests' rules belong to.
+const billingDomain = "domain.billing"
 
 // scheduler is an actor of the glossaries these tests write.
 const scheduler = "the scheduler"

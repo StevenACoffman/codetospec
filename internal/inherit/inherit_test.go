@@ -41,11 +41,12 @@ func sharedTree() fstest.MapFS {
 	return fstest.MapFS{syncFile: {Data: []byte(strings.Repeat("line\n", 30))}}
 }
 
-// reachOf is a reach fact of the shared root citing path:lines.
-func reachOf(path, lines string) extract.Fact {
+// syncReach is the reach fact of the shared root the tests share: lines
+// 5-30 of syncFile, which every rule they inherit cites.
+func syncReach() extract.Fact {
 	return extract.Fact{
-		Kind: extract.KindReach, ID: "reach." + path + lines,
-		Source: extract.Ref{Path: path, Lines: lines, Root: rootName},
+		Kind: extract.KindReach, ID: "reach." + syncFile + "5-30",
+		Source: extract.Ref{Path: syncFile, Lines: "5-30", Root: rootName},
 	}
 }
 
@@ -54,7 +55,7 @@ func TestRulesInheritsReachedRules(t *testing.T) {
 	got := inherit.Rules(
 		spec,
 		rootName,
-		[]extract.Fact{reachOf("roster/sync.go", "5-30")},
+		[]extract.Fact{syncReach()},
 		sharedTree(),
 	)
 	want := []extract.Fact{{
@@ -81,10 +82,33 @@ func TestRulesInheritsReachedRules(t *testing.T) {
 	}
 }
 
+// TestRulesTakesDomainFromEdge: a spec rule that moved domain keeps its old
+// domain in its id; the shared domain it is inherited under is the one it
+// belongs to now.
+func TestRulesTakesDomainFromEdge(t *testing.T) {
+	moved := specRule("rule.roster.skip-archived", syncFile, "10-20")
+	moved.Edges = []graph.Edge{{Type: graph.EdgeBelongsTo, To: "domain.classes"}}
+	got := inherit.Rules(
+		[]graph.Node{moved},
+		rootName,
+		[]extract.Fact{syncReach()},
+		sharedTree(),
+	)
+	if len(got) != 1 {
+		t.Fatalf("got %d rules, want 1", len(got))
+	}
+	if d := got[0].Attrs[extract.AttrDomain]; d != "shared-classes" {
+		t.Errorf("domain = %q, want shared-classes", d)
+	}
+	if got[0].ID != "rule.inherited.pkg.roster.skip-archived" {
+		t.Errorf("id = %q, want the id-derived one", got[0].ID)
+	}
+}
+
 // TestRulesSkips: what is not reached, or not the spec's own single-citation
 // LLM rule, is not inherited.
 func TestRulesSkips(t *testing.T) {
-	reached := []extract.Fact{reachOf("roster/sync.go", "5-30")}
+	reached := []extract.Fact{syncReach()}
 	mechanical := specRule("rule.roster.mech", "roster/sync.go", "10-20")
 	mechanical.Extra[graph.ExtraExtractedBy] = "go"
 	inherited := specRule("rule.roster.again", "roster/sync.go", "10-20")
@@ -135,7 +159,7 @@ func TestRulesSkips(t *testing.T) {
 // while its cited code has the digest the spec stored; once that code
 // changed, the rule is unchecked and the old verdict is kept as stale.
 func TestRulesStaleVerdict(t *testing.T) {
-	reached := []extract.Fact{reachOf(syncFile, "5-30")}
+	reached := []extract.Fact{syncReach()}
 	src := extract.Ref{Path: syncFile, Lines: "10-20"}
 	current, err := drift.Digest(extract.Roots{Src: sharedTree()}, []extract.Ref{src})
 	if err != nil {

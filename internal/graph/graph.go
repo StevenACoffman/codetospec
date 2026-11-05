@@ -391,7 +391,7 @@ func ruleAndDomainNodes(
 	}
 	llmRules, mechanical = assignRuleIDs(llmRules, mechanical, prior)
 	for _, n := range slices.Concat(llmRules, mechanical) {
-		d := draft(ruleDomain(&n))
+		d := draft(RuleDomain(&n))
 		d.rules = append(d.rules, n)
 	}
 

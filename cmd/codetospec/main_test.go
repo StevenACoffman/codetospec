@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/StevenACoffman/codetospec/internal/config"
+	"github.com/StevenACoffman/codetospec/internal/domainmodel"
 	"github.com/StevenACoffman/codetospec/internal/drift"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
@@ -643,8 +644,8 @@ entities:
 			models:    []string{human},
 			wantFiles: []string{"models/billing.modelith.yaml"},
 		},
-		"no human model: generated per domain": {
-			wantFiles: []string{"models/generated/database.modelith.yaml"},
+		"no human model: proposed concepts": {
+			wantFiles: []string{"models/" + domainmodel.ConceptsFile},
 		},
 	}
 	for name, tc := range cases {

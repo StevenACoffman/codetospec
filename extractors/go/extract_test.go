@@ -4,6 +4,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"golang.org/x/tools/go/packages"
@@ -49,6 +50,67 @@ CREATE TABLE "points" (
 	// numeric(10,2) must not be split on its inner comma.
 	if len(tables[1].Columns) != 2 || tables[1].Columns[1] != "amount:numeric(10,2)" {
 		t.Errorf("points columns = %v, want amount:numeric(10,2) intact", tables[1].Columns)
+	}
+}
+
+// TestParseTablesReferences: inline and table-level foreign keys, NOT NULL
+// when every referencing column is declared NOT NULL or PRIMARY KEY.
+func TestParseTablesReferences(t *testing.T) {
+	cases := map[string]struct {
+		sql  string
+		want []string
+	}{
+		"inline, not null": {
+			sql:  "CREATE TABLE configs (assignment_id bigserial REFERENCES assignments NOT NULL, x int);",
+			want: []string{"assignment_id:assignments:not_null"},
+		},
+		"inline, nullable, quoted with columns": {
+			sql:  `CREATE TABLE shops (owner_id BIGINT REFERENCES "users"(id));`,
+			want: []string{"owner_id:users:null"},
+		},
+		"inline primary key": {
+			sql:  "CREATE TABLE extras (id bigint PRIMARY KEY REFERENCES base(id));",
+			want: []string{"id:base:not_null"},
+		},
+		"table level, all not null": {
+			sql: `CREATE TABLE threads (
+  kaid text NOT NULL,
+  assignment_id bigint NOT NULL,
+  FOREIGN KEY (kaid, assignment_id) REFERENCES assignment_students(kaid, assignment_id)
+);`,
+			want: []string{"kaid+assignment_id:assignment_students:not_null"},
+		},
+		"table level, one nullable": {
+			sql: `CREATE TABLE notes (
+  kaid text,
+  assignment_id bigint NOT NULL,
+  CONSTRAINT fk FOREIGN KEY (kaid, assignment_id) REFERENCES assignment_students
+);`,
+			want: []string{"kaid+assignment_id:assignment_students:null"},
+		},
+		"after a comment with a comma": {
+			sql: `CREATE TABLE assignment_students (
+    -- the assignment, of course
+    assignment_id bigserial REFERENCES assignments NOT NULL
+);`,
+			want: []string{"assignment_id:assignments:not_null"},
+		},
+		"none": {sql: "CREATE TABLE plain (id int, name text);"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			tables := ParseTables(tc.sql)
+			if len(tables) != 1 {
+				t.Fatalf("tables = %d, want 1", len(tables))
+			}
+			var got []string
+			for _, r := range tables[0].References {
+				got = append(got, r.String())
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("references = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

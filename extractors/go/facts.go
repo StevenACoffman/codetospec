@@ -28,6 +28,10 @@ type Envelope struct {
 // attrName is the name attribute of symbol, constant and table facts.
 const attrName = "name"
 
+// attrReferences is a table fact's foreign keys (Reference.String, comma
+// separated), the core's extract.AttrReferences.
+const attrReferences = "references"
+
 const (
 	schemaID = "codetospec/facts/v1"
 	origin   = "go"

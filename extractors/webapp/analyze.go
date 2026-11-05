@@ -79,6 +79,7 @@ func Analyze(in *Inputs) ([]Fact, []string, error) {
 		entFacts,
 		depFacts,
 		roleFacts(sources, &w),
+		apiTypeFacts(fsys),
 	)
 	warnings = slices.Concat(
 		warnings, sharedWarnings, resolverWarnings, entWarnings, depWarnings)

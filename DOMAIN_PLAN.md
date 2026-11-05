@@ -1,6 +1,14 @@
 # Deriving business-concept domains — plan
 
-Status: proposal (2026-11-03). Nothing here is implemented.
+Status: proposal (2026-11-03); partly implemented 2026-11-04:
+recommendation 25 (ids survive a domain move), 4, 5, 13, 19 (nature by
+evidence, access facet), 7, 10 (api_type and foreign-key seeds), 1, 2
+(one proposed concepts model), 3, 12, 15 (concept assignment, recorded
+but not applied) and 23 (actors that own concepts are the EARS subject).
+Measurements: `docs/verification/{cross-domain-ids,nature-by-evidence,
+concept-proposal,concept-assignment,enum-variants}-2026-11-04.md`. Open:
+the domain move itself, 17 (variants: measured, deferred), and the
+recommendations that need a confirmed model and a pilot.
 
 Two defects motivate it:
 

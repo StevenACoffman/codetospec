@@ -112,6 +112,25 @@ const (
 	// it (see package vocabulary): a rule about an order's status names
 	// shop.Order.Status as the code does.
 	KindStruct = "struct"
+	// KindAPIType is an entity type of an API the code serves (a federated
+	// GraphQL type with a @key), at its declaration: AttrName, AttrOwned
+	// ("true" when the code declares it, "false" when it only extends a
+	// type another service owns: a reference to that service's concept),
+	// AttrKey (its key fields) and AttrDeprecated ("true" when every field
+	// it declares is deprecated: cruft). A seed for the business concepts
+	// codetospec proposes (DOMAIN_PLAN.md recommendation 7).
+	KindAPIType = "api_type"
+)
+
+// True is the value of a boolean attribute that holds (AttrOwned,
+// AttrDeprecated, a symbol's precise); any other value, or none, is false.
+const True = "true"
+
+// The attributes of a KindAPIType fact.
+const (
+	AttrOwned      = "owned"
+	AttrKey        = "key"
+	AttrDeprecated = "deprecated"
 )
 
 // DispatchInterface is AttrDispatch on a call or test fact whose caller
@@ -140,11 +159,17 @@ const (
 	AttrNamespace   = "namespace" // the namespace a fact sits in
 	AttrTarget      = "target"    // what an import names
 	AttrColumns     = "columns"   // a table's "name:type" columns, comma-separated
-	AttrFields      = "fields"    // a struct's field names, comma-separated
-	AttrValue       = "value"
-	AttrRoute       = "route"
-	AttrCondition   = "condition" // a rule's condition (see KindRule)
-	AttrText        = "text"
+	// AttrReferences is a table's foreign keys, comma-separated, each
+	// "<columns>:<table>:<null|not_null>" with several columns joined by
+	// "+": "assignment_id:assignments:not_null". not_null when every
+	// referencing column is declared NOT NULL (or PRIMARY KEY): the row
+	// cannot exist without its parent, composition evidence.
+	AttrReferences = "references"
+	AttrFields     = "fields" // a struct's field names, comma-separated
+	AttrValue      = "value"
+	AttrRoute      = "route"
+	AttrCondition  = "condition" // a rule's condition (see KindRule)
+	AttrText       = "text"
 	// AttrDescription, on a table fact, is the entity's authored
 	// description (a struct's doc comment, a schema comment): what the
 	// entity is, in its authors' words. The entity page shows it.
@@ -382,6 +407,33 @@ var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)
 func Slugify(s string) string {
 	s = nonSlug.ReplaceAllString(strings.ToLower(s), "-")
 	return strings.Trim(s, "-")
+}
+
+// Reference is one foreign key of a table fact (AttrReferences): its
+// Columns reference Table; NotNull when the row cannot exist without its
+// parent.
+type Reference struct {
+	Columns []string
+	Table   string
+	NotNull bool
+}
+
+// ParseReferences reads a table fact's AttrReferences; an entry that is
+// not "<columns>:<table>:<null|not_null>" is skipped.
+func ParseReferences(attr string) []Reference {
+	var refs []Reference
+	for entry := range strings.SplitSeq(attr, ",") {
+		parts := strings.Split(strings.TrimSpace(entry), ":")
+		if len(parts) != 3 || parts[0] == "" || parts[1] == "" {
+			continue
+		}
+		refs = append(refs, Reference{
+			Columns: strings.Split(parts[0], "+"),
+			Table:   parts[1],
+			NotNull: parts[2] == "not_null",
+		})
+	}
+	return refs
 }
 
 var linesFormat = regexp.MustCompile(`^(\d+)-(\d+)$`)

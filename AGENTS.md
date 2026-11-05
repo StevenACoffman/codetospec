@@ -295,8 +295,11 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   (`docs/verification/ears-clauses-2026-10-27.md`).
 - `graph.MatchRules` — stable ids: before the build, `render.LoadPrior`
   reads the previous output; an LLM rule that takes one up again (same
-  domain, and same requirement, or overlapping citations with Jaccard
-  ≥ 0.6 or same id) keeps its id. Extractor rules take their id first; an
+  requirement, or overlapping citations with Jaccard ≥ 0.6 or same id;
+  across domains the citations must overlap, and a same-domain pair wins
+  a tie) keeps its id. A moved rule's id keeps its old domain slug: read a
+  rule's domain from its `belongs_to` edge (`graph.RuleDomain`), never from
+  its id. Extractor rules take their id first; an
   id from the previous output is never given to another rule on the next
   run (`assignRuleIDs`). The crosscheck cache (key = id) benefits.
   Same matching for the renames of `internal/specdiff` (`diff --old --new`
@@ -409,18 +412,40 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   `<src>/anarch.json`, import paths cut by `go.mod`'s module; the two keys
   exclude each other, checked before any LLM call, `cmd/.../position.go`).
   A rule whose every citation under `--src` is in layers of one nature,
-  different from its own, gets `nature_by_position` and, when it has any,
-  `nature_evidence`: structural evidence only, no words of its text
-  (business: `touches`, `exposed_by`, a condition variable on an entity
-  node's table or a `--domain-model` entity; technical: a quality
-  attribute other than security, safety, compliance, usability,
-  functional suitability). A `nature_mismatch` question only when that
+  different from its own, gets `nature_by_position`. Every rule with
+  structural evidence (no words of its text: business, `touches`,
+  `exposed_by`, a condition variable on an entity node's table or a
+  `--domain-model` entity; technical, a quality attribute other than
+  security, safety, compliance, usability, functional suitability, or
+  platform code: `inherited_from`, or citing only another root) gets
+  `nature_evidence` and `nature_by_evidence` (business, technical, or
+  `open` with both; DOMAIN_PLAN.md rec. 4, 94 % agreement with
+  `scripts/domainsplit.py` where both decide,
+  `docs/verification/nature-by-evidence-2026-11-04.md`), and
+  `facets: access` when it serves security and checks something
+  (extractor rule or structured condition). A `nature_mismatch` question only when that
   evidence backs the position (`position.Asks`); its `nature` never
   changes (measured: the text is the better reading more often,
   `docs/verification/positional-nature-2026-11-01.md`; 226 → 49 questions
   on districts, `docs/verification/nature-evidence-2026-11-04.md`). Each
   layer's placed / disagreeing / asked rules: "Layers" section of the
   output README (`position.Layer`), a check on the mapping.
+- `internal/concept` — with `--domain-model` (a person's confirmed
+  models), `concept.Assign` places each rule whose `nature_by_evidence` is
+  business in a concept (`domainmodel.Concepts`: model entities, the code
+  entity each matched, owners from `owned` relationships) from its
+  `touches` edges and condition variables on a concept's table; several
+  concepts go to their nearest common owner, none in common is
+  `concept_conflict` (a question, keyed by the options). Frontmatter
+  `concept`, `concept_evidence`; README "Concepts" = size of the
+  regrouping. Recorded, not applied: rules keep their domain until the
+  move is measured on a confirmed model
+  (`docs/verification/concept-assignment-2026-11-04.md`). Runs right after
+  `position.Annotate` (`pipeline.place`). `concept.Subjects`: an actor's
+  `owns` (config, `domainmodel.CheckOwned` before any LLM call) makes it
+  the EARS subject of the rules of its concepts (`graph.WithSubject`
+  re-renders the sentence; reviewed rules untouched; runs after the
+  crosscheck, which judged the sentence as the reduce wrote it).
 - `graph.SharedEntities` — entities touched by rules of several domains
   (`touches` links from the reduce), "Shared entities" section of the
   output README: shared kernel or misplaced boundary.
@@ -438,9 +463,11 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   `--write-domain-model`: `domainmodel.Enhance` (pure, returns the files)
   writes under `<out>/models/` the enriched human models (yaml.v3 nodes:
   comments and order kept; definitions E → C → A, the placeholder prefix
-  makes it recognized on the next round) and one
-  `generated/<domain>.modelith.yaml` per domain for the entities without a
-  model, plus `provenance.json`. A written model read back as human does
+  makes it recognized on the next round) and one proposed
+  `generated/concepts.modelith.yaml` (`domainmodel.ConceptsFile`) for the
+  tables and owned `api_type`s no model names, `owned` relationships from
+  NOT NULL foreign keys to a single parent (DOMAIN_PLAN.md rec. 1, 2, 10;
+  never one model per current domain), plus `provenance.json`. A written model read back as human does
   not change (round-trip test).
 - `cmd/codetospec/main.go` — the full sequence.
 
@@ -458,6 +485,10 @@ anchors; for Go, SCIP is therefore optional (`SCIP=0` by default in the
 scripts). The Go extractor also emits the `constant` facts (webapp no
 longer emits them) and `call`.
 
+`api_type` (webapp: federated `@key` types, `owned` or extended,
+`deprecated`) and the `table` facts' `references` (Go extractor: foreign
+keys, `not_null` = composition evidence) are concept seeds
+(DOMAIN_PLAN.md rec. 7, 10).
 `constant` facts (grounding: `400` ↔ `http.StatusBadRequest`), `doc`
 (`SCHEMA_DOCS` section of the map), `dependency` (`service` nodes +
 `depends_on`; `as` = `service-admin` | `user`, the authority of the call)

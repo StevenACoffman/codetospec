@@ -209,6 +209,11 @@ a model reproduces at high cost and approximately, or not at all:
   `description` = the doc comment of `T`, on one line.
 - **Docs** (`doc`): GraphQL description of the field and its arguments,
   shown to the map for the method that resolves it.
+- **API types** (`api_type`): each federated entity type (`@key`) of the
+  service's own schema files, `owned: true` where a file declares it,
+  `false` where the service only extends it (another service's concept);
+  `key` = its key fields; `deprecated: true` when every field it declares
+  is `@deprecated`. Seeds for codetospec's concept proposal.
 - **Cross-service calls** (`dependency`): each
   `genqlient.<Op>(…)` call one of whose root fields belongs to another subgraph
   (`@join__field` of the composed schema `gengraphql/composed_schema.graphql`).

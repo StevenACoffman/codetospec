@@ -66,41 +66,53 @@ type gqlgenConfig struct {
 	Schema []string `yaml:"schema"`
 }
 
-// loadSchema indexes the service's own schema files listed in gqlgen.yml.
-// Entries outside the service (../../pkg/graphql/shared-schemas/…) are
-// skipped: they are not this service's operations. A missing gqlgen.yml or
-// an unparsable schema file is a warning, never an error.
+// loadSchema indexes the service's own schema files listed in gqlgen.yml
+// (schemaFiles). A missing gqlgen.yml or an unparsable schema file is a
+// warning, never an error.
 func loadSchema(fsys fs.FS) (schemaIndex, []string, error) {
 	index := schemaIndex{}
+	names, warnings, err := schemaFiles(fsys)
+	if err != nil || names == nil {
+		return index, warnings, err
+	}
+	for _, name := range names {
+		if w := index.add(fsys, name); w != "" {
+			warnings = append(warnings, w)
+		}
+	}
+	return index, warnings, nil
+}
+
+// schemaFiles returns the service's own schema files, as gqlgen.yml lists
+// them. Entries outside the service (../../pkg/graphql/shared-schemas/…)
+// are skipped: they are not this service's types. nil, with a warning,
+// without a readable gqlgen.yml.
+func schemaFiles(fsys fs.FS) ([]string, []string, error) {
 	raw, err := fs.ReadFile(fsys, "gqlgen.yml")
 	if errors.Is(err, fs.ErrNotExist) {
-		return index, []string{"no gqlgen.yml: resolvers keep the directory domain"}, nil
+		return nil, []string{"no gqlgen.yml: resolvers keep the directory domain"}, nil
 	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("read gqlgen.yml: %w", err)
 	}
 	var cfg gqlgenConfig
 	if yamlErr := yaml.Unmarshal(raw, &cfg); yamlErr != nil {
-		return index, []string{fmt.Sprintf("gqlgen.yml: %v", yamlErr)}, nil
+		return nil, []string{fmt.Sprintf("gqlgen.yml: %v", yamlErr)}, nil
 	}
-
+	names := []string{}
 	var warnings []string
 	for _, pattern := range cfg.Schema {
 		if strings.HasPrefix(pattern, "../") || path.IsAbs(pattern) {
 			continue
 		}
-		names, globErr := fs.Glob(fsys, path.Clean(pattern))
+		matched, globErr := fs.Glob(fsys, path.Clean(pattern))
 		if globErr != nil {
 			warnings = append(warnings, fmt.Sprintf("gqlgen.yml schema %q: %v", pattern, globErr))
 			continue
 		}
-		for _, name := range names {
-			if w := index.add(fsys, name); w != "" {
-				warnings = append(warnings, w)
-			}
-		}
+		names = append(names, matched...)
 	}
-	return index, warnings, nil
+	return names, warnings, nil
 }
 
 // add indexes the type fields of one schema file; it returns a warning when

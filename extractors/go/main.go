@@ -352,13 +352,21 @@ func tableFacts(root, sqlGlob string, log logf) []Fact {
 				continue
 			}
 			seen[t.Name] = true
+			attrs := map[string]string{
+				attrName:  t.Name,
+				"columns": strings.Join(t.Columns, ", "),
+			}
+			if len(t.References) > 0 {
+				refs := make([]string, len(t.References))
+				for i, r := range t.References {
+					refs[i] = r.String()
+				}
+				attrs[attrReferences] = strings.Join(refs, ", ")
+			}
 			facts = append(facts, Fact{
-				Kind: "table",
-				ID:   "table." + t.Name,
-				Attrs: map[string]string{
-					attrName:  t.Name,
-					"columns": strings.Join(t.Columns, ", "),
-				},
+				Kind:      "table",
+				ID:        "table." + t.Name,
+				Attrs:     attrs,
 				Source:    Ref{Path: rel, Lines: itoa(t.Line) + "-" + itoa(t.Line)},
 				Origin:    origin,
 				Certainty: certain,

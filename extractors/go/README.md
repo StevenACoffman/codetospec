@@ -64,7 +64,11 @@ Native codetospec extractor for the Go ecosystem, on the
   for `codetospec run --inherit name=… --ref-root name=…`. The module must
   resolve the shared code locally (go.work or `replace`).
 - **Tables** (`table`): `CREATE TABLE` in `.sql` files (sqlc schema,
-  migrations), with typed columns; table constraints are ignored.
+  migrations), with typed columns and their foreign keys (`references`:
+  `columns:table:not_null|null`, inline `REFERENCES` and table-level
+  `FOREIGN KEY`; `not_null` when every referencing column is NOT NULL or
+  PRIMARY KEY, composition evidence). Other table constraints and `--`
+  comments are ignored; `ALTER TABLE` is not read.
 
 ## Requirements
 

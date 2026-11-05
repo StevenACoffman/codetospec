@@ -12,6 +12,7 @@ make test                                      # go vet + go test, all modules
 make check                                     # lint + test + race + tidy + vuln (= CI)
 make corpus                                    # real graphs vs baselines, no LLM
 make run-fixture                               # real run on testdata/fixture (needs LLM_BASE_URL)
+scripts/remap.sh                               # remap every ~/spec-graphs output + its measurements (DRY_RUN=1 first)
 ```
 
 - Lint: the repo's `.golangci.yml` (copy of `~/Documents/git/.golangci.yml`),
@@ -24,6 +25,10 @@ make run-fixture                               # real run on testdata/fixture (n
   outputs under `~/spec-graphs`) and fails if a count gets worse; an entry
   that is missing or whose source has left the recorded commit is skipped.
   `CODETOSPEC_CORPUS_UPDATE=1` re-records the baselines (after review).
+  A full remap goes through `scripts/remap.sh`: snapshot, pkg twice
+  (run-to-run variance, `scripts/remapcheck.py`), services,
+  districts-jobs, then the baselines re-recorded and their diff shown;
+  it refuses a dirty tree and a checkout that moves during the run.
 - **Rebuild `bin/codetospec` after any code change before running it** —
   a stale binary silently produces a wrong run (it has happened).
 - CGO required (tree-sitter): `CGO_ENABLED=1`, C toolchain required.

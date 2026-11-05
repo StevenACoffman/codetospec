@@ -32,13 +32,17 @@ rest.
 - [ ] Measure run-to-run variance after the next remap. Remap one output
       (pkg) twice with the same prompt and model into two `--out`
       directories, then compare candidates per chunk and by nature, and
-      the rules `diff --old --new` reports removed or added. Decide from
+      the rules `diff --old --new` reports removed or added. Folded into
+      `scripts/remap.sh` (the second pkg run into
+      `~/spec-graphs.variance/pkg`, `scripts/remapcheck.py` for the
+      comparison): record its report as a `docs/verification` file. Decide from
       it how large a change in rule counts (the corpus baselines, a
       prompt change's A/B) is a real one. The 4-reply ablation on 60
       chunks gave a per-chunk sd of ~0.5 rules; a whole run's is unknown.
   - Also check the new prompt on the full run: technical candidates back
     near 786, small chunks not inflated (the ablation gave +29 % rules
-    on chunks under 100 lines).
+    on chunks under 100 lines). Section 2 of the same report, against
+    the snapshot and `~/spec-graphs.before-remap-2026-11-02`.
 
 ## Requirement Classification
 
@@ -352,8 +356,9 @@ rest.
 
 - [ ] Re-record the corpus baselines: `make corpus` skips every entry
       since webapp moved past the baselines' commit (`88b55ce5c33` →
-      `bfad3957bf1`), so it has compared nothing since. Rescan, review,
-      then `CODETOSPEC_CORPUS_UPDATE=1 make corpus`.
+      `bfad3957bf1`), so it has compared nothing since. Folded into
+      `scripts/remap.sh`: it re-records them after the remap and shows the
+      manifest's diff (old counts against new) for review before commit.
 - [x] Enforce the `AGENTS.md` architecture rules that exist only as prose.
       Each failure should name the rule and the repair.
   - "`internal/atomicfs` is the only writer of output" (`AGENTS.md:239-241`):

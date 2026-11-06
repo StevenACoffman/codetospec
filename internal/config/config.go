@@ -110,9 +110,10 @@ type Config struct {
 	// policy export joins (--capabilities-from): admin's, for a service
 	// that names capabilities it doesn't register.
 	CapabilitiesFrom string
-	// Checkers is a policy export's checkers file (--checkers): what the
-	// checks the extractor doesn't know mean, pinned by a person.
-	Checkers string
+	// Checkers are a policy export's checkers files (--checkers,
+	// repeatable): what the checks the extractor doesn't know mean, pinned
+	// by a person; shared and per-service files merge.
+	Checkers []string
 	// DomainModels are human modelith models (*.modelith.yaml) the graph is
 	// compared with (--domain-model, then domain_models resolved against
 	// --src); DomainModelEntities maps a model entity to the code entity it
@@ -426,10 +427,16 @@ func ParseExport(args []string) (*Config, error) {
 	)
 	flags.StringVar(&cfg.CapabilitiesFrom, "capabilities-from", "",
 		"cerbos, cedar-policy: graph whose capability and role facts to join (admin's)")
-	flags.StringVar(&cfg.Checkers, "checkers", "",
-		"cerbos, cedar-policy: YAML file pinning what unknown checks mean")
+	flags.Var(
+		(*stringList)(&cfg.Checkers),
+		"checkers",
+		"cerbos, cedar-policy: YAML file pinning what unknown checks mean (repeatable; files merge)",
+	)
 	flags.StringVar(&cfg.Registry, "registry", "",
 		"cerbos, cedar-policy: registry the checkers' relations must be declared in")
+	flags.StringVar(&cfg.Src, "src", "",
+		"cerbos, cedar-policy: repository the checks are cited in, to tell stale pins (optional)")
+	registerRefRoots(flags, cfg)
 	flags.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
 	if err := flags.Parse(args); err != nil {
 		return nil, err
@@ -455,6 +462,9 @@ func ParsePolicies(args []string) (*Config, error) {
 	flags.StringVar(&cfg.Registry, "registry", "",
 		"YAML registry mapping each property and relation to its sources (optional)")
 	flags.StringVar(&cfg.Format, "format", FormatMarkdown, "output: md or json")
+	flags.StringVar(&cfg.Src, "src", "",
+		"repository the checks are cited in, to digest each check's definition (optional)")
+	registerRefRoots(flags, cfg)
 	flags.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
 	if err := flags.Parse(args); err != nil {
 		return nil, err

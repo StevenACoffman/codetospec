@@ -28,7 +28,29 @@ const (
 
 // usersCheckers pins usersModel's checks the extractor doesn't know.
 func usersCheckers() policy.Checkers {
+	one := 1
 	return policy.Checkers{
+		// Every pinnable kind beyond the extractor's: attributes of the
+		// caller, the resource and the request, a negation, the locale and
+		// explicit scopes, a relation to an argument's user.
+		"permissions.CanEditBio": {All: []policy.Checker{
+			{Means: policy.MeansAttribute, Of: policy.HolderCaller, Attribute: "internal_user"},
+			{
+				Not: &policy.Checker{
+					Means:     policy.MeansAttribute,
+					Of:        policy.HolderResource,
+					Attribute: "deleted",
+				},
+			},
+			{Means: policy.MeansAttribute, Of: policy.HolderContext, Attribute: "bio_flag"},
+			{Means: policy.MeansCapability, Capability: identityGoName, Scope: policy.ScopeLocale},
+			{
+				Means:      policy.MeansCapability,
+				Capability: identityGoName,
+				Scope:      policy.ScopeExplicit,
+			},
+			{Means: policy.MeansRelation, Relation: "managing_coach_of", SubjectArg: &one},
+		}},
 		"permissions.CanViewCDI": {Means: policy.MeansRelation, Relation: "teacher_of"},
 		// districts' ActorCanViewUserDistrictData, as its code reads.
 		"permissions.ActorCanViewUserDistrictData": {Any: []policy.Checker{
@@ -44,9 +66,11 @@ func usersCheckers() policy.Checkers {
 				Scope:      policy.ScopeUserNwea,
 			},
 		}},
-		// districts' VisibleAssignmentDistrictInfos-like filter.
+		// districts' VisibleAssignmentDistrictInfos-like filter; an item is
+		// also visible to its own user.
 		"permissions.VisibleThings": {Item: "Thing", Any: []policy.Checker{
 			{Means: policy.MeansServiceAdmin},
+			{Means: policy.MeansSelf},
 			{All: []policy.Checker{
 				{
 					Means:      policy.MeansCapability,
@@ -104,10 +128,15 @@ func usersModel() policy.Model {
 		`{"not":{"var":"permissions.ActorCanViewUserDistrictData","op":"equal","value":true}}`,
 		`[{"check":"permissions.ActorCanViewUserDistrictData","var":"permissions.ActorCanViewUserDistrictData"}]`,
 	)
+	bio := node("rule.user.authz-bio", "Mutation.editBio", "permissions.CanEditBio",
+		`{"not":{"var":"permissions.CanEditBio","op":"equal","value":true}}`,
+		`[{"check":"permissions.CanEditBio","var":"permissions.CanEditBio",`+
+			`"args":[{"text":"ktx"},{"text":"kaid","from":"arg:kaid"}]}]`)
 	return policy.BuildModel(facts, []graph.Node{
 		alias,
 		udi,
 		things,
+		bio,
 		node(
 			"rule.class.authz-cdi",
 			"Query.cdi",
@@ -251,6 +280,9 @@ type world struct {
 	subject       types.EntityUID
 	coaches       types.Set
 	relations     []types.Value
+	// The attribute names of each holder, and the subject's relations.
+	callerAttrs, resourceAttrs, requestAttrs, subjectRelations []types.Value
+	localeGrants                                               []types.Value
 }
 
 // apply makes one check hold or not.
@@ -264,9 +296,9 @@ func (w *world) apply(l *policy.Leaf, holds bool) {
 		if holds {
 			w.principalType = pushType
 		}
-	case policy.LeafRelation:
+	case policy.LeafRelation, policy.LeafAttribute:
 		if holds {
-			w.relations = append(w.relations, types.String(l.Relation))
+			w.addName(l)
 		}
 	case policy.LeafLogin, policy.LeafLoginStrict:
 		if holds {
@@ -289,7 +321,29 @@ func (w *world) apply(l *policy.Leaf, holds bool) {
 	case policy.LeafCapability:
 		if holds {
 			w.parents = append(w.parents, w.capabilityGroups(l)...)
+			if l.Scope == policy.ScopeLocale {
+				w.localeGrants = append(w.localeGrants, types.NewRecord(types.RecordMap{
+					"capability": types.String(l.Capability), "locale": types.String("en"),
+				}))
+			}
 		}
+	}
+}
+
+// addName records the name a holding relation or attribute check needs
+// in the list its template reads.
+func (w *world) addName(l *policy.Leaf) {
+	switch {
+	case l.Kind == policy.LeafRelation && l.Subject != "":
+		w.subjectRelations = append(w.subjectRelations, types.String(l.Relation))
+	case l.Kind == policy.LeafRelation:
+		w.relations = append(w.relations, types.String(l.Relation))
+	case l.Holder == policy.HolderCaller:
+		w.callerAttrs = append(w.callerAttrs, types.String(l.Attribute))
+	case l.Holder == policy.HolderContext:
+		w.requestAttrs = append(w.requestAttrs, types.String(l.Attribute))
+	default:
+		w.resourceAttrs = append(w.resourceAttrs, types.String(l.Attribute))
 	}
 }
 
@@ -304,6 +358,8 @@ func (w *world) capabilityGroups(l *policy.Leaf) []types.EntityUID {
 		groups = append(groups, w.uid("CapUserAll", l.Capability))
 	case policy.ScopeUserNwea:
 		groups = append(groups, w.uid("CapNwea", l.Capability))
+	case policy.ScopeExplicit:
+		groups = append(groups, w.uid("CapExplicit", l.Capability))
 	}
 	return groups
 }
@@ -332,13 +388,18 @@ func realize(
 			"phantom":       types.False,
 			"countryGrants": types.NewSet(),
 		},
-		ctx:     types.RecordMap{"isTask": types.False, "isOktaLifecycle": types.False},
+		ctx: types.RecordMap{
+			"isTask": types.False, "isOktaLifecycle": types.False, "locale": types.String("en"),
+		},
 		subject: uid("User", "kaid_other"),
 		coaches: types.NewSet(),
 	}
 	for i := range leaves {
 		w.apply(&leaves[i], given[leaves[i].Var])
 	}
+	w.attrs["attributes"] = types.NewSet(w.callerAttrs...)
+	w.attrs["localeGrants"] = types.NewSet(w.localeGrants...)
+	w.ctx["attributes"] = types.NewSet(w.requestAttrs...)
 	principal := uid(w.principalType, actor)
 	p := types.Entity{UID: principal, Parents: types.NewEntityUIDSet(w.parents...)}
 	if w.principalType == userType {
@@ -353,6 +414,8 @@ func realize(
 			"kmapDistrictOwned": types.False,
 			"country":           types.String("US"),
 			"relations":         types.NewSet(w.relations...),
+			"subjectRelations":  types.NewSet(w.subjectRelations...),
+			"attributes":        types.NewSet(w.resourceAttrs...),
 		})},
 	}
 	return entities, cedar.Request{

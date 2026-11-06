@@ -1,3 +1,13 @@
+@id("allow:Mutation.editBio")
+@subject("arg:kaid")
+permit (principal, action == Users::Action::"Mutation.editBio", resource);
+
+@id("rule.user.authz-bio")
+@source("resolvers/u.go:1-3")
+@subject("arg:kaid")
+forbid (principal, action == Users::Action::"Mutation.editBio", resource)
+when { !(((principal is Users::User && principal.attributes.contains("internal_user")) && !(resource.attributes.contains("deleted")) && context.attributes.contains("bio_flag") && (principal is Users::User && principal.localeGrants.contains({capability: "can_view_user_identity", locale: context.locale})) && principal in Users::CapExplicit::"can_view_user_identity" && resource.subjectRelations.contains("managing_coach_of"))) };
+
 @id("allow:Mutation.login")
 permit (principal, action == Users::Action::"Mutation.login", resource);
 
@@ -52,5 +62,5 @@ permit (principal, action == Users::Action::"view:Thing", resource);
 @id("rule.district.authz-things")
 @source("resolvers/u.go:1-3")
 forbid (principal, action == Users::Action::"view:Thing", resource)
-when { !((principal is Users::Service || (principal in Users::CapNwea::"can_view_user_identity" && resource.relations.contains("in_kmap_district")))) };
+when { !((principal is Users::Service || (principal is Users::User && resource.subject == principal) || (principal in Users::CapNwea::"can_view_user_identity" && resource.relations.contains("in_kmap_district")))) };
 

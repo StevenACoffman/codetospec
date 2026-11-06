@@ -126,9 +126,12 @@ type RateLimit struct {
 
 // Check is one access check and what it reads.
 type Check struct {
-	Name         string        `json:"name"`
-	Form         string        `json:"form"`
-	Source       extract.Ref   `json:"source"` // empty when only its name is known
+	Name   string      `json:"name"`
+	Form   string      `json:"form"`
+	Source extract.Ref `json:"source"` // empty when only its name is known
+	// Digest is Source's digest (as drift hashes a span), set when the
+	// cited code was read: what a checkers entry records (Checker.Digest).
+	Digest       string        `json:"digest,omitempty"`
 	Inputs       []Input       `json:"inputs,omitempty"`
 	Descriptions []Description `json:"descriptions,omitempty"`
 }

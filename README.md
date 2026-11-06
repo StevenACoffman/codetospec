@@ -262,10 +262,15 @@ as authorization policies for the service the graph is named after: an
 allow per operation and a deny per guard, traced to its rule id. A guard
 translates only when every check it calls has a meaning in the pinned
 vocabulary (login, a capability on a pinned scope, self, coach,
-service-admin, task, Okta lifecycle, Pub/Sub push, a relation): the
-extractor's, or one a person pins in a checkers file (`--checkers`,
-YAML: one check, or `any`/`all` of them, read from the checker's code;
-`item: <Kind>` makes a visibility filter a `view` policy on that kind).
+service-admin, task, Okta lifecycle, Pub/Sub push, a relation, an
+attribute of the caller, resource or request): the extractor's, or one
+a person pins in a checkers file (`--checkers`, repeatable, files
+merged; YAML: one check, or `any`/`all`/`not` of them, read from the
+checker's code; `item: <Kind>` makes a visibility filter a `view` policy
+on that kind; `unpinnable: <reason>` records why a check can't be
+pinned; `digest` records the checker's code it was written for, so
+`export --src` reports a stale pin and `policies --src` prints each
+check's digest).
 An operation is left out whole (logged at debug level), never exported
 as a bare allow, when a guard doesn't translate, a rule of it names no
 check, its resolver calls a recognized check its guards don't, or its

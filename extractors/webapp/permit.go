@@ -26,7 +26,7 @@ func policies(sources []source, known checks) []policy {
 	var found []policy
 	for i := range sources {
 		s := &sources[i]
-		sc := scanner{fset: s.fset, known: known}
+		sc := fileScanner(s, known)
 		for _, decl := range s.file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || fn.Body == nil {

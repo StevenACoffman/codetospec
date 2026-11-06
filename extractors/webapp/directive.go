@@ -11,8 +11,9 @@ import (
 // permissionCheckDirective marks webapp's permission checkers. Its own
 // linter (dev/linters/permissions_lint.go, ADR-211) requires every resolver
 // to call a function so marked, which makes the directive the codebase's
-// definition of an access check.
-const permissionCheckDirective = "//ka:permission-check"
+// definition of an access check. Sources also write it with a space after
+// "//" and in the plural (see isDirective).
+const permissionCheckDirective = "ka:permission-check"
 
 // checker is what the extractor knows of one marked checker.
 type checker struct {
@@ -26,6 +27,49 @@ type checker struct {
 	// filter: the checker returns first a collection and its error does not
 	// deny — it keeps what the caller may see (GetAllVisibleUDIs).
 	filter bool
+	// decision is the position, from 1, of the bool result that carries
+	// the decision when it is not the first (actorKaid, canSetUp, …, err :=
+	// ActorCanSetUpAndEditAdminUDI(…)); 0 when the first result decides or
+	// the results are unknown.
+	decision int
+	// nilDenies: the checker has no bool result and denies by returning nil
+	// (key, kaid, err := userKeyIfActorCanEditContentKind(…); key == nil),
+	// so a nil test of any of its non-error results reads as its failure.
+	nilDenies bool
+}
+
+// resultChecker returns what a checker's declared results say about where
+// its decision is (see checker.decision, checker.nilDenies), with errDenies
+// and filter as given.
+func resultChecker(fn *ast.FuncType, errDenies bool) checker {
+	c := checker{errDenies: errDenies}
+	c.filter = !errDenies && returnsCollectionFirst(fn)
+	types := resultTypes(fn)
+	for i, t := range types {
+		if ident, ok := t.(*ast.Ident); ok && ident.Name == goBool {
+			if i > 0 {
+				c.decision = i + 1
+			}
+			return c
+		}
+	}
+	c.nilDenies = !c.filter && len(types) > 1 && returnsErrorLast(fn)
+	return c
+}
+
+// resultTypes lists a function's result types, one per result: (a, b
+// bool) counts twice.
+func resultTypes(fn *ast.FuncType) []ast.Expr {
+	if fn.Results == nil {
+		return nil
+	}
+	var types []ast.Expr
+	for _, field := range fn.Results.List {
+		for range max(1, len(field.Names)) {
+			types = append(types, field.Type)
+		}
+	}
+	return types
 }
 
 // markedCheckers returns the checkers sources mark with the directive, by
@@ -44,8 +88,7 @@ func markedCheckers(sources []source) map[string]checker {
 				if !hasDirective(d.Doc) {
 					continue
 				}
-				c := checker{errDenies: buildsAuthorizationError(d.Body)}
-				c.filter = !c.errDenies && returnsCollectionFirst(d.Type)
+				c := resultChecker(d.Type, buildsAuthorizationError(d.Body))
 				if d.Recv != nil {
 					marked["."+d.Name.Name] = c
 				} else {
@@ -58,6 +101,51 @@ func markedCheckers(sources []source) map[string]checker {
 		}
 	}
 	return marked
+}
+
+// wrappedCheckers returns the package variables of sources that hold a
+// known checker, by "Var" and "pkg.Var": the checker itself (var Alias =
+// _canView) or a wrapper call taking it first (var CanView =
+// cache.Cache(_canView, cache.In(…))), whatever the wrapper. A call
+// through the variable is the checker's call.
+func wrappedCheckers(sources []source, marked map[string]checker) map[string]checker {
+	wrapped := make(map[string]checker)
+	for i := range sources {
+		pkg := sources[i].file.Name.Name
+		for _, v := range packageVars(sources[i].file) {
+			value := v.value
+			if call, isCall := value.(*ast.CallExpr); isCall && len(call.Args) > 0 {
+				value = call.Args[0]
+			}
+			c, ok := checkerNamed(value, pkg, marked)
+			if !ok {
+				continue
+			}
+			for _, key := range []string{v.name, pkg + "." + v.name} {
+				if _, own := marked[key]; !own {
+					wrapped[key] = c
+				}
+			}
+		}
+	}
+	return wrapped
+}
+
+// checkerNamed returns the checker e names as a function value: f (a
+// function of package pkg) or p.f.
+func checkerNamed(e ast.Expr, pkg string, marked map[string]checker) (checker, bool) {
+	switch x := e.(type) {
+	case *ast.Ident:
+		if c, ok := marked[pkg+"."+x.Name]; ok {
+			return c, true
+		}
+	case *ast.SelectorExpr:
+		if p, isIdent := x.X.(*ast.Ident); isIdent {
+			c, ok := marked[p.Name+"."+x.Sel.Name]
+			return c, ok
+		}
+	}
+	return checker{}, false
 }
 
 // markGenDecl marks the function variables and the interface methods that
@@ -113,17 +201,31 @@ func buildsAuthorizationError(body *ast.BlockStmt) bool {
 }
 
 // hasDirective reports whether a doc comment holds the directive at the
-// start of one of its lines.
+// start of one of its lines (see isDirective).
 func hasDirective(doc *ast.CommentGroup) bool {
 	if doc == nil {
 		return false
 	}
 	for _, c := range doc.List {
-		if strings.HasPrefix(c.Text, permissionCheckDirective) {
+		if isDirective(c.Text) {
 			return true
 		}
 	}
 	return false
+}
+
+// isDirective reports whether a "//" comment line opens with the
+// directive, spaced or not, singular or plural: "//ka:permission-check",
+// "// ka:permission-check", "//ka:permissions-check" all occur in webapp.
+func isDirective(comment string) bool {
+	text, ok := strings.CutPrefix(comment, "//")
+	if !ok {
+		return false
+	}
+	text = strings.TrimLeft(text, " \t")
+	text = strings.Replace(text, "ka:permissions-check", permissionCheckDirective, 1)
+	rest, found := strings.CutPrefix(text, permissionCheckDirective)
+	return found && (rest == "" || strings.HasPrefix(rest, " ") || strings.HasPrefix(rest, "\t"))
 }
 
 // maxDerivation bounds the passes of deriveDenials: a call chain deeper than
@@ -157,7 +259,7 @@ func checkBackedDenials(sources []source, known checks) map[string]checker {
 	for i := range sources {
 		s := &sources[i]
 		pkg := s.file.Name.Name
-		sc := scanner{fset: s.fset, known: known}
+		sc := fileScanner(s, known)
 		for _, fn := range funcDecls(s.file) {
 			if fn.Recv != nil || !returnsErrorLast(fn.Type) {
 				continue
@@ -266,7 +368,7 @@ func sharedCheckers(webapp fs.FS) (map[string]checker, []string) {
 	var marking []string
 	for _, name := range names {
 		src, readErr := fs.ReadFile(pkg, name)
-		if readErr == nil && bytes.Contains(src, []byte(permissionCheckDirective)) {
+		if readErr == nil && bytes.Contains(src, []byte("ka:permission")) {
 			marking = append(marking, name)
 		}
 	}

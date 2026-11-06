@@ -8,7 +8,9 @@ a model reproduces at high cost and approximately, or not at all:
   method. A check is first what webapp declares as one: any function,
   interface method or variable marked `//ka:permission-check` in the service
   (the directive its linter `dev/linters/permissions_lint.go` requires,
-  ADR-211), and those marked by webapp's shared packages (`pkg/khan/acl`,
+  ADR-211; also spaced, `// ka:permission-check`, and plural), a package
+  variable wrapping such a checker (`var X = cache.Cache(check, …)`), and
+  those marked by webapp's shared packages (`pkg/khan/acl`,
   `pkg/web`: option `-webapp`, default `<root>/../..`; only the files of
   `pkg/` carrying the directive are read, and the service keeps control of its
   own markings). The error of such a check is a refusal only if the check
@@ -16,7 +18,15 @@ a model reproduces at high cost and approximately, or not at all:
   `errors.Unauthorized`); otherwise it is a read failure (`GetAllVisibleUDIs`
   refuses with an empty list, `UserIsKADSSSuperAdmin` with `false`) and
   `if err != nil` stays plumbing. The form `if err := check(); err != nil {…}`
-  is recognized. Added to these are
+  is recognized. A check's decision is its first `bool` result wherever it
+  stands (`kaid, canSetUp, …, err := ActorCanSetUpAndEditAdminUDI(…)`); a
+  check with no `bool` result denies with a nil one (`key == nil`), and a
+  filter whose emptiness the caller denies on (`len(ids) == 0`) checks the
+  call, not an item. A helper made of local definitions and one return
+  using a check is a check too. Resolvers in the packages the root
+  resolver types embed (`*reporting.QueryResolver`, through type aliases
+  too) are scanned as the root type's; a method matching no schema field
+  names no operation. Added to these are
   (`acl.IsLoggedIn`, `acl.IsCurrentUser`,
   `acl.ActorHasPermission[Err]`, `acl.IsCoachedByActor`,
   `ktx.RequestIs…()`, the predicates of the service's access package —
@@ -172,9 +182,12 @@ a model reproduces at high cost and approximately, or not at all:
   (`acl.UserScope`) and its `matcher_arg`, the `subject` of a self or
   coach check, a rate limit's `key`, `count` and `window`;
   `scope_of_check: item` on a guard that drops one item (a loop's, a
-  filter's). One **`access_check`** fact per check named says how it is
-  known (`form`: marked, predicate, helper, acl, ratelimit), cited at its
-  definition in the service or in `pkg/` (root `pkg`) when parsed.
+  filter's). A guard that returns an authorization error also names every
+  function its condition calls that is no known check, with `form: call`
+  and no meaning, so a person can pin it. One **`access_check`** fact per
+  check named says how it is known (`form`: marked, predicate, helper, acl,
+  ratelimit, call), cited at its definition in the service or in `pkg/`
+  (root `pkg`) when parsed.
 - **Unguarded resolvers** (`unguarded`): a public resolver method with a
   schema field and no guard, marker or delegation, cited on the method:
   how "no check found" differs from "not a resolver" (none in the seven

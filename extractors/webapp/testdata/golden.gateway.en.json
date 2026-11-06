@@ -15,6 +15,34 @@
   },
   {
     "kind": "access_check",
+    "id": "access_check.webapp.operationName",
+    "attrs": {
+      "form": "call",
+      "name": "operationName"
+    },
+    "source": {
+      "path": "",
+      "lines": ""
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "access_check",
+    "id": "access_check.webapp.validateIsTrustedClient",
+    "attrs": {
+      "form": "call",
+      "name": "validateIsTrustedClient"
+    },
+    "source": {
+      "path": "",
+      "lines": ""
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "access_check",
     "id": "access_check.webapp.pubsub.DecodeAndValidatePushMsg",
     "attrs": {
       "form": "marked",
@@ -265,6 +293,8 @@
     "kind": "rule",
     "id": "rule.webapp.authz.routes/graphql.go:9-12",
     "attrs": {
+      "check_args": "[{\"check\":\"operationName\",\"form\":\"call\",\"var\":\"operationName\",\"args\":[{\"text\":\"r\"}]}]",
+      "checks": "operationName",
       "condition": "{\"var\":\"gateway.RateLimit\",\"op\":\"equal\",\"value\":true}",
       "domain": "routes",
       "ears": "unwanted",
@@ -459,6 +489,8 @@
     "kind": "rule",
     "id": "rule.webapp.authz.routes/settings.go:6-10",
     "attrs": {
+      "check_args": "[{\"check\":\"validateIsTrustedClient\",\"form\":\"call\",\"var\":\"validateIsTrustedClient.fails\",\"fails\":true,\"args\":[{\"text\":\"ctx\"},{\"text\":\"r.Header\"},{\"text\":\"\\\"X-Ka-Secret-Key\\\"\"},{\"text\":\"useSettingsSecret\"}]}]",
+      "checks": "validateIsTrustedClient",
       "condition": "{\"var\":\"validateIsTrustedClient.fails\",\"op\":\"equal\",\"value\":true}",
       "domain": "routes",
       "ears": "unwanted",

@@ -205,7 +205,7 @@ func checkingWrappers(sources []source, known checks) []qualifiedName {
 	var found []qualifiedName
 	for i := range sources {
 		s := &sources[i]
-		sc := scanner{fset: s.fset, known: known}
+		sc := fileScanner(s, known)
 		for _, fn := range funcDecls(s.file) {
 			if lit, ok := returnedClosure(fn.Body); ok && len(sc.guards(lit.Body)) > 0 {
 				found = append(found, qualifiedName{pkg: s.file.Name.Name, name: fn.Name.Name})
@@ -242,9 +242,10 @@ func (idx funcIndex) one(key string) (funcDecl, bool) {
 // serves, in its directory's domain. Their endpoints come from the Go
 // extractor; codetospec links them to these rules by their citations.
 func entryScan(sources, shared []source, known checks, w *wording) []Fact {
+	resolvers := resolverFiles(sources)
 	var entries []entryPoint
 	for _, e := range entryPoints(sources) {
-		if path.Dir(e.file.name) != resolversDir {
+		if !slices.Contains(resolvers, e.file) {
 			entries = append(entries, e)
 		}
 	}
@@ -257,7 +258,7 @@ func entryScan(sources, shared []source, known checks, w *wording) []Fact {
 	known.helpers = helperPredicates(trees, known)
 	methods := make([]resolverMethod, len(entries))
 	for i, e := range entries {
-		sc := scanner{fset: e.file.fset, known: known}
+		sc := fileScanner(e.file, known)
 		methods[i] = resolverMethod{
 			recv:   receiverName(e.fn),
 			method: e.fn.Name.Name,

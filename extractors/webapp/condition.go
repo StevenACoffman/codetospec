@@ -73,8 +73,10 @@ func (c conditioner) node(e ast.Expr) cnode {
 			return n
 		}
 	case *ast.CallExpr:
-		name, _ := c.callVariable(x)
-		return holds(name)
+		// A bare call is the check's decision, even when the same call's
+		// error is tested elsewhere in the condition (if !ok || err != nil):
+		// its failure is named by that comparison only.
+		return holds(c.decisionVariable(x))
 	case *ast.IndexExpr:
 		if c.r.marks.present[x] {
 			return cnode{Exists: variableName(c.r.source(x.X) + "." + c.key(x.Index))}
@@ -144,7 +146,7 @@ func (c conditioner) comparison(x *ast.BinaryExpr) (cnode, bool) {
 	if !known {
 		return cnode{}, false
 	}
-	if call, isCall := x.X.(*ast.CallExpr); isCall && c.r.marks.failed[call] &&
+	if call, isCall := x.X.(*ast.CallExpr); isCall && c.r.marks.failed[call] != 0 &&
 		(x.Op == token.EQL || x.Op == token.NEQ) {
 		return cnode{
 			Var:   variableName(c.r.source(call.Fun) + ".fails"),
@@ -194,13 +196,24 @@ func isNil(e ast.Expr) bool {
 // function (the notation has no call operands, the arguments stay in the
 // requirement's text).
 func (c conditioner) callVariable(call *ast.CallExpr) (string, bool) {
-	switch {
-	case c.r.marks.failed[call]:
+	if c.r.marks.failed[call] != 0 {
 		return variableName(c.r.source(call.Fun) + ".fails"), true
-	case isRateLimit(call) || isAccessCheck(call):
-		return c.checkVariable(call), false
 	}
-	return variableName(c.r.source(call.Fun)), false
+	return c.decisionVariable(call), false
+}
+
+// decisionVariable is the variable a call's own result becomes: a known
+// check's (checkVariable), else the function's. A call of a call's result
+// (anyOf(a, b)(ctx, kaid)) is named after the inner call: the check that
+// returned the function decides.
+func (c conditioner) decisionVariable(call *ast.CallExpr) string {
+	if inner, ok := call.Fun.(*ast.CallExpr); ok {
+		return c.decisionVariable(inner)
+	}
+	if isRateLimit(call) || isAccessCheck(call) {
+		return c.checkVariable(call)
+	}
+	return variableName(c.r.source(call.Fun))
 }
 
 // checkVariable names the variable a known check stands for: the caller's

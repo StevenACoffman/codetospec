@@ -193,12 +193,26 @@ func TestAuthorizeAgreesWithConditions(t *testing.T) {
 	}
 	for i := range m.Items {
 		item := &m.Items[i]
-		checked += agree(t, policies, &item.Operation, cedarpolicy.ViewAction(item.Kind), item.Kind)
+		checked += agree(t, policies, &item.Operation, cedarpolicy.ViewAction(item.Kind),
+			cedarpolicy.ItemType(item.Kind))
 	}
 	if checked == 0 {
 		t.Fatal("no case checked")
 	}
 	t.Logf("%d cases checked", checked)
+}
+
+// TestItemKindNamedLikeAFixedType: an item kind may share its name with a
+// type the schema always declares (ai-guide's filters are over User): the
+// item's entity type stays distinct, so the export still validates.
+func TestItemKindNamedLikeAFixedType(t *testing.T) {
+	for _, kind := range []string{userType, "Target", svcType} {
+		m := usersModel()
+		m.Items[0].Kind = kind
+		if _, err := cedarpolicy.Export(&m, service); err != nil {
+			t.Errorf("item kind %s: %v", kind, err)
+		}
+	}
 }
 
 // agree checks that cedar.Authorize decides each realizable case of op, as

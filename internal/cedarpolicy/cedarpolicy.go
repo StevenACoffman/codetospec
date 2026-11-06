@@ -16,8 +16,9 @@
 //   - an alias operation (its handler only delegates) shares its target's
 //     policies: `action in [target, alias]`;
 //   - an entity type per item kind a pinned visibility filter decides,
-//     with a Target's attributes, and its action "view:<Kind>": the
-//     decision on one item of a filtered result.
+//     "<Kind>Item" (ItemType: a kind may be named like a fixed type, as
+//     User), with a Target's attributes, and its action "view:<Kind>":
+//     the decision on one item of a filtered result.
 //
 // A policy whose condition errors is skipped, so a forbid on a missing
 // attribute would allow: the schema makes every attribute the policies read
@@ -168,6 +169,12 @@ func ViewAction(kind string) string {
 	return policy.ViewAction + ":" + kind
 }
 
+// ItemType is the entity type of an item of kind: "UserItem". No fixed
+// type's name ends in "Item", so none collides with it.
+func ItemType(kind string) string {
+	return kind + "Item"
+}
+
 // targetAttrs are the attributes of a Target, and of an item, which the
 // same templates read.
 const targetAttrs = "{subject: User, coaches: Set<User>, kmapDistrictOwned: Bool, country: String, " +
@@ -175,7 +182,7 @@ const targetAttrs = "{subject: User, coaches: Set<User>, kmapDistrictOwned: Bool
 
 // Schema is the namespace's schema in the Cedar schema format: actions
 // apply to a Target, and an item kind's view action (ViewAction) to an
-// entity of that kind.
+// entity of that kind's ItemType.
 func Schema(ns string, actions, kinds []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "namespace %s {\n", ns)
@@ -190,7 +197,7 @@ func Schema(ns string, actions, kinds []string) string {
 	)
 	fmt.Fprintf(&b, "  entity Target %s;\n", targetAttrs)
 	for _, k := range kinds {
-		fmt.Fprintf(&b, "  entity %s %s;\n", k, targetAttrs)
+		fmt.Fprintf(&b, "  entity %s %s;\n", ItemType(k), targetAttrs)
 	}
 	b.WriteString("  type RequestContext = {isTask: Bool, isOktaLifecycle: Bool};\n")
 	for _, a := range slices.Compact(slices.Sorted(slices.Values(actions))) {
@@ -206,7 +213,7 @@ func Schema(ns string, actions, kinds []string) string {
 			&b,
 			"  action %q appliesTo {principal: [User, Service, Push, Anonymous], resource: [%s], "+
 				"context: RequestContext};\n",
-			ViewAction(k), k,
+			ViewAction(k), ItemType(k),
 		)
 	}
 	b.WriteString("}\n")

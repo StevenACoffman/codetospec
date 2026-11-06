@@ -80,8 +80,13 @@ Not built, measured:
   exposed a variable mismatch between the condition and `check_args`,
   which is fixed.
 
-Of the 34 checkers still unrecorded, most decide inside data access or
-in another service: no guard holds them.
+Of the 34 checkers still unrecorded:
+- 16 have a pin but no guard of their own: mostly helpers called only
+  from inside checkers the extractor records, or results passed into a
+  write;
+- 3 decide in another service;
+- the rest are per-item or per-field filters, data predicates, and
+  helpers whose results steer a mutation rather than guard it.
 
 ## Pin vocabulary
 

@@ -379,6 +379,13 @@ holds the rest.
   - Done (2026-11-05): webapp `c55b04b0090`; rules +26–44 % per output,
     share proven unchanged, no violations, drift or `ears_issue`
     (`docs/verification/remap-2026-11-05.md`).
+- [ ] Regenerate `~/spec-graphs` and re-record the corpus
+      (`scripts/remap.sh`). The outputs predate FIX R1-R3 (admin still
+      carries the leaked `testutil` role rule, and the corpus baseline
+      counts it) and the checker recognition (new `check_args`,
+      `access_check` and route facts, and changed extractor conditions,
+      which re-map the chunks they feed). Until then, `make corpus`
+      measures stale outputs. Review the baseline diff before committing.
 - [ ] Fix what checking admin's role rules against their code found
       (2026-11-05): findings, recommendations and the step-by-step plan
       are in `FIX.md`. The 46 role rules are exact, but `--exclude` doesn't
@@ -486,15 +493,47 @@ left out.
       so recognizing more checks withheld 6 coaches operations. Find a
       structural signal (the check's result returned or assigned to a
       response field, not branched on) before relaxing it.
-- [ ] The 34 checkers still unrecorded mostly decide inside data access
-      (a capability passed into a write, an authorization filter in a
-      query): describe them as policy only once the inventory reads
-      data-access authorization.
+- [ ] The 34 reviewed checkers still unrecorded, by why:
+  - **16 have a pin but no guard of their own.** Most are helpers called
+    only from inside checkers the extractor does record (a capability
+    helper inside `isActorCoachOrAdmin`, a content-kind helper inside
+    `checkEditContentKindPermission`). The rest are results passed into a
+    write or a transaction (`canEditDevProps` into `ReviseProgram`).
+  - **3 decide in another service** (the cross-service join, above).
+  - **About 6 are per-item or per-field filters and data predicates**
+    (feedback visibility, assessment access status).
+  - **8 are helpers whose results steer a mutation** rather than guard
+    it (users' settings ACLs).
+
+  Recording a helper or a steering result as a guard would claim
+  decisions the resolver doesn't make. Data-access authorization needs
+  the inventory to read it first.
 - [ ] Pins keyed on argument values (`when_arg`): five districts
       checkers are pinned at their strictest reading because a literal
       argument changes the decision.
-- [ ] Content-kind scopes (content-editing, 4 checkers): their mixed
-      scope keys need the grant model.
+- [ ] Content-kind scopes: 7 reviewed content-editing checkers (3
+      recorded, 4 unrecorded) check a capability on a locale and a content
+      kind. Their mixed scope keys need the grant model. (The 8 that check
+      only the request's locale can be pinned now: `scope: locale`.)
+- [ ] Re-pin the review's checkers files with the vocabulary added since
+      (`docs/verification/checker-recognition-2026-11-06.md`) and
+      re-measure the six exports:
+  - `scope: locale` for the request-locale checkers;
+  - `capability_arg` for checkers that take their capability as an
+    argument;
+  - `self`/`coach` in item filters instead of invented relations;
+  - a context `attribute` for feature-flag gates pinned at their
+    strictest reading;
+  - `unpinnable` reasons for the rest;
+  - `digest` on every pin.
+
+  One entry alone took users from 112 to 118 operations. The files are
+  private.
+- [ ] Permits scoped by principal type (planned in the export-gaps work, never
+      built nor recorded): each operation gets one allow over every
+      principal kind the loader sets (user, service, push, anonymous).
+      Scoping it, say a Pub/Sub handler allowing only `push`, would move
+      that knowledge from deny guards into the permit.
 - [ ] Rate limits as obligations: today a rate-limit guard keeps its
       operation out (52 guards). Exporting it as an annotation would
       allow what the code throttles. That is a policy decision for the

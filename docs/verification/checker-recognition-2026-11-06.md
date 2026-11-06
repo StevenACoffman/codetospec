@@ -153,5 +153,5 @@ Every Cedar policy language export passes cedar-go's strict validation.
   denial.
 - Content-kind scopes, pins keyed on argument values, two-subject
   operations, the cross-service join, rate limits as obligations and a
-  pin-proposal command are not built (`policy_checkers_impl.md` says
-  why).
+  pin-proposal command are not built (`TODO.md`, Policy Inventory and
+  Exports, says why).

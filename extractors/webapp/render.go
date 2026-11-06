@@ -328,7 +328,7 @@ func (r renderer) comparison(x *ast.BinaryExpr, negate bool) (string, bool) {
 // as "`call` fails" (or succeeds).
 func (r renderer) failure(x *ast.BinaryExpr, negate bool) (string, bool) {
 	call, ok := x.X.(*ast.CallExpr)
-	if !ok || !r.marks.failed[call] || (x.Op != token.EQL && x.Op != token.NEQ) {
+	if !ok || r.marks.failed[call] == 0 || (x.Op != token.EQL && x.Op != token.NEQ) {
 		return "", false
 	}
 	format := r.w.succeedsFmt

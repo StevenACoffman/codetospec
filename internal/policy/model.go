@@ -122,7 +122,16 @@ const (
 	LeafTask         = "task"          // a task request
 	LeafOkta         = "okta"          // an Okta lifecycle request
 	LeafPush         = "push"          // a Pub/Sub push, its token validated
-	LeafRelation     = "relation"      // the caller holds Relation to the resource
+	LeafRelation     = "relation"      // the caller holds Relation to the resource (or to Subject)
+	LeafAttribute    = "attribute"     // Holder has the boolean Attribute
+)
+
+// Holders of an attribute check (Leaf.Holder): the caller, the request's
+// resource (or item), the request itself.
+const (
+	HolderCaller   = "caller"
+	HolderResource = "resource"
+	HolderContext  = "context"
 )
 
 // Leaf is one check of the pinned vocabulary, with its operands.
@@ -136,10 +145,18 @@ type Leaf struct {
 	// (CheckCall.SubjectFrom); unset for a local.
 	SubjectFrom string `json:"subject_from,omitempty"`
 	Relation    string `json:"relation,omitempty"` // a relation's name, a registry entry
+	// Holder and Attribute are an attribute check's holder (Holder*) and
+	// the name of the boolean attribute the PIP serves.
+	Holder    string `json:"holder,omitempty"`
+	Attribute string `json:"attribute,omitempty"`
 	// Fails says Var holds when the check fails (a bound error): the
 	// condition reads the check's negation.
 	Fails bool `json:"fails,omitempty"`
 }
+
+// SubjectItem is the SubjectFrom of a check in an item policy about a
+// user: the item's own (its resource's subject attribute).
+const SubjectItem = "item"
 
 // Meanings of a check call (CheckCall.Means): the extractor's statement
 // of what a check is, in this vocabulary. Each but MeansRequest is a
@@ -154,8 +171,9 @@ const (
 	MeansTask         = LeafTask
 	MeansOkta         = LeafOkta
 	MeansPush         = LeafPush
-	MeansRelation     = LeafRelation // pinned only (Checkers)
-	MeansRequest      = "request"    // another predicate on the request: not translated
+	MeansRelation     = LeafRelation  // pinned only (Checkers)
+	MeansAttribute    = LeafAttribute // pinned only (Checkers)
+	MeansRequest      = "request"     // another predicate on the request: not translated
 )
 
 // The scopes of a capability check (CheckCall.Scope, Leaf.Scope) whose
@@ -172,10 +190,17 @@ const (
 	// checker may test (districts' _checkActorCapabilityScopes).
 	ScopeUserAll  = "user_all"
 	ScopeUserNwea = "user_nwea"
+	// ScopeLocale is a grant for the request's locale; ScopeExplicit any
+	// grant but those a role (admin's) holds implicitly.
+	ScopeLocale   = "locale"
+	ScopeExplicit = "explicit"
 )
 
 func pinnedScopes() []string {
-	return []string{ScopeAny, ScopeGlobal, ScopeUser, ScopeCountry, ScopeUserAll, ScopeUserNwea}
+	return []string{
+		ScopeAny, ScopeGlobal, ScopeUser, ScopeCountry,
+		ScopeUserAll, ScopeUserNwea, ScopeLocale, ScopeExplicit,
+	}
 }
 
 // Capability is a registered capability.
@@ -304,7 +329,8 @@ func subjectOf(op *Operation) (string, string) {
 // self or coach check, a capability on a user scope (the user's data).
 func (l *Leaf) aboutUser() bool {
 	return l.Kind == LeafSelf || l.Kind == LeafCoach ||
-		(l.Kind == LeafCapability && l.Scope == ScopeUser)
+		(l.Kind == LeafCapability && l.Scope == ScopeUser) ||
+		(l.Kind == LeafRelation && l.Subject != "")
 }
 
 // resolveAliases makes each of aliases (actions of ops, sorted) an alias
@@ -562,6 +588,7 @@ type translator struct {
 	checkers Checkers
 	defined  map[string]Expr // compound checkers' expressions, by variable
 	reason   string
+	inItem   bool // translating an item filter: users are the item's (SubjectItem)
 }
 
 // expr translates one node of the condition.
@@ -608,7 +635,9 @@ func (t *translator) item(n *graph.Node, g *Guard) (itemGuard, bool) {
 		if !pinned || c.Item == "" {
 			continue
 		}
+		t.inItem = true
 		visible, ok := t.part(&c, call, call.Check)
+		t.inItem = false
 		return itemGuard{
 			op: n.Extra[graph.ExtraOperation], rule: n.ID, source: g.Source,
 			check: call.Check, kind: c.Item, visible: visible,
@@ -632,7 +661,11 @@ func (t *translator) check(variable string) (Expr, bool) {
 	if call.Means == "" {
 		pinned = t.checkers[call.Check]
 	}
-	if pinned.Any == nil && pinned.All == nil {
+	if pinned.Unpinnable != "" {
+		t.fail(fmt.Sprintf("not pinnable (%s): %s", pinned.Unpinnable, call.Check))
+		return Expr{}, false
+	}
+	if pinned.Any == nil && pinned.All == nil && pinned.Not == nil {
 		leaf, isLeaf := t.leafOf(&pinned, &call)
 		if !isLeaf {
 			return Expr{}, false
@@ -662,6 +695,10 @@ func (t *translator) check(variable string) (Expr, bool) {
 // name is the Leaf.Var a check-shaped part takes, its parts numbered
 // after it ("permissions.X#2").
 func (t *translator) part(c *Checker, call *CheckCall, name string) (Expr, bool) {
+	if c.Not != nil {
+		e, ok := t.part(c.Not, call, name+"#1")
+		return Expr{Op: OpNot, Args: []Expr{e}}, ok
+	}
 	parts, op := c.Any, OpAny
 	if c.All != nil {
 		parts, op = c.All, OpAll
@@ -691,19 +728,51 @@ func (t *translator) leafOf(c *Checker, call *CheckCall) (Leaf, bool) {
 		return leaf, true
 	case MeansRelation:
 		leaf.Relation = c.Relation
+		if c.SubjectArg != nil {
+			// A relation to the user an argument names, not to the resource.
+			leaf.Subject, leaf.SubjectFrom = t.subject(c, call, "")
+			return leaf, leaf.Subject != ""
+		}
+		return leaf, true
+	case MeansAttribute:
+		leaf.Holder, leaf.Attribute = c.Of, c.Attribute
 		return leaf, true
 	case MeansSelf, MeansCoach:
-		leaf.Subject, leaf.SubjectFrom = c.subjectIn(call, call.Subject)
+		leaf.Subject, leaf.SubjectFrom = t.subject(c, call, call.Subject)
 		return leaf, leaf.Subject != ""
 	case MeansCapability:
-		leaf.Capability = t.stored[cmp.Or(c.Capability, call.Capability)]
+		leaf.Capability = t.stored[cmp.Or(c.Capability, argCapability(c, call), call.Capability)]
 		leaf.Scope = c.Scope
 		if leaf.Scope == ScopeUser {
-			leaf.Subject, leaf.SubjectFrom = c.subjectIn(call, call.MatcherArg)
+			leaf.Subject, leaf.SubjectFrom = t.subject(c, call, call.MatcherArg)
 		}
 		return leaf, leaf.Capability != "" && slices.Contains(pinnedScopes(), leaf.Scope)
 	}
 	return Leaf{}, false
+}
+
+// subject is the user a check about one is about, and where it comes
+// from: in an item filter the item's own, else the call's (subjectIn).
+func (t *translator) subject(c *Checker, call *CheckCall, operand string) (string, string) {
+	if t.inItem {
+		return "the item's user", SubjectItem
+	}
+	return c.subjectIn(call, operand)
+}
+
+// argCapability is the Go name of the capability c takes from a call
+// argument (CapabilityArg): the argument's last selector element
+// (capabilities.CanViewUserSettingsData); "" when c names none.
+func argCapability(c *Checker, call *CheckCall) string {
+	if c.CapabilityArg == nil {
+		return ""
+	}
+	i := *c.CapabilityArg
+	if i < 0 || i >= len(call.Args) {
+		return ""
+	}
+	text := call.Args[i].Text
+	return text[strings.LastIndex(text, ".")+1:]
 }
 
 // only returns the one call of the guard matching, false for none or

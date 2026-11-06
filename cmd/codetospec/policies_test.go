@@ -15,10 +15,12 @@ import (
 
 // The flags and command the tests pass more than once.
 const (
-	outFlag   = "--out"
-	toFlag    = "--to"
-	exportCmd = "export"
-	cerbosFmt = "cerbos"
+	outFlag      = "--out"
+	toFlag       = "--to"
+	exportCmd    = "export"
+	cerbosFmt    = "cerbos"
+	formatFlag   = "--format"
+	checkersFlag = "--checkers"
 )
 
 // loginFacts names one access check guarding Query.invoice: logged in, or
@@ -80,7 +82,7 @@ func TestPoliciesCommand(t *testing.T) {
 	}
 	var inv map[string]any
 	if err := json.Unmarshal(
-		[]byte(command(t, "policies", outFlag, outDir, "--format", "json")),
+		[]byte(command(t, "policies", outFlag, outDir, formatFlag, "json")),
 		&inv,
 	); err != nil {
 		t.Errorf("--format json: %v", err)
@@ -107,7 +109,7 @@ func TestExportPolicyFormats(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.format, func(t *testing.T) {
 			to := filepath.Join(t.TempDir(), tc.format)
-			command(t, exportCmd, outFlag, outDir, toFlag, to, "--format", tc.format)
+			command(t, exportCmd, outFlag, outDir, toFlag, to, formatFlag, tc.format)
 			written := filepath.Join(to, tc.file)
 			data, err := os.ReadFile(written) //nolint:gosec // the test's own output
 			if err != nil {
@@ -156,7 +158,7 @@ func TestExportJoinsCapabilities(t *testing.T) {
 		outDir,
 		toFlag,
 		filepath.Join(t.TempDir(), "a"),
-		"--format",
+		formatFlag,
 		cerbosFmt,
 	)
 	joined := command(
@@ -166,7 +168,7 @@ func TestExportJoinsCapabilities(t *testing.T) {
 		outDir,
 		toFlag,
 		filepath.Join(t.TempDir(), "b"),
-		"--format",
+		formatFlag,
 		cerbosFmt,
 		"--capabilities-from",
 		admin,
@@ -204,11 +206,11 @@ func TestExportCheckers(t *testing.T) {
 		to := filepath.Join(t.TempDir(), "p")
 		return command(t, append([]string{
 			exportCmd, outFlag, outDir, toFlag, to,
-			"--format", cerbosFmt,
+			formatFlag, cerbosFmt,
 		}, extra...)...)
 	}
 	if alone, pinned := export(), export(
-		"--checkers",
+		checkersFlag,
 		good,
 	); !strings.Contains(
 		alone,
@@ -221,11 +223,82 @@ func TestExportCheckers(t *testing.T) {
 	to := filepath.Join(t.TempDir(), "p")
 	if code := run(context.Background(), []string{
 		exportCmd, outFlag, outDir, toFlag, to,
-		"--format", cerbosFmt, "--checkers", bad,
+		formatFlag, cerbosFmt, checkersFlag, bad,
 	}, &stdout, &stderr); code == exitOK {
 		t.Error("a bad checkers file exported")
 	}
 	if _, err := os.Stat(to); !os.IsNotExist(err) {
 		t.Errorf("a failed export wrote %s", to)
+	}
+	// Checkers files merge; one name in two files stops the export.
+	dup := filepath.Join(dir, "dup.yaml")
+	if err := os.WriteFile(
+		dup,
+		[]byte("permissions.CanViewCDI: {means: login}\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	stderr.Reset()
+	if code := run(context.Background(), []string{
+		exportCmd, outFlag, outDir, toFlag, filepath.Join(t.TempDir(), "p"),
+		formatFlag, cerbosFmt, checkersFlag, good, checkersFlag, dup,
+	}, &stdout, &stderr); code == exitOK || !strings.Contains(stderr.String(), "dup.yaml") {
+		t.Errorf("a name in two checkers files exported (exit %d): %s", code, stderr.String())
+	}
+}
+
+// TestExportStalePins: `policies --src` prints each cited check's digest;
+// a pin recording it is current, one recording another digest is stale
+// (warned and counted, still applied).
+func TestExportStalePins(t *testing.T) {
+	outDir := guardedGraph(t, `{"schema":"codetospec/facts/v1","facts":[
+{"kind":"rule","id":"rule.webapp.authz.cdi","origin":"webapp","certainty":"static",
+ "source":{"path":"app/Models/Invoice.php","lines":"1-3"},
+ "attrs":{"slug":"authz-cdi","title":"Access control: Query.cdi",
+  "requirement":"IF permissions.CanViewCDI fails, THEN the system shall reject Query.cdi.",
+  "ears":"unwanted","nature":"business","domain":"billing","operation":"Query.cdi",
+  "checks":"permissions.CanViewCDI",
+  "check_args":"[{\"check\":\"permissions.CanViewCDI\",\"var\":\"permissions.CanViewCDI.fails\",\"fails\":true}]",
+  "condition":"{\"var\":\"permissions.CanViewCDI.fails\",\"op\":\"equal\",\"value\":true}"}},
+{"kind":"access_check","id":"access_check.webapp.permissions.CanViewCDI","origin":"webapp","certainty":"static",
+ "source":{"path":"app/Models/Invoice.php","lines":"1-2"},"attrs":{"name":"permissions.CanViewCDI","form":"marked"}}]}`)
+	src, err := filepath.Abs(filepath.Join("..", "..", "testdata", "fixture"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inv struct {
+		Checks []struct {
+			Name   string `json:"name"`
+			Digest string `json:"digest"`
+		} `json:"checks"`
+	}
+	if err = json.Unmarshal([]byte(command(t, "policies", outFlag, outDir, formatFlag, "json",
+		"--src", src)), &inv); err != nil {
+		t.Fatal(err)
+	}
+	digest := ""
+	for _, c := range inv.Checks {
+		if c.Name == "permissions.CanViewCDI" {
+			digest = c.Digest
+		}
+	}
+	if digest == "" {
+		t.Fatalf("checks = %+v, want permissions.CanViewCDI with its digest", inv.Checks)
+	}
+	dir := t.TempDir()
+	for _, tc := range []struct{ digest, want string }{{digest, ""}, {"old", "1 pin(s) stale"}} {
+		pins := filepath.Join(dir, tc.digest+".yaml")
+		entry := "permissions.CanViewCDI: {means: relation, relation: teacher_of, digest: " + tc.digest + "}\n"
+		if err = os.WriteFile(pins, []byte(entry), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got := command(t, exportCmd, outFlag, outDir, toFlag, filepath.Join(t.TempDir(), "p"),
+			formatFlag, cerbosFmt, checkersFlag, pins, "--src", src)
+		if stale := strings.Contains(got, "stale"); stale != (tc.want != "") ||
+			tc.want != "" &&
+				!strings.Contains(got, tc.want) || !strings.Contains(got, "1 deny rule(s)") {
+			t.Errorf("digest %s: %q, want %q and the pin applied", tc.digest, got, tc.want)
+		}
 	}
 }

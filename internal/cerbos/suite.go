@@ -15,6 +15,10 @@ const (
 	userKindNwea = "nwea-map"
 )
 
+// noScope fills a grant's scope keys a check doesn't need: it matches
+// nothing the suite's resources hold.
+const noScope = "none"
+
 // actorID and otherID are the KAIDs the suite's principals and subjects use.
 const (
 	actorID = "kaid_actor"
@@ -89,11 +93,16 @@ func (s *suite) add(kind, prefix, label string, op *policy.Operation) {
 // realize builds a principal and a resource meant to make each check hold
 // or not as given.
 func realize(leaves []policy.Leaf, given map[string]bool) (principal, resource) {
-	p := principal{ID: actorID, Roles: []string{RoleUser}, Attr: principalAttr{Grants: []grant{}}}
+	p := principal{
+		ID: actorID, Roles: []string{RoleUser},
+		Attr: principalAttr{Grants: []grant{}, Attributes: []string{}},
+	}
 	r := resource{
 		ID: "subject",
 		Attr: resourceAttr{
-			Subject: otherID, Coaches: []string{}, Country: "US", Relations: []string{},
+			Subject: otherID, Coaches: []string{}, Country: "US", Locale: "en",
+			Relations: []string{}, SubjectRelations: []string{},
+			Attributes: []string{}, RequestAttributes: []string{},
 		},
 	}
 	for i := range leaves {
@@ -114,8 +123,16 @@ func apply(p *principal, r *resource, l *policy.Leaf, holds bool) {
 			p.Roles = []string{RolePush}
 		}
 	case policy.LeafRelation:
-		if holds {
+		switch {
+		case holds && l.Subject != "":
+			r.Attr.SubjectRelations = append(r.Attr.SubjectRelations, l.Relation)
+		case holds:
 			r.Attr.Relations = append(r.Attr.Relations, l.Relation)
+		}
+	case policy.LeafAttribute:
+		if holds {
+			list := attributeList(p, r, l.Holder)
+			*list = append(*list, l.Attribute)
 		}
 	case policy.LeafLogin, policy.LeafLoginStrict:
 		p.Attr.LoggedIn = p.Attr.LoggedIn || holds
@@ -141,10 +158,21 @@ func apply(p *principal, r *resource, l *policy.Leaf, holds bool) {
 	}
 }
 
+// attributeList is the attribute names of an attribute holder on p and r.
+func attributeList(p *principal, r *resource, holder string) *[]string {
+	switch holder {
+	case policy.HolderCaller:
+		return &p.Attr.Attributes
+	case policy.HolderContext:
+		return &r.Attr.RequestAttributes
+	}
+	return &r.Attr.Attributes
+}
+
 // grantFor is a grant satisfying a capability check's matcher, and no
 // broader than it needs.
 func grantFor(l *policy.Leaf) grant {
-	g := grant{Capability: l.Capability, UserKind: "none", Country: "none"}
+	g := grant{Capability: l.Capability, UserKind: noScope, Country: noScope, Locale: noScope}
 	switch l.Scope {
 	case policy.ScopeGlobal:
 		g.Global = true
@@ -154,6 +182,10 @@ func grantFor(l *policy.Leaf) grant {
 		g.Country = "US"
 	case policy.ScopeUserNwea:
 		g.UserKind = userKindNwea
+	case policy.ScopeLocale:
+		g.Locale = "en"
+	case policy.ScopeExplicit:
+		g.Explicit = true
 	}
 	return g
 }
@@ -181,7 +213,12 @@ func holds(l *policy.Leaf, p *principal, r *resource) bool {
 	case policy.LeafPush:
 		return slices.Contains(p.Roles, RolePush)
 	case policy.LeafRelation:
+		if l.Subject != "" {
+			return slices.Contains(r.Attr.SubjectRelations, l.Relation)
+		}
 		return slices.Contains(r.Attr.Relations, l.Relation)
+	case policy.LeafAttribute:
+		return slices.Contains(*attributeList(p, r, l.Holder), l.Attribute)
 	case policy.LeafTask:
 		return r.Attr.IsTask
 	case policy.LeafOkta:
@@ -211,6 +248,10 @@ func grantMatches(g *grant, matcher string, r *resource) bool {
 		return g.UserKind == userKindAll
 	case policy.ScopeUserNwea:
 		return g.UserKind == userKindNwea
+	case policy.ScopeLocale:
+		return g.Locale == r.Attr.Locale
+	case policy.ScopeExplicit:
+		return g.Explicit
 	}
 	return true
 }
@@ -241,15 +282,18 @@ type (
 		Attr  principalAttr `yaml:"attr"`
 	}
 	principalAttr struct {
-		LoggedIn bool    `yaml:"loggedIn"`
-		Phantom  bool    `yaml:"phantom"`
-		Grants   []grant `yaml:"grants"`
+		LoggedIn   bool     `yaml:"loggedIn"`
+		Phantom    bool     `yaml:"phantom"`
+		Grants     []grant  `yaml:"grants"`
+		Attributes []string `yaml:"attributes"`
 	}
 	grant struct {
 		Capability string `yaml:"capability"`
 		Global     bool   `yaml:"global"`
 		UserKind   string `yaml:"userKind"`
 		Country    string `yaml:"country"`
+		Locale     string `yaml:"locale"`
+		Explicit   bool   `yaml:"explicit"`
 	}
 	resource struct {
 		Kind string       `yaml:"kind"`
@@ -264,6 +308,10 @@ type (
 		IsTask            bool     `yaml:"isTask"`
 		IsOktaLifecycle   bool     `yaml:"isOktaLifecycle"`
 		Relations         []string `yaml:"relations"`
+		SubjectRelations  []string `yaml:"subjectRelations"`
+		Attributes        []string `yaml:"attributes"`
+		RequestAttributes []string `yaml:"requestAttributes"`
+		Locale            string   `yaml:"locale"`
 	}
 	test struct {
 		Name     string        `yaml:"name"`

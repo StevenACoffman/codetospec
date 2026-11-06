@@ -316,7 +316,7 @@ func TestModelPinnedSubject(t *testing.T) {
 		`[{"check":"actorHasUserScopedPermission","var":"actorHasUserScopedPermission",`+
 			`"capability":"CanModerateUsers","args":[{"text":"ctx"},{"text":"iam"},`+
 			`{"text":"capabilities.CanModerateUsers"},{"text":"kaid","from":"arg:kaid"}]}]`)}, cs)
-	if len(m.Operations) != 1 || m.Operations[0].Subject != "arg:kaid" {
+	if len(m.Operations) != 1 || m.Operations[0].Subject != argKaid {
 		t.Errorf("model = %+v, want Query.notes bound to arg:kaid", m)
 	}
 	if _, parseErr := policy.ParseCheckers(
@@ -364,7 +364,7 @@ func TestModelItemPolicy(t *testing.T) {
 	}
 	item := func(id, op, check string) graph.Node {
 		n := guardRule(id, op, "", `[{"check":"`+check+`"}]`)
-		n.Extra[graph.ExtraCheckScope] = "item"
+		n.Extra[graph.ExtraCheckScope] = checkScopeItem
 		return n
 	}
 	m := policy.BuildModel(facts, []graph.Node{

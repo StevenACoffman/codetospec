@@ -41,6 +41,9 @@ const (
 	formHelper    = "helper"    // a resolver helper returning a check (helperPredicates)
 	formACL       = "acl"       // named like an acl predicate (isAccessCheck)
 	formRateLimit = "ratelimit" // a rate limiter (isRateLimit)
+	// formCall: a function a denying guard calls that is no known check
+	// (scanner.unknownCalls): named so a person can pin it, with no meaning.
+	formCall = "call"
 )
 
 // checkCall is one check a guard calls, with the operands the condition
@@ -50,6 +53,9 @@ const (
 // passes them.
 type checkCall struct {
 	Check string `json:"check"`
+	// Form is set only for a call no known check makes (formCall): the
+	// name alone can't tell it from a helper.
+	Form string `json:"form,omitempty"`
 	// Var is the condition variable the call became, so a reader links
 	// each variable to its call exactly; Fails says the variable holds
 	// when the call fails (a bound error). Unset outside the condition.
@@ -146,27 +152,21 @@ func (c checks) checkAttrs(
 // checkCalls lists the known checks g's condition and subject call, in
 // source order, with their operands.
 func (c checks) checkCalls(fset *token.FileSet, g *guard) []checkCall {
-	var calls []checkCall
-	cond := conditioner{r: renderer{fset: fset, marks: g.marks}}
-	inCondition := false
-	visit := func(n ast.Node) bool {
-		call, isCall := n.(*ast.CallExpr)
-		if !isCall {
-			return true
-		}
-		if name, _, known := c.nameOf(call); known {
-			out := callOperands(fset, call, name)
-			if inCondition && conditionOf(fset, g) != "" {
-				out.Var, out.Fails = cond.callVariable(call)
-			}
-			calls = append(calls, out)
-		}
-		return true
+	col := callCollector{
+		known:     c,
+		fset:      fset,
+		g:         g,
+		cond:      conditioner{r: renderer{fset: fset, marks: g.marks}},
+		withVars:  conditionOf(fset, g) != "",
+		unknownAt: make(map[*ast.CallExpr]bool, len(g.unknown)),
+	}
+	for _, call := range g.unknown {
+		col.unknownAt[call] = true
 	}
 	if g.cond != nil {
-		inCondition = true
-		ast.Inspect(g.cond, visit)
-		inCondition = false
+		col.inCondition = true
+		ast.Inspect(g.cond, col.visit)
+		col.inCondition = false
 	}
 	if g.subject != nil {
 		// A visibility or checked rule names its checker, called or not.
@@ -174,9 +174,68 @@ func (c checks) checkCalls(fset *token.FileSet, g *guard) []checkCall {
 		if _, isCall := subject.(*ast.CallExpr); !isCall {
 			subject = &ast.CallExpr{Fun: subject}
 		}
-		ast.Inspect(subject, visit)
+		ast.Inspect(subject, col.visit)
 	}
-	return calls
+	return col.calls
+}
+
+// callCollector gathers a guard's check calls (see checks.checkCalls).
+type callCollector struct {
+	known       checks
+	fset        *token.FileSet
+	g           *guard
+	cond        conditioner
+	withVars    bool // the guard has a condition: calls name their variables
+	inCondition bool
+	unknownAt   map[*ast.CallExpr]bool // g.unknown
+	calls       []checkCall
+}
+
+// visit adds the calls of n: "call != nil" on a failed call is the call's
+// failure (see conditioner.comparison), a bare call its decision.
+func (col *callCollector) visit(n ast.Node) bool {
+	switch x := n.(type) {
+	case *ast.BinaryExpr:
+		if call, isCall := x.X.(*ast.CallExpr); isCall && col.g.marks.failed[call] != 0 &&
+			(x.Op == token.EQL || x.Op == token.NEQ) {
+			col.add(call, true)
+			for _, arg := range call.Args {
+				ast.Inspect(arg, col.visit)
+			}
+			return false
+		}
+	case *ast.CallExpr:
+		col.add(x, false)
+	}
+	return true
+}
+
+// add records call, a known check or one of the guard's unknown calls
+// (formCall), once per variable.
+func (col *callCollector) add(call *ast.CallExpr, fails bool) {
+	name, _, known := col.known.nameOf(call)
+	unknown := !known && col.unknownAt[call]
+	if unknown {
+		name = unknownName(call)
+	}
+	if !known && !unknown {
+		return
+	}
+	out := callOperands(col.fset, call, name)
+	if unknown {
+		out.Form = formCall
+	}
+	if col.inCondition && col.withVars {
+		out.Var = col.cond.decisionVariable(call)
+		if fails {
+			out.Var, out.Fails = col.cond.callVariable(call)
+		}
+	}
+	if !slices.ContainsFunc(col.calls, func(o checkCall) bool {
+		return o.Check == out.Check && o.Var == out.Var && o.Var != ""
+	}) {
+		col.calls = append(col.calls, out)
+	}
 }
 
 // nameOf names the check call calls and says how it is known, with has's
@@ -204,6 +263,20 @@ func (c checks) nameOf(call *ast.CallExpr) (string, string, bool) {
 		return selectorName(call.Fun), formACL, true
 	}
 	return "", "", false
+}
+
+// unknownName names a call no known check makes (see
+// scanner.unknownCalls): "Func", or "pkg.Func".
+func unknownName(call *ast.CallExpr) string {
+	switch fun := call.Fun.(type) {
+	case *ast.Ident:
+		return fun.Name
+	case *ast.SelectorExpr:
+		if pkg, isIdent := fun.X.(*ast.Ident); isIdent {
+			return pkg.Name + "." + fun.Sel.Name
+		}
+	}
+	return ""
 }
 
 // markedName names a marked checker call by the key checkerOf found it
@@ -339,6 +412,7 @@ func pkgIs(e ast.Expr, name string) bool {
 // Ensures: one fact per name, sorted by name.
 func accessCheckFacts(facts []Fact, known checks, own, shared []source) []Fact {
 	var names []string
+	calls := unknownCallNames(facts)
 	for _, f := range facts {
 		for name := range strings.SplitSeq(f.Attrs[attrChecks], ",") {
 			if name != "" && name != checkOpen && name != checkTodo &&
@@ -357,16 +431,38 @@ func accessCheckFacts(facts []Fact, known checks, own, shared []source) []Fact {
 				src = underPkg(shared)
 			}
 		}
+		form := known.formOf(name)
+		if calls[name] {
+			form = formCall
+		}
 		out = append(out, Fact{
 			Kind:      kindAccessCheck,
 			ID:        "access_check.webapp." + name,
-			Attrs:     map[string]string{attrName: name, attrForm: known.formOf(name)},
+			Attrs:     map[string]string{attrName: name, attrForm: form},
 			Source:    src,
 			Origin:    origin,
 			Certainty: certain,
 		})
 	}
 	return out
+}
+
+// unknownCallNames returns the checks facts' check calls name with form
+// formCall: no known check (see scanner.unknownCalls).
+func unknownCallNames(facts []Fact) map[string]bool {
+	names := make(map[string]bool)
+	for _, f := range facts {
+		var calls []checkCall
+		if json.Unmarshal([]byte(f.Attrs[attrCheckArgs]), &calls) != nil {
+			continue
+		}
+		for _, call := range calls {
+			if call.Form == formCall {
+				names[call.Check] = true
+			}
+		}
+	}
+	return names
 }
 
 // formOf says how a named check is known, as nameOf decided. Helper

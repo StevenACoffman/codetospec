@@ -251,10 +251,19 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   operation whose rules all delegate (`delegates_to_operation`) to an
   exported operation is its alias. `export --checkers` (`ParseCheckers`,
   a person's YAML, never written) pins what checks the extractor doesn't
-  know mean: one leaf, or `any`/`all` of leaves (parts named
+  know mean: one leaf, or `any`/`all`/`not` of leaves (parts named
   `<check>#n`, `Deny.Defined` lets the oracle decide the checker's
-  variable from them), `subject_arg` for a user check, `item: <Kind>`
-  for a visibility filter (`Model.Items`: a `view` policy per kind).
+  variable from them), `subject_arg` for a user check (on a compound
+  checker, passed to its parts) or a relation to an argument's user
+  (`R.attr.subjectRelations`), `capability_arg` for a part's capability,
+  an `attribute` of the caller, resource or request, the `locale` and
+  `explicit` scopes, `item: <Kind>` for a visibility filter
+  (`Model.Items`: a `view` policy per kind, where self and coach are
+  about the item's user, `SubjectItem`), `unpinnable: <reason>` (the
+  skip reason), `digest` (`policy.StalePins`: `export --src` warns about
+  a pin whose checker changed; `policies --src` prints each check's).
+  `--checkers` repeats; files merge (`MergeCheckers`, a name in two is
+  an error).
   Formats pinned in each package doc, with the loader contract; the
   subject binding is an annotation (Cerbos `subject:<action>`, the Cedar
   policy language `@subject`). Verified against the oracle, not the
@@ -573,7 +582,13 @@ README). The webapp extractor also names what each guard checks
 `delegates_to`), one `access_check` fact per check named, and
 `unguarded` for a resolver with none (contract: `extract.KindAccessCheck`,
 `KindUnguarded`, `AttrChecks`…; read by the policy inventory, not the
-spec; `docs/verification/policy-checks-2026-11-06.md`). No
+spec; `docs/verification/policy-checks-2026-11-06.md`). It reads a
+marked checker's decision from its declared results (the first `bool`,
+wherever it stands; a nil result for one with none; an empty filter
+result its caller denies on), follows checkers wrapped in a package
+variable and resolver packages the root resolvers embed, and names every
+function a denying guard calls (`form: call`, no meaning) so a person can
+pin it (`docs/verification/checker-recognition-2026-11-06.md`). No
 repository-specific code in the core: all webapp knowledge lives in
 `extractors/webapp`.
 

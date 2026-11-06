@@ -212,7 +212,7 @@ func TestModelSilentOperations(t *testing.T) {
 // to the graph) isn't a call's deny.
 func TestModelItemGuard(t *testing.T) {
 	n := loginGuard("rule.a.item", "Query.list", "1-3", "acl.IsLoggedIn")
-	n.Extra[graph.ExtraCheckScope] = "item"
+	n.Extra[graph.ExtraCheckScope] = checkScopeItem
 	m := policy.BuildModel(nil, []graph.Node{n}, nil)
 	want := []policy.Skip{{RuleID: "rule.a.item", Reason: "drops one item, not the call"}}
 	if len(m.Operations) != 0 || !reflect.DeepEqual(m.Skipped, want) {

@@ -26,7 +26,29 @@ const (
 
 // usersCheckers pins usersModel's checks the extractor doesn't know.
 func usersCheckers() policy.Checkers {
+	one := 1
 	return policy.Checkers{
+		// Every pinnable kind beyond the extractor's: attributes of the
+		// caller, the resource and the request, a negation, the locale and
+		// explicit scopes, a relation to an argument's user.
+		"permissions.CanEditBio": {All: []policy.Checker{
+			{Means: policy.MeansAttribute, Of: policy.HolderCaller, Attribute: "internal_user"},
+			{
+				Not: &policy.Checker{
+					Means:     policy.MeansAttribute,
+					Of:        policy.HolderResource,
+					Attribute: "deleted",
+				},
+			},
+			{Means: policy.MeansAttribute, Of: policy.HolderContext, Attribute: "bio_flag"},
+			{Means: policy.MeansCapability, Capability: identityGoName, Scope: policy.ScopeLocale},
+			{
+				Means:      policy.MeansCapability,
+				Capability: identityGoName,
+				Scope:      policy.ScopeExplicit,
+			},
+			{Means: policy.MeansRelation, Relation: "managing_coach_of", SubjectArg: &one},
+		}},
 		"permissions.CanViewCDI": {Means: policy.MeansRelation, Relation: "teacher_of"},
 		// districts' ActorCanViewUserDistrictData, as its code reads.
 		"permissions.ActorCanViewUserDistrictData": {Any: []policy.Checker{
@@ -42,9 +64,11 @@ func usersCheckers() policy.Checkers {
 				Scope:      policy.ScopeUserNwea,
 			},
 		}},
-		// districts' VisibleAssignmentDistrictInfos-like filter.
+		// districts' VisibleAssignmentDistrictInfos-like filter; an item is
+		// also visible to its own user.
 		"permissions.VisibleThings": {Item: "Thing", Any: []policy.Checker{
 			{Means: policy.MeansServiceAdmin},
+			{Means: policy.MeansSelf},
 			{All: []policy.Checker{
 				{
 					Means:      policy.MeansCapability,
@@ -129,7 +153,11 @@ func usersModel() policy.Model {
 		`{"not":{"var":"permissions.ActorCanViewUserDistrictData","op":"equal","value":true}}`,
 		`[{"check":"permissions.ActorCanViewUserDistrictData","var":"permissions.ActorCanViewUserDistrictData"}]`,
 	)
-	return policy.BuildModel(facts, append(rules, alias, udi, things), checkers)
+	bio := node("rule.user.authz-bio", "Mutation.editBio", "permissions.CanEditBio",
+		`{"not":{"var":"permissions.CanEditBio","op":"equal","value":true}}`,
+		`[{"check":"permissions.CanEditBio","var":"permissions.CanEditBio",`+
+			`"args":[{"text":"ktx"},{"text":"kaid","from":"arg:kaid"}]}]`)
+	return policy.BuildModel(facts, append(rules, alias, udi, things, bio), checkers)
 }
 
 // TestExportValidates: the policies (the service's, an item kind's) and the

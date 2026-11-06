@@ -135,6 +135,7 @@ func (c cli) exportPolicies(cfg *config.Config, nodes []graph.Node) int {
 			)
 		}
 	}
+	stale := c.stalePins(cfg, facts, checkers)
 	m := policy.BuildModel(facts, nodes, checkers)
 	service := filepath.Base(filepath.Clean(cfg.Out))
 	var files map[string][]byte
@@ -157,17 +158,53 @@ func (c cli) exportPolicies(cfg *config.Config, nodes []graph.Node) int {
 	for _, s := range m.Skipped {
 		c.logger.Debug("guard not exported", "rule", s.RuleID, "reason", s.Reason)
 	}
-	_, _ = fmt.Fprintf(
-		c.stdout,
+	summary := fmt.Sprintf(
 		"export: %d operation(s), %d item kind(s), %d deny rule(s) written to %s, "+
-			"%d guard(s) not translated (see --log-level debug)\n",
+			"%d guard(s) not translated (see --log-level debug)",
 		operations,
 		len(m.Items),
 		denies,
 		cfg.To,
 		len(m.Skipped),
 	)
+	if len(stale) > 0 {
+		summary += fmt.Sprintf(", %d pin(s) stale", len(stale))
+	}
+	_, _ = fmt.Fprintln(c.stdout, summary)
 	return exitOK
+}
+
+// stalePins returns the checkers whose recorded digest no longer matches
+// their checker's code, each warned about; without --src the digests
+// can't be checked, which is said once when any pin records one. A stale
+// pin is still applied: it is a question for the person, not a failure.
+func (c cli) stalePins(
+	cfg *config.Config,
+	facts []extract.Fact,
+	checkers policy.Checkers,
+) []string {
+	var digested []string
+	for name, k := range checkers {
+		if k.Digest != "" {
+			digested = append(digested, name)
+		}
+	}
+	if len(digested) == 0 {
+		return nil
+	}
+	if cfg.Src == "" {
+		c.logger.Info(
+			"pins record digests: pass --src to tell the stale ones",
+			"pins",
+			len(digested),
+		)
+		return nil
+	}
+	stale := policy.StalePins(checkers, c.checkDigests(cfg.Roots(), facts, digested))
+	for _, name := range stale {
+		c.logger.Warn("a pin was written for code that has changed since", "check", name)
+	}
+	return stale
 }
 
 // capabilityFacts reads the capability and role facts of the graph at dir:

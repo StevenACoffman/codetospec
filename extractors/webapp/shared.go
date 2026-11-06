@@ -22,7 +22,7 @@ func sharedFacts(shared sharedCode, reach map[declKey]bool, known checks, w *wor
 	for i := range shared.sources {
 		s := &shared.sources[i]
 		dir, pkg := path.Dir(s.name), s.file.Name.Name
-		sc := scanner{fset: s.fset, known: known}
+		sc := fileScanner(s, known)
 		for _, fn := range funcDecls(s.file) {
 			if fn.Recv != nil || !reach[declKey{dir, fn.Name.Name}] {
 				continue

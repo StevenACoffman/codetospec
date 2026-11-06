@@ -139,6 +139,7 @@ func knownChecks(sources, shared []source, in *Inputs) (checks, []string) {
 			}
 		}
 	}
+	maps.Copy(marked, wrappedCheckers(sources, marked))
 	deriveDenials(sources, marked)
 	known := checks{
 		marked:      marked,
@@ -164,12 +165,7 @@ func resolverScan(
 	known checks,
 	w *wording,
 ) ([]Fact, []string) {
-	var resolverFiles []*source
-	for i := range sources {
-		if path.Dir(sources[i].name) == resolversDir {
-			resolverFiles = append(resolverFiles, &sources[i])
-		}
-	}
+	resolverFiles := resolverFiles(sources)
 	trees := make([]*ast.File, len(resolverFiles))
 	for i, s := range resolverFiles {
 		trees[i] = s.file
@@ -195,6 +191,126 @@ func resolverScan(
 		warnings = append(warnings, fileWarnings...)
 	}
 	return facts, warnings
+}
+
+// resolverFiles returns the files of resolvers/ and of the service's
+// packages its resolver types embed, through embedding (assessments'
+// queryResolver embeds *reporting.QueryResolver; discussions' embeds
+// discussions/resolvers.MutationResolver): gqlgen calls the promoted
+// methods as the root type's. Sorted by name.
+func resolverFiles(sources []source) []*source {
+	byDir := make(map[string][]*source)
+	for i := range sources {
+		dir := path.Dir(sources[i].name)
+		byDir[dir] = append(byDir[dir], &sources[i])
+	}
+	dirs := map[string]bool{resolversDir: true}
+	for queue := []string{resolversDir}; len(queue) > 0; queue = queue[1:] {
+		for _, s := range byDir[queue[0]] {
+			for _, dir := range embeddedDirs(s.file, byDir) {
+				if !dirs[dir] {
+					dirs[dir] = true
+					queue = append(queue, dir)
+				}
+			}
+		}
+	}
+	var files []*source
+	for dir := range dirs {
+		files = append(files, byDir[dir]...)
+	}
+	slices.SortFunc(files, func(a, b *source) int { return strings.Compare(a.name, b.name) })
+	return files
+}
+
+// embeddedDirs returns the service directories of the packages whose types
+// file's struct types embed (pkg.T, *pkg.T, or a local alias of one:
+// type moderationQueries = modResolvers.QueryResolver), among dirs.
+func embeddedDirs(file *ast.File, dirs map[string][]*source) []string {
+	byName := serviceImports(file, dirs)
+	var found []string
+	for _, sel := range embeddedSelectors(file) {
+		if pkg, isIdent := sel.X.(*ast.Ident); isIdent && byName[pkg.Name] != "" {
+			found = append(found, byName[pkg.Name])
+		}
+	}
+	return found
+}
+
+// serviceImports maps the names file imports the service's own packages by
+// to their directories, among dirs: an import path names the longest
+// service directory it ends with ("/"+dir); …/discussions/resolvers ends
+// with resolvers too.
+func serviceImports(file *ast.File, dirs map[string][]*source) map[string]string {
+	byName := make(map[string]string)
+	for _, spec := range file.Imports {
+		imported, err := strconv.Unquote(spec.Path.Value)
+		if err != nil {
+			continue
+		}
+		best := ""
+		for dir := range dirs {
+			if strings.HasSuffix(imported, "/"+dir) && len(dir) > len(best) {
+				best = dir
+			}
+		}
+		if best == "" {
+			continue
+		}
+		name := path.Base(imported)
+		if spec.Name != nil {
+			name = spec.Name.Name
+		}
+		byName[name] = best
+	}
+	return byName
+}
+
+// embeddedSelectors returns the pkg.T types file's struct types embed,
+// through a pointer or a local type alias.
+func embeddedSelectors(file *ast.File) []*ast.SelectorExpr {
+	aliases := make(map[string]*ast.SelectorExpr)
+	var structs []*ast.StructType
+	ast.Inspect(file, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.TypeSpec:
+			if sel, isSel := x.Type.(*ast.SelectorExpr); isSel && x.Assign.IsValid() {
+				aliases[x.Name.Name] = sel
+			}
+		case *ast.StructType:
+			structs = append(structs, x)
+		}
+		return true
+	})
+	var found []*ast.SelectorExpr
+	for _, st := range structs {
+		for _, field := range st.Fields.List {
+			if sel := embeddedType(field, aliases); sel != nil {
+				found = append(found, sel)
+			}
+		}
+	}
+	return found
+}
+
+// embeddedType returns the pkg.T an embedded field names, directly, through
+// a pointer or through one of aliases; nil for a named field or a local
+// type.
+func embeddedType(field *ast.Field, aliases map[string]*ast.SelectorExpr) *ast.SelectorExpr {
+	if len(field.Names) > 0 {
+		return nil
+	}
+	t := field.Type
+	if star, isStar := t.(*ast.StarExpr); isStar {
+		t = star.X
+	}
+	switch x := t.(type) {
+	case *ast.SelectorExpr:
+		return x
+	case *ast.Ident:
+		return aliases[x.Name]
+	}
+	return nil
 }
 
 // resolverScanner holds what every resolver file is scanned against.
@@ -290,12 +406,15 @@ func (rs *resolverScanner) scanFile(s *source, methods []resolverMethod) ([]Fact
 		case m.private:
 			// A helper: its rules are its callers' operation's, when they
 			// agree on one; it is never a field of its own.
-			if serves, ok := rs.private[m.recv+"."+m.method]; ok {
+			serves, ok := rs.private[m.recv+"."+m.method]
+			op.detached = !ok
+			if ok {
 				op = serves
 				fileDomains[op.domain] = true
 				facts = append(facts, domainFact(s.name, m.start, m.end, op.domain))
 			}
 		case field.file == "":
+			op.detached = true
 			warnings = append(
 				warnings,
 				fmt.Sprintf("%s: %s.%s matches no schema field", s.name, m.typeName, m.method),
@@ -622,6 +741,9 @@ type operation struct {
 	domain string
 	route  string // route fact ID; "" for a non-root field
 	via    string // the private helper the rules are found in; "" if none
+	// detached: the method serves no operation (no schema field, or a
+	// helper whose callers serve several): name labels its rules only.
+	detached bool
 }
 
 // routeFact makes a root field an endpoint: method is the operation type,
@@ -691,7 +813,7 @@ func ruleFacts(
 		if op.route != "" {
 			attrs[attrRoute] = op.route
 		}
-		if op.name != "" {
+		if op.name != "" && !op.detached {
 			attrs[attrOperation] = op.name // the enforcement point, endpoint or not
 		}
 		if cond := conditionOf(fset, g); cond != "" {

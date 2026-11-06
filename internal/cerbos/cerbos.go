@@ -27,8 +27,12 @@
 //   - P.attr.loggedIn, P.attr.phantom (bool);
 //   - P.attr.grants, the caller's grants as a list of {capability (stored
 //     name), global (bool: every scope key at its global value), userKind,
-//     country}, a role's capabilities expanded at the role grant's scope,
-//     and every capability at global scope for a site admin (GCP IAM);
+//     country, locale, explicit (bool: granted to the caller, not implied
+//     by a role such as admin's)}, a role's capabilities expanded at the
+//     role grant's scope, and every capability at global scope for a site
+//     admin (GCP IAM);
+//   - P.attr.attributes, the names of the caller's boolean attributes a
+//     checkers file pins (internal_user, has_any_permission…);
 //   - R.attr.subject, the user a self or user-scope check is about, taken
 //     from the request where the policy's "subject:<action>" annotation
 //     says ("arg:<param>[.field]", "parent[:field]");
@@ -36,14 +40,19 @@
 //     (bool, webapp's nwea-map scope test); R.attr.country;
 //     R.attr.isTask, R.attr.isOktaLifecycle (bool, the request's kind);
 //     R.attr.relations, the names of the relations (registry entries a
-//     checkers file pins) the caller holds to the request's resource.
+//     checkers file pins) the caller holds to the request's resource;
+//     R.attr.subjectRelations, those the caller holds to R.attr.subject;
+//     R.attr.attributes, the resource's (or item's) boolean attributes;
+//     R.attr.requestAttributes, the request's (a feature flag on for the
+//     caller…); R.attr.locale, the request's locale.
 //
 // Scope matchers by identity (each template follows the matcher's code in
 // pkg/khan/acl): acl.AnyScope any grant of the capability; acl.GlobalScope
 // a global one; acl.UserScope userKind "all", or "nwea-map" on
 // KMAP-district-owned data; acl.CountryScope the resource's country; a
 // service checker's user_all and user_nwea userKind "all" and "nwea-map",
-// whatever the data.
+// whatever the data; locale a grant for the request's locale; explicit
+// any grant the caller holds itself, not through a role's implicit ones.
 package cerbos
 
 import (
@@ -212,7 +221,12 @@ func leafExpr(l *policy.Leaf) string {
 	case policy.LeafPush:
 		return `"` + RolePush + `" in P.roles`
 	case policy.LeafRelation:
+		if l.Subject != "" {
+			return fmt.Sprintf("%q in R.attr.subjectRelations", l.Relation)
+		}
 		return fmt.Sprintf("%q in R.attr.relations", l.Relation)
+	case policy.LeafAttribute:
+		return fmt.Sprintf("%q in %s", l.Attribute, attributesOf(l.Holder))
 	case policy.LeafTask:
 		return "R.attr.isTask == true"
 	case policy.LeafOkta:
@@ -244,8 +258,23 @@ func scopeTest(matcher string) string {
 		return `g.userKind == "all"`
 	case policy.ScopeUserNwea:
 		return `g.userKind == "nwea-map"`
+	case policy.ScopeLocale:
+		return "g.locale == R.attr.locale"
+	case policy.ScopeExplicit:
+		return "g.explicit == true"
 	}
 	return "true" // any scope
+}
+
+// attributesOf is the CEL list of an attribute holder's attribute names.
+func attributesOf(holder string) string {
+	switch holder {
+	case policy.HolderCaller:
+		return "P.attr.attributes"
+	case policy.HolderContext:
+		return "R.attr.requestAttributes"
+	}
+	return "R.attr.attributes"
 }
 
 // The Cerbos policy document, as much of it as the export writes.

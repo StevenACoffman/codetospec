@@ -236,7 +236,14 @@ func (sc scanner) denial(b *branch) (guard, bool) {
 	if containsCall(b.cond, isRateLimit) {
 		kind = ruleRateLimit
 	}
+	var unknown []*ast.CallExpr
+	if denies {
+		// The branch denies by itself: what its condition calls decides it,
+		// recognized or not (see unknownCalls).
+		unknown = sc.unknownCalls(b.cond, p.marks.with(b.res.marks))
+	}
 	return guard{
+		unknown: unknown,
 		kind:    kind,
 		cond:    p.and(b.cond),
 		outcome: outcomeOf(block, errName),

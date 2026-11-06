@@ -8,6 +8,7 @@ import (
 	"math"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -161,6 +162,9 @@ type guard struct {
 	// alts are the branches a policy accepts in (rulePermit): their
 	// conditions, and the loop each sits in.
 	alts []guard
+	// unknown are the calls of a denying guard's own condition that are no
+	// known check (see scanner.unknownCalls): named, with no meaning.
+	unknown []*ast.CallExpr
 }
 
 // resolverSuffix ends the Go type name of every gqlgen resolver
@@ -175,7 +179,7 @@ func resolverMethods(
 	known checks,
 	types *resolverTypeIndex,
 ) []resolverMethod {
-	sc := scanner{fset: fset, known: known}
+	sc := scanner{fset: fset, known: known, imports: importNames(file)}
 	var methods []resolverMethod
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
@@ -490,25 +494,94 @@ func returnsBoolFirst(fn *ast.FuncType) bool {
 	return ok && ident.Name == goBool
 }
 
-// helperPredicates names the package functions of files whose body is a
-// single return of an expression using a known check
-// (func _isActor(ctx, kaid) bool { return acl.IsCurrentUser(ctx, kaid) }):
-// resolvers calling them are guarded.
+// helperPredicates names the package functions of files whose decision is
+// one expression using a known check: a body of local definitions then a
+// single return, the return or a local it reads calling the check
+// (func _isActor(ctx, kaid) bool { return acl.IsCurrentUser(ctx, kaid) };
+// scope := acl.UserScope(kaid); return acl.ActorHasPermission(ctx, c,
+// scope)). A body with control flow decides in several places: not one.
+// Resolvers calling them are guarded.
 func helperPredicates(files []*ast.File, known checks) map[string]bool {
 	helpers := make(map[string]bool)
 	for _, file := range files {
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Recv != nil || fn.Body == nil || len(fn.Body.List) != 1 {
-				continue
-			}
-			ret, isReturn := fn.Body.List[0].(*ast.ReturnStmt)
-			if isReturn && len(ret.Results) == 1 && containsCall(ret.Results[0], known.has) {
+			if ok && fn.Recv == nil && fn.Body != nil && decidesOnCheck(fn.Body.List, known) {
 				helpers[fn.Name.Name] = true
 			}
 		}
 	}
 	return helpers
+}
+
+// decidesOnCheck reports whether stmts are local definitions (":=", var)
+// followed by one return of a single expression that calls a known check,
+// directly or through a local it reads.
+func decidesOnCheck(stmts []ast.Stmt, known checks) bool {
+	if len(stmts) == 0 {
+		return false
+	}
+	ret, isReturn := stmts[len(stmts)-1].(*ast.ReturnStmt)
+	if !isReturn || len(ret.Results) != 1 {
+		return false
+	}
+	values := make(map[string]ast.Expr) // local → the value it is defined with
+	for _, stmt := range stmts[:len(stmts)-1] {
+		if !definesLocals(stmt, values) {
+			return false
+		}
+	}
+	if containsCall(ret.Results[0], known.has) {
+		return true
+	}
+	found := false
+	ast.Inspect(ret.Results[0], func(n ast.Node) bool {
+		if ident, isIdent := n.(*ast.Ident); isIdent && values[ident.Name] != nil {
+			found = found || containsCall(values[ident.Name], known.has)
+		}
+		return !found
+	})
+	return found
+}
+
+// definesLocals records into values the locals stmt defines, one value
+// each ("x := v", "var x = v"); false for any other statement.
+func definesLocals(stmt ast.Stmt, values map[string]ast.Expr) bool {
+	var names []*ast.Ident
+	var exprs []ast.Expr
+	switch s := stmt.(type) {
+	case *ast.AssignStmt:
+		if s.Tok != token.DEFINE {
+			return false
+		}
+		for _, lhs := range s.Lhs {
+			ident, ok := lhs.(*ast.Ident)
+			if !ok {
+				return false
+			}
+			names = append(names, ident)
+		}
+		exprs = s.Rhs
+	case *ast.DeclStmt:
+		gen, ok := s.Decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.VAR || len(gen.Specs) != 1 {
+			return false
+		}
+		spec, isValue := gen.Specs[0].(*ast.ValueSpec)
+		if !isValue {
+			return false
+		}
+		names, exprs = spec.Names, spec.Values
+	default:
+		return false
+	}
+	if len(names) != len(exprs) {
+		return len(exprs) == 1 // x, err := f(): defined, with no value of its own
+	}
+	for i, name := range names {
+		values[name.Name] = exprs[i]
+	}
+	return true
 }
 
 // containsCall reports whether e calls a function accepted by match.
@@ -528,6 +601,76 @@ type scanner struct {
 	fset  *token.FileSet
 	known checks
 	rule  branchRule // what the walk makes of a branch (see guards)
+	// imports are the names the file calls its imported packages by: a
+	// call through one is a package function, not a method of a local.
+	imports map[string]bool
+}
+
+// fileScanner returns the scanner of s's guards against known.
+func fileScanner(s *source, known checks) scanner {
+	return scanner{fset: s.fset, known: known, imports: importNames(s.file)}
+}
+
+// importNames returns the names file refers to its imports by: the alias,
+// else the import path's last element.
+func importNames(file *ast.File) map[string]bool {
+	names := make(map[string]bool)
+	for _, spec := range file.Imports {
+		imported, err := strconv.Unquote(spec.Path.Value)
+		if err != nil {
+			continue
+		}
+		name := path.Base(imported)
+		if spec.Name != nil {
+			name = spec.Name.Name
+		}
+		names[name] = true
+	}
+	return names
+}
+
+// unknownCalls returns the function calls of cond, under marks, whose
+// result decides and that are no known check: a function of the file's
+// package (by name, builtins aside) or of an imported package. A call
+// whose error alone is tested ("call != nil", a failed call) is not one:
+// a loader's failure (user, err := LoadUser(…); err != nil) is no
+// decision. Nor is a method call on a local (user.IsPhantom()): it reads
+// data.
+func (sc scanner) unknownCalls(cond ast.Expr, marks callMarks) []*ast.CallExpr {
+	var calls []*ast.CallExpr
+	ast.Inspect(cond, func(n ast.Node) bool {
+		if x, isBinary := n.(*ast.BinaryExpr); isBinary {
+			if call, isCall := x.X.(*ast.CallExpr); isCall && marks.failed[call] == failsWithError {
+				return false // the call's failure: its arguments are data
+			}
+		}
+		call, isCall := n.(*ast.CallExpr)
+		if !isCall || sc.known.has(call) {
+			return true
+		}
+		switch fun := call.Fun.(type) {
+		case *ast.Ident:
+			if !isBuiltin(fun.Name) {
+				calls = append(calls, call)
+			}
+		case *ast.SelectorExpr:
+			if pkg, isIdent := fun.X.(*ast.Ident); isIdent && sc.imports[pkg.Name] {
+				calls = append(calls, call)
+			}
+		}
+		return true
+	})
+	return calls
+}
+
+// isBuiltin reports whether name is a Go builtin function a condition may
+// call.
+func isBuiltin(name string) bool {
+	switch name {
+	case "len", "cap", "min", "max", "new", "make", "append", "complex", "real", "imag":
+		return true
+	}
+	return false
 }
 
 // binding is a local bound to a call (allowed := acl.IsLoggedIn(…),
@@ -541,8 +684,13 @@ type binding struct {
 	// callerKaid: the local is the caller's own kaid (kaid := user.Kaid,
 	// user from ktx.RequestUser()), so acl.IsCurrentUser on it always holds.
 	callerKaid bool
-	access     bool // the call is an access check (an error: one that denies)
 	isErr      bool // the local is the call's error result
+	// soleResult: the call's only result is the local (err := Validate(…)).
+	soleResult bool
+	// denialResult: the local is a result of a checker that denies by
+	// returning nil (see checker.nilDenies), or a filter's result: "x ==
+	// nil" (or "len(x) == 0") reads as its failure.
+	denialResult bool
 }
 
 // accumulate recognizes "if !x { x = B }" and "if !x { if C { x = true } }"
@@ -656,21 +804,35 @@ func (sc scanner) bind(s *ast.AssignStmt, locals map[string]binding) {
 		sc.bindCondition(s, locals)
 		return
 	}
+	sc.bindResults(s, call, locals)
+}
+
+// bindResults binds the locals s assigns call's results to: the result
+// that decides (the first, or a marked checker's decision), the error
+// (the last of several, or a lone err), and every result whose nil or
+// emptiness is a marked checker's denial (see binding.denialResult).
+func (sc scanner) bindResults(s *ast.AssignStmt, call *ast.CallExpr, locals map[string]binding) {
 	line := sc.fset.Position(s.Pos()).Line
 	last := len(s.Lhs) - 1
+	k, marked := sc.known.checkerOf(call)
 	for i, lhs := range s.Lhs {
 		ident, isIdent := lhs.(*ast.Ident)
 		if !isIdent || ident.Name == "_" {
 			continue
 		}
 		isErr := i == last && (last > 0 || isErrName(ident.Name))
-		if i == 0 || isErr {
+		decides := i == 0 && k.decision == 0 || i+1 == k.decision
+		// A nil result is a nil-denying checker's denial; an empty one, a
+		// filter's that the caller treats as one (if len(ids) == 0).
+		denialResult := marked && !isErr && (k.nilDenies || k.filter && i == 0)
+		if decides || isErr || denialResult {
 			locals[ident.Name] = binding{
-				call:   call,
-				value:  call,
-				line:   line,
-				access: !isErr && sc.known.has(call) || isErr && sc.known.errDenies(call),
-				isErr:  isErr,
+				call:         call,
+				value:        call,
+				line:         line,
+				isErr:        isErr,
+				soleResult:   last == 0,
+				denialResult: denialResult,
 			}
 		}
 	}
@@ -765,6 +927,29 @@ func singleCall(s *ast.AssignStmt) (*ast.CallExpr, bool) {
 	return call, ok
 }
 
+// emptyComparison returns the local whose length e compares to zero and
+// the nil comparison it amounts to: "len(x) == 0" (and "< 1") is "x ==
+// nil", "len(x) != 0" (and "> 0") "x != nil".
+func emptyComparison(e *ast.BinaryExpr) (string, token.Token, bool) {
+	call, isCall := e.X.(*ast.CallExpr)
+	lit, isLit := e.Y.(*ast.BasicLit)
+	if !isCall || !isLit || len(call.Args) != 1 {
+		return "", 0, false
+	}
+	fn, isIdent := call.Fun.(*ast.Ident)
+	x, isLocal := call.Args[0].(*ast.Ident)
+	if !isIdent || fn.Name != "len" || !isLocal {
+		return "", 0, false
+	}
+	switch {
+	case lit.Value == "0" && e.Op == token.EQL, lit.Value == "1" && e.Op == token.LSS:
+		return x.Name, token.EQL, true
+	case lit.Value == "0" && (e.Op == token.NEQ || e.Op == token.GTR):
+		return x.Name, token.NEQ, true
+	}
+	return "", 0, false
+}
+
 // nilComparison returns the local e compares to nil ("err != nil",
 // "err == nil").
 func nilComparison(e *ast.BinaryExpr) (string, bool) {
@@ -791,9 +976,10 @@ func newResolution() resolution {
 
 // callMarks are what some calls of a resolved condition stand for.
 type callMarks struct {
-	// failed stand for a bound error: the condition reads "err != nil" as
-	// "call != nil", rendered "call fails".
-	failed map[*ast.CallExpr]bool
+	// failed stand for a bound error, or a nil result of a checker that
+	// denies with one (see binding.denialResult): the condition reads "err
+	// != nil" (or "key == nil") as "call != nil", rendered "call fails".
+	failed map[*ast.CallExpr]failure
 	// self are acl.IsCurrentUser calls on the caller's own kaid: they always
 	// hold, so the check never denies (see binding.callerKaid).
 	self map[*ast.CallExpr]bool
@@ -806,9 +992,18 @@ type callMarks struct {
 	fromLocal map[*ast.BinaryExpr]bool
 }
 
+// failure is how a failed call (see callMarks.failed) fails.
+type failure uint8
+
+const (
+	failsWithError     failure = iota + 1 // its error is set, beside a value (a loader's)
+	failsWithSoleError                    // its error, its only result, is set (a check's)
+	failsWithNil                          // it returned nil: its denial (see checker.nilDenies)
+)
+
 func newCallMarks() callMarks {
 	return callMarks{
-		failed:    make(map[*ast.CallExpr]bool),
+		failed:    make(map[*ast.CallExpr]failure),
 		self:      make(map[*ast.CallExpr]bool),
 		present:   make(map[*ast.IndexExpr]bool),
 		fromLocal: make(map[*ast.BinaryExpr]bool),
@@ -847,12 +1042,8 @@ func (sc scanner) resolve(cond ast.Expr, locals map[string]binding, res *resolut
 				Y:  sc.resolve(e.Y, locals, res),
 			}
 		}
-		if name, ok := nilComparison(e); ok {
-			if b, bound := locals[name]; bound && b.isErr {
-				res.start = min(res.start, b.line)
-				res.marks.failed[b.call] = true
-				return &ast.BinaryExpr{X: b.call, Op: e.Op, Y: e.Y}
-			}
+		if failed, ok := failedCall(e, locals, res); ok {
+			return failed
 		}
 		if compared, ok := requestComparison(e, locals, res); ok {
 			return compared
@@ -869,6 +1060,38 @@ func (sc scanner) resolve(cond ast.Expr, locals map[string]binding, res *resolut
 		}
 	}
 	return cond
+}
+
+// failedCall returns "call != nil" (call fails) or "call == nil" for a
+// nil comparison of a bound error, or of a nil-denying checker's result,
+// whose nil is the failure (key == nil reads "call != nil"); false for any
+// other comparison.
+func failedCall(e *ast.BinaryExpr, locals map[string]binding, res *resolution) (ast.Expr, bool) {
+	name, ok := nilComparison(e)
+	op := e.Op
+	if !ok {
+		name, op, ok = emptyComparison(e)
+	}
+	b, bound := locals[name]
+	if !ok || !bound || !b.isErr && !b.denialResult {
+		return nil, false
+	}
+	res.start = min(res.start, b.line)
+	how := failsWithError
+	if b.soleResult {
+		how = failsWithSoleError
+	}
+	if b.denialResult {
+		// x == nil: the call failed, which "call != nil" stands for.
+		how = failsWithNil
+		if op == token.EQL {
+			op = token.NEQ
+		} else {
+			op = token.EQL
+		}
+	}
+	res.marks.failed[b.call] = how
+	return &ast.BinaryExpr{X: b.call, Op: op, Y: e.Y}, true
 }
 
 // requestComparison returns e with the request values its locals hold
@@ -948,8 +1171,9 @@ func (sc scanner) mentions(cond ast.Expr, res *resolution) bool {
 				return true
 			}
 		case *ast.BinaryExpr:
-			if call, ok := e.X.(*ast.CallExpr); ok && res.marks.failed[call] &&
-				sc.known.errDenies(call) {
+			if call, ok := e.X.(*ast.CallExpr); ok && (res.marks.failed[call] == failsWithNil ||
+				res.marks.failed[call] != failsWithNil && res.marks.failed[call] != 0 &&
+					sc.known.errDenies(call)) {
 				return true
 			}
 			if sc.known.comparesCredential(e) {
@@ -1263,7 +1487,18 @@ func (sc scanner) visibility(body *ast.BlockStmt) []guard {
 // visibility its filters give; when there are none, the check it makes
 // (see checkedBy), else the resolver it delegates to (see delegate).
 func (sc scanner) rules(fn *ast.FuncDecl) []guard {
-	found := append(sc.guards(fn.Body), sc.visibility(fn.Body)...)
+	guards := sc.guards(fn.Body)
+	found := slices.Clone(guards)
+	for _, v := range sc.visibility(fn.Body) {
+		// A filter whose emptiness a guard denies on decides the call,
+		// not an item (see binding.denialResult).
+		if !slices.ContainsFunc(guards, func(g guard) bool {
+			call, ok := v.subject.(*ast.CallExpr)
+			return ok && g.marks.failed[call] == failsWithNil
+		}) {
+			found = append(found, v)
+		}
+	}
 	if len(found) > 0 {
 		return found
 	}

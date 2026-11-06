@@ -29,7 +29,11 @@
 //     !principal.phantom;
 //   - service-admin: principal is Service; push: principal is Push; task,
 //     Okta lifecycle: context.isTask, context.isOktaLifecycle;
-//   - relation: resource.relations.contains("<name>");
+//   - relation: resource.relations.contains("<name>"), or, to the user an
+//     argument names, resource.subjectRelations.contains("<name>");
+//   - attribute: principal is User && principal.attributes.contains("<a>")
+//     for the caller, resource.attributes.contains("<a>"),
+//     context.attributes.contains("<a>");
 //   - self: principal is User && resource.subject == principal; coach:
 //     principal is User && resource.coaches.contains(principal);
 //   - capability, by matcher (each follows the matcher's code in
@@ -39,20 +43,27 @@
 //     resource.kmapDistrictOwned); acl.CountryScope (principal is User &&
 //     principal.countryGrants.contains({capability, country:
 //     resource.country})); a service checker's user_all and user_nwea
-//     principal in CapUserAll::"<c>", CapNwea::"<c>". The language has no quantifier over a grant
-//     list, so the loader flattens grants into these groups.
+//     principal in CapUserAll::"<c>", CapNwea::"<c>"; locale (principal is
+//     User && principal.localeGrants.contains({capability, locale:
+//     context.locale})); explicit principal in CapExplicit::"<c>". The
+//     language has no quantifier over a grant list, so the loader flattens
+//     grants into these groups.
 //
 // Loader contract (codetospec writes none): User entities by KAID, with
-// loggedIn, phantom and countryGrants, member of CapAny::"<c>" for every
-// grant of c, of CapGlobal::"<c>" for a global one, CapUserAll::"<c>" for
-// userKind "all", CapNwea::"<c>" for "nwea-map"; a role's capabilities at
-// its grant's scope; a site admin (GCP IAM) in CapAny and CapGlobal of
-// every capability. A Target per request: subject (the User a check is
-// about, taken from the request where the policies' @subject annotation
-// says: "arg:<param>[.field]", "parent[:field]"), coaches,
-// kmapDistrictOwned, country, relations (the names of the
-// relations, registry entries a checkers file pins, the caller holds to
-// the request's resource). Expiry and similar are the
+// loggedIn, phantom, countryGrants, localeGrants and attributes (the names
+// of the caller's boolean attributes a checkers file pins), member of
+// CapAny::"<c>" for every grant of c, of CapGlobal::"<c>" for a global
+// one, CapUserAll::"<c>" for userKind "all", CapNwea::"<c>" for
+// "nwea-map", CapExplicit::"<c>" for one the caller holds itself (not
+// implied by a role); a role's capabilities at its grant's scope; a site
+// admin (GCP IAM) in CapAny and CapGlobal of every capability. A Target
+// per request: subject (the User a check is about, taken from the request
+// where the policies' @subject annotation says: "arg:<param>[.field]",
+// "parent[:field]"), coaches, kmapDistrictOwned, country, relations (the
+// names of the relations, registry entries a checkers file pins, the
+// caller holds to the request's resource), subjectRelations (those it
+// holds to subject), attributes (the resource's). The context carries
+// the request's attributes and locale. Expiry and similar are the
 // loader's to apply before building entities: the language has no now().
 package cedarpolicy
 
@@ -178,7 +189,10 @@ func ItemType(kind string) string {
 // targetAttrs are the attributes of a Target, and of an item, which the
 // same templates read.
 const targetAttrs = "{subject: User, coaches: Set<User>, kmapDistrictOwned: Bool, country: String, " +
-	"relations: Set<String>}"
+	"relations: Set<String>, subjectRelations: Set<String>, attributes: Set<String>}"
+
+// capGroups are the capability groups a principal may belong to.
+const capGroups = "CapAny, CapGlobal, CapUserAll, CapNwea, CapExplicit"
 
 // Schema is the namespace's schema in the Cedar schema format: actions
 // apply to a Target, and an item kind's view action (ViewAction) to an
@@ -186,20 +200,20 @@ const targetAttrs = "{subject: User, coaches: Set<User>, kmapDistrictOwned: Bool
 func Schema(ns string, actions, kinds []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "namespace %s {\n", ns)
-	b.WriteString(
-		"  entity CapAny;\n  entity CapGlobal;\n  entity CapUserAll;\n  entity CapNwea;\n",
-	)
+	b.WriteString("  entity CapAny;\n  entity CapGlobal;\n  entity CapUserAll;\n" +
+		"  entity CapNwea;\n  entity CapExplicit;\n")
 	b.WriteString("  type CountryGrant = {capability: String, country: String};\n")
-	b.WriteString("  entity User in [CapAny, CapGlobal, CapUserAll, CapNwea] " +
-		"{loggedIn: Bool, phantom: Bool, countryGrants: Set<CountryGrant>};\n")
-	b.WriteString(
-		"  entity Service in [CapAny, CapGlobal, CapUserAll, CapNwea];\n  entity Push;\n  entity Anonymous;\n",
-	)
+	b.WriteString("  type LocaleGrant = {capability: String, locale: String};\n")
+	b.WriteString("  entity User in [" + capGroups + "] " +
+		"{loggedIn: Bool, phantom: Bool, countryGrants: Set<CountryGrant>, " +
+		"localeGrants: Set<LocaleGrant>, attributes: Set<String>};\n")
+	b.WriteString("  entity Service in [" + capGroups + "];\n  entity Push;\n  entity Anonymous;\n")
 	fmt.Fprintf(&b, "  entity Target %s;\n", targetAttrs)
 	for _, k := range kinds {
 		fmt.Fprintf(&b, "  entity %s %s;\n", ItemType(k), targetAttrs)
 	}
-	b.WriteString("  type RequestContext = {isTask: Bool, isOktaLifecycle: Bool};\n")
+	b.WriteString("  type RequestContext = {isTask: Bool, isOktaLifecycle: Bool, " +
+		"attributes: Set<String>, locale: String};\n")
 	for _, a := range slices.Compact(slices.Sorted(slices.Values(actions))) {
 		fmt.Fprintf(
 			&b,
@@ -254,7 +268,18 @@ func leafExpr(ns string, l *policy.Leaf) string {
 	case policy.LeafPush:
 		return "principal is " + ns + "::Push"
 	case policy.LeafRelation:
+		if l.Subject != "" {
+			return fmt.Sprintf("resource.subjectRelations.contains(%q)", l.Relation)
+		}
 		return fmt.Sprintf("resource.relations.contains(%q)", l.Relation)
+	case policy.LeafAttribute:
+		switch l.Holder {
+		case policy.HolderCaller:
+			return fmt.Sprintf("(%s && principal.attributes.contains(%q))", user, l.Attribute)
+		case policy.HolderContext:
+			return fmt.Sprintf("context.attributes.contains(%q)", l.Attribute)
+		}
+		return fmt.Sprintf("resource.attributes.contains(%q)", l.Attribute)
 	case policy.LeafTask:
 		return "context.isTask"
 	case policy.LeafOkta:
@@ -288,6 +313,11 @@ func capabilityExpr(ns string, l *policy.Leaf) string {
 		return group("CapUserAll")
 	case policy.ScopeUserNwea:
 		return group("CapNwea")
+	case policy.ScopeLocale:
+		return fmt.Sprintf("(principal is %s::User && principal.localeGrants.contains("+
+			"{capability: %q, locale: context.locale}))", ns, l.Capability)
+	case policy.ScopeExplicit:
+		return group("CapExplicit")
 	}
 	return group("CapAny")
 }

@@ -1,6 +1,7 @@
 apiVersion: api.cerbos.dev/v1
 metadata:
     annotations:
+        subject:Mutation.editBio: arg:kaid
         subject:User.emails: parent:Kaid
 resourcePolicy:
     resource: users
@@ -8,6 +9,7 @@ resourcePolicy:
     rules:
         - name: allow-guarded
           actions:
+            - Mutation.editBio
             - Mutation.notify
             - Query.cdi
             - Query.cdiAlias
@@ -29,6 +31,15 @@ resourcePolicy:
             - push
             - service
             - user
+        - name: rule.user.authz-bio
+          actions:
+            - Mutation.editBio
+          effect: EFFECT_DENY
+          roles:
+            - '*'
+          condition:
+            match:
+                expr: '!(("internal_user" in P.attr.attributes && !("deleted" in R.attr.attributes) && "bio_flag" in R.attr.requestAttributes && P.attr.grants.exists(g, g.capability == "can_view_user_identity" && g.locale == R.attr.locale) && P.attr.grants.exists(g, g.capability == "can_view_user_identity" && g.explicit == true) && "managing_coach_of" in R.attr.subjectRelations))'
         - name: rule.hook.authz-notify
           actions:
             - Mutation.notify

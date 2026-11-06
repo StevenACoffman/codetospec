@@ -124,7 +124,8 @@ const (
 	// check: AttrName is the name a rule's AttrChecks and AttrCheckArgs use
 	// for it ("acl.IsCurrentUser", "permissions.UserCanViewDistrict",
 	// "method.RequestIsTask"), AttrForm how it is known (marked, predicate,
-	// helper, acl, ratelimit). Source is its definition, empty when only
+	// helper, acl, ratelimit, or call: a function a denying guard calls,
+	// recognized as no check). Source is its definition, empty when only
 	// its name is known. The policy inventory joins a rule's checks to
 	// these.
 	KindAccessCheck = "access_check"

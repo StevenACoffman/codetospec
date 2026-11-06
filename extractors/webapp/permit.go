@@ -42,13 +42,18 @@ func policies(sources []source, known checks) []policy {
 
 // policyFacts returns one rule per policy, cited on the whole function, in
 // the domain domainAt gives it.
-func policyFacts(found []policy, w *wording, domainAt func(string, int) string) []Fact {
+func policyFacts(
+	found []policy,
+	w *wording,
+	known checks,
+	domainAt func(string, int) string,
+) []Fact {
 	var facts []Fact
 	for _, p := range found {
 		s, fn := p.decl.file, p.decl.fn
 		m := resolverMethod{method: fn.Name.Name, guards: []guard{p.rule}}
 		op := operation{name: fn.Name.Name, domain: domainAt(s.name, p.rule.start)}
-		facts = append(facts, ruleFacts(s.fset, w, s.name, &m, &op)...)
+		facts = append(facts, ruleFacts(s.fset, w, known, s.name, &m, &op)...)
 	}
 	return facts
 }

@@ -121,3 +121,32 @@ func TestWalkDefaultExclude(t *testing.T) {
 		})
 	}
 }
+
+// TestExcludedAgreesWithWalk: Excluded keeps exactly the files Walk keeps,
+// so a fact citing an excluded file can be dropped by the same rule.
+func TestExcludedAgreesWithWalk(t *testing.T) {
+	exclude := []string{"testutil", "*_test.go", "vendor"}
+	root := writeTree(t, map[string][]byte{
+		"a.go":                  []byte("package a\n"),
+		"a_test.go":             []byte("package a\n"),
+		"testutil/suite.go":     []byte("package testutil\n"),
+		"pkg/testutil/x.go":     []byte("package testutil\n"),
+		"pkg/keep.go":           []byte("package pkg\n"),
+		".hidden/h.go":          []byte("package h\n"),
+		"vendor/v/v.go":         []byte("package v\n"),
+		"pkg/testutilities.go":  []byte("package pkg\n"),
+		"nested/.cache/data.go": []byte("package data\n"),
+	})
+	kept := walked(t, root, exclude)
+	for _, rel := range []string{
+		"a.go", "a_test.go", "testutil/suite.go", "pkg/testutil/x.go",
+		"pkg/keep.go", ".hidden/h.go", "vendor/v/v.go",
+		"pkg/testutilities.go", "nested/.cache/data.go",
+	} {
+		t.Run(rel, func(t *testing.T) {
+			if got, want := source.Excluded(rel, exclude), !kept[rel]; got != want {
+				t.Errorf("Excluded(%q) = %v, Walk keeps it: %v", rel, got, kept[rel])
+			}
+		})
+	}
+}

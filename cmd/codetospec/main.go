@@ -45,7 +45,8 @@ const usageText = `usage:
   codetospec verify --src <repo-dir> --out <graph-dir>
   codetospec drift --src <repo-dir> --out <graph-dir>
   codetospec diff --old <graph-dir> --new <graph-dir>
-  codetospec export --out <graph-dir> --to <new-dir> [--format quire|kiro]
+  codetospec export --out <graph-dir> --to <new-dir> [--format quire|kiro|cerbos|cedar-policy]
+  codetospec policies --out <graph-dir> [--registry <file>] [--format md|json]
   codetospec stats --out <graph-dir>`
 
 // run parses the command line and dispatches the command; it returns the
@@ -56,12 +57,13 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 	parse := map[string]func([]string) (*config.Config, error){
-		"run":    config.ParseRun,
-		"verify": config.ParseVerify,
-		"drift":  config.ParseDrift,
-		"diff":   config.ParseDiff,
-		"export": config.ParseExport,
-		"stats":  config.ParseStats,
+		"run":      config.ParseRun,
+		"verify":   config.ParseVerify,
+		"drift":    config.ParseDrift,
+		"diff":     config.ParseDiff,
+		"export":   config.ParseExport,
+		"policies": config.ParsePolicies,
+		"stats":    config.ParseStats,
 	}[args[0]]
 	if parse == nil {
 		_, _ = fmt.Fprintln(stderr, usageText)
@@ -87,6 +89,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return c.diff(cfg)
 	case "export":
 		return c.export(cfg)
+	case "policies":
+		return c.policies(cfg)
 	default: // stats
 		return c.stats(cfg)
 	}
@@ -212,7 +216,7 @@ func (c cli) drift(cfg *config.Config) int {
 	}
 	report := drift.Check(nodes, cfg.Roots())
 
-	if cfg.Format == "json" {
+	if cfg.Format == config.FormatJSON {
 		data, encodeErr := json.MarshalIndent(newDriftJSON(&report), "", "  ")
 		if encodeErr != nil {
 			c.logger.Error("encode drift report", "err", encodeErr)

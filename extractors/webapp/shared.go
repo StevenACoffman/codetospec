@@ -43,7 +43,7 @@ func sharedFacts(shared sharedCode, reach map[declKey]bool, known checks, w *wor
 			if g, isPolicy := sc.permit(fn, idx.denier(pkg)); isPolicy {
 				m.guards = append(m.guards, g)
 			}
-			facts = append(facts, rooted(ruleFacts(s.fset, w, s.name, &m, &op))...)
+			facts = append(facts, rooted(ruleFacts(s.fset, w, known, s.name, &m, &op))...)
 		}
 	}
 	return facts

@@ -120,6 +120,42 @@ const (
 	// it declares is deprecated: cruft). A seed for the business concepts
 	// codetospec proposes (DOMAIN_PLAN.md recommendation 7).
 	KindAPIType = "api_type"
+	// KindAccessCheck is a function the extractor knows to be an access
+	// check: AttrName is the name a rule's AttrChecks and AttrCheckArgs use
+	// for it ("acl.IsCurrentUser", "permissions.UserCanViewDistrict",
+	// "method.RequestIsTask"), AttrForm how it is known (marked, predicate,
+	// helper, acl, ratelimit). Source is its definition, empty when only
+	// its name is known. The policy inventory joins a rule's checks to
+	// these.
+	KindAccessCheck = "access_check"
+	// KindUnguarded is an API handler (a resolver method) at Source with no
+	// access check the extractor recognizes and no marker: AttrOperation
+	// names what it serves, AttrRoute its route fact when it is an
+	// endpoint. Not a rule (it states no behavior); the policy inventory
+	// lists these apart, so "no check found" never reads as "not a
+	// handler".
+	KindUnguarded = "unguarded"
+	// What the definition at Source reads, for the policy inventory: a
+	// KindReads fact names a struct field it reads (AttrField,
+	// "pkg.Type.Field", by the struct declaring it); a KindUsesValue fact a
+	// package-level constant or basic-typed variable it uses (AttrName, its
+	// declared AttrType, its literal AttrValue when the code writes one: a
+	// capability or a flag is recognized by its type); a KindLoads fact a
+	// datastore kind it queries (AttrDatastoreKind) and the properties it filters by
+	// (AttrProperties, comma-separated). One fact per definition and input.
+	KindReads     = "reads"
+	KindUsesValue = "uses_value"
+	KindLoads     = "loads"
+	// KindCapability is a capability the code registers, at its
+	// declaration: AttrName its name in code (what checks and role
+	// definitions name), AttrValue its stored name (what a grant holds),
+	// AttrScopeKeys the scope keys a grant of it must set, comma-separated.
+	// The policy exports join a check's capability to it.
+	KindCapability = "capability"
+	// KindValueKind says what a declared type's values are, uncited:
+	// AttrType the type ("pkg.Type"), AttrValueKind the kind ("staff",
+	// "flag"). The policy inventory sorts a check's used values by it.
+	KindValueKind = "value_kind"
 )
 
 // True is the value of a boolean attribute that holds (AttrOwned,
@@ -169,7 +205,36 @@ const (
 	AttrValue      = "value"
 	AttrRoute      = "route"
 	AttrCondition  = "condition" // a rule's condition (see KindRule)
-	AttrText       = "text"
+	// AttrChecks, on an access rule fact, names the checks its guard calls
+	// (KindAccessCheck names), sorted and comma-separated, or "open" or
+	// "todo" for a marker that calls none. AttrCheckArgs lists, as JSON,
+	// each check call in source order with the operands the condition
+	// notation leaves out: {"check", "capability", "matcher",
+	// "matcher_arg", "subject", "rate": {"key", "count", "window"}}, each
+	// but check set only when the call passes it. AttrCheckScope is "item"
+	// on a guard that drops one item (a loop's, a filter's) instead of
+	// rejecting the call. AttrForm is a KindAccessCheck's form.
+	AttrChecks     = "checks"
+	AttrCheckArgs  = "check_args"
+	AttrCheckScope = "scope_of_check"
+	AttrForm       = "form"
+	// AttrDelegatesTo, on a rule fact, is the handler ("recv.Method") an
+	// alias handler is checked as: its checks are that handler's.
+	AttrDelegatesTo = "delegates_to"
+	// AttrDelegatesToOperation is the operation that handler serves, when
+	// the extractor knows it: the alias is checked as that operation.
+	AttrDelegatesToOperation = "delegates_to_operation"
+	// Attributes of the input facts (KindReads, KindUsesValue, KindLoads)
+	// and, AttrTags, of a struct fact: each stored field's datastore name,
+	// "Field:name" comma-separated.
+	AttrField         = "field"
+	AttrType          = "type"
+	AttrDatastoreKind = "datastore_kind"
+	AttrProperties    = "properties"
+	AttrTags          = "tags"
+	AttrScopeKeys     = "scope_keys"
+	AttrValueKind     = "value_kind"
+	AttrText          = "text"
 	// AttrDescription, on a table fact, is the entity's authored
 	// description (a struct's doc comment, a schema comment): what the
 	// entity is, in its authors' words. The entity page shows it.

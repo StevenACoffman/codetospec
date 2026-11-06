@@ -83,6 +83,7 @@ type extraction struct {
 	noGrammar []string
 	facts     []extract.Fact
 	rejected  []string // malformed rule facts, with their reason
+	excluded  []string // IDs of extractor facts citing excluded code
 	status    map[string]string
 }
 
@@ -267,7 +268,13 @@ func (p *pipeline) extract(ctx context.Context) (extraction, error) {
 		return extraction{}, err
 	}
 
-	merged := extract.Merge(sitterFacts, extractorFacts, fileFacts)
+	// An extractor walks with its own skip list, so a rule it states about
+	// code --exclude leaves out is dropped here, by the walk's own rule.
+	merged, excluded := extract.WithoutExcluded(
+		extract.Merge(sitterFacts, extractorFacts, fileFacts),
+		func(path string) bool { return source.Excluded(path, p.cfg.Exclude) },
+	)
+	ext.excluded = excluded
 	ext.facts, ext.rejected = graph.ValidateRuleFacts(
 		extract.Merge(merged, inheritedRules(specs, merged, p.cfg.Roots())),
 	)
@@ -277,6 +284,11 @@ func (p *pipeline) extract(ctx context.Context) (extraction, error) {
 	for _, reason := range ext.rejected {
 		p.sink.Emit(
 			ui.LogLine{Level: slog.LevelWarn, Message: "invalid rule fact dropped: " + reason},
+		)
+	}
+	for _, id := range ext.excluded {
+		p.sink.Emit(
+			ui.LogLine{Level: slog.LevelWarn, Message: "fact citing excluded code dropped: " + id},
 		)
 	}
 	byKind := map[string]int{}
@@ -663,6 +675,7 @@ func buildMeta(cfg *config.Config, ext *extraction, in *metaInputs) render.Meta 
 		SharedEntities:        graph.SharedEntities(in.nodes),
 		Lang:                  cfg.Lang,
 		RuleFactsRejected:     len(ext.rejected),
+		FactsExcluded:         len(ext.excluded),
 		Actors:                cfg.Actors.Descriptions,
 	}
 	for _, name := range sortedKeys(ext.status) {

@@ -251,7 +251,50 @@ bin/codetospec stats  --out <graph>                # phase counters; tokens of t
 bin/codetospec diff   --old <graph> --new <graph>  # rules added, removed, renamed or changed between two runs
 bin/codetospec export --out <graph> --to <dir>     # the rules as ISO 29148 FRs and NFRs in the Quire format (quoin)
 bin/codetospec export --out <graph> --to <dir> --format kiro  # the rules as Kiro specs
+bin/codetospec policies --out <graph> [--registry reg.yaml] [--format md|json]  # policy inventory on stdout
+bin/codetospec export --out <graph> --to <dir> --format cerbos [--checkers c.yaml] [--registry reg.yaml]  # access guards as Cerbos policies
+bin/codetospec export --out <graph> --to <dir> --format cedar-policy  # ... in the Cedar policy language
 ```
+
+`--format cerbos` and `--format cedar-policy` (the Cedar policy language,
+not Khan's CEDAR analytics pipeline) write the extractor's access guards
+as authorization policies for the service the graph is named after: an
+allow per operation and a deny per guard, traced to its rule id. A guard
+translates only when every check it calls has a meaning in the pinned
+vocabulary (login, a capability on a pinned scope, self, coach,
+service-admin, task, Okta lifecycle, Pub/Sub push, a relation): the
+extractor's, or one a person pins in a checkers file (`--checkers`,
+YAML: one check, or `any`/`all` of them, read from the checker's code;
+`item: <Kind>` makes a visibility filter a `view` policy on that kind).
+An operation is left out whole (logged at debug level), never exported
+as a bare allow, when a guard doesn't translate, a rule of it names no
+check, its resolver calls a recognized check its guards don't, or its
+checks are about a local or about two users; one that only delegates to
+an exported operation shares its policies. Each operation's user
+binding (`arg:kaid`, `parent:Kaid`) is an annotation on its policies.
+`--registry` reports each relation a checker names that the registry
+doesn't declare. Cerbos gets a resource policy and
+a test suite whose expectations come from the rules' own conditions
+(`cerbos compile <dir>` runs it); the Cedar policy language gets the
+policies and a schema, parsed and validated with cedar-go before they're
+written. Each package's doc states the loader contract (how grants,
+roles and site admins become principal data). LLM rules are never
+exported as policy.
+
+`policies` writes the policy inventory of a graph built with the webapp
+and Go extractors: each enforcement point (endpoint, or a field
+resolver's operation) with the checks its guards call and their operands
+(capability, scope matcher, subject, rate limit); each check with what it
+reads, up to 3 calls deep, sorted by structure into fields, datastore
+loads, capabilities (`staff`), feature flags and other values, beside the
+LLM rules describing it; then the open, `acl.TODO` and unguarded
+handlers. With `--registry` (a YAML map from each PIP property or
+relation to its sources: `teacher_of: {from:
+[models.ClassroomDistrictInfo.AllTeacherUDIsIDs], condition: …}`, `from:
+["load UserMetaInfo"]` for a kind), each field and load input is marked
+with the entry declaring it, and the undeclared inputs and unread entries
+are listed. It reads the graph and `.codetospec/facts.json`, never writes
+them.
 
 `export` writes each rule as a functional requirement in the Quire format
 of [quoin](https://github.com/agent-ix/quoin) (module spec-artifacts-iso
@@ -495,7 +538,8 @@ llms.txt; default `en`),
 `--exclude 'vendor,node_modules,*.md,*.csv'` (directory names and
 file globs; replaces the defaults `vendor`, `node_modules`, `storage`,
 `dist`, `build`, `.git` and `*_test.go` — Go tests are evidence the Go
-extractor links to rules, not behavior to map), `--facts extra.facts.json` (inject facts from anywhere),
+extractor links to rules, not behavior to map; an extractor's rule or
+domain fact citing an excluded path is dropped too), `--facts extra.facts.json` (inject facts from anywhere),
 `--ref-root name=dir` (repeatable; also on `verify` and `drift`: an extra
 source tree extractor rules may cite, see below).
 

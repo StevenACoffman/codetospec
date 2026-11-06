@@ -118,6 +118,7 @@ type ReadmeCoverage struct {
 	RepairedFmt, UncheckedFmt               string // %d, appended to CrosscheckFmt
 	MechanicalFmt                           string // %d, appended to CrosscheckFmt
 	RejectedRulesFmt                        string // %d malformed extractor rule facts
+	ExcludedFactsFmt                        string // %d extractor facts citing --exclude'd code
 	GroundingFmt                            string // %d grounded, ungrounded, unchecked
 	EARSIssuesFmt                           string // %d rules whose EARS form is off
 	UnusedActorsFmt                         string // %s: actors no rule names
@@ -520,6 +521,10 @@ func newReadmeCoverage(tr translate) ReadmeCoverage {
 		RejectedRulesFmt: tr(
 			"- Règles d'extracteur rejetées (malformées, voir les logs) : %d",
 			"- Extractor rules rejected (malformed, see the logs): %d",
+		),
+		ExcludedFactsFmt: tr(
+			"- Faits d'extracteur écartés (ils citent du code exclu par --exclude, voir les logs) : %d",
+			"- Extractor facts dropped (they cite code --exclude leaves out, see the logs): %d",
 		),
 		MechanicalFmt: tr(
 			", %d mécaniques (extraites du code, non soumises au LLM)",

@@ -1,5 +1,229 @@
 [
   {
+    "kind": "access_check",
+    "id": "access_check.webapp.acl.ActorHasPermission",
+    "attrs": {
+      "form": "acl",
+      "name": "acl.ActorHasPermission"
+    },
+    "source": {
+      "path": "",
+      "lines": ""
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "access_check",
+    "id": "access_check.webapp.acl.ActorHasPermissionErr",
+    "attrs": {
+      "form": "acl",
+      "name": "acl.ActorHasPermissionErr"
+    },
+    "source": {
+      "path": "",
+      "lines": ""
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "access_check",
+    "id": "access_check.webapp.acl.IsCoachedByActor",
+    "attrs": {
+      "form": "acl",
+      "name": "acl.IsCoachedByActor"
+    },
+    "source": {
+      "path": "",
+      "lines": ""
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "access_check",
+    "id": "access_check.webapp.acl.IsCurrentUser",
+    "attrs": {
+      "form": "acl",
+      "name": "acl.IsCurrentUser"
+    },
+    "source": {
+      "path": "",
+      "lines": ""
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "access_check",
+    "id": "access_check.webapp.acl.IsLoggedIn",
+    "attrs": {
+      "form": "acl",
+      "name": "acl.IsLoggedIn"
+    },
+    "source": {
+      "path": "",
+      "lines": ""
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "access_check",
+    "id": "access_check.webapp.acl.ManyCoachedByActor",
+    "attrs": {
+      "form": "marked",
+      "name": "acl.ManyCoachedByActor"
+    },
+    "source": {
+      "path": "",
+      "lines": ""
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "access_check",
+    "id": "access_check.webapp.method.RequestIsServiceAdminQuery",
+    "attrs": {
+      "form": "acl",
+      "name": "method.RequestIsServiceAdminQuery"
+    },
+    "source": {
+      "path": "",
+      "lines": ""
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "access_check",
+    "id": "access_check.webapp.ratelimit.ByAccount",
+    "attrs": {
+      "form": "ratelimit",
+      "name": "ratelimit.ByAccount"
+    },
+    "source": {
+      "path": "",
+      "lines": ""
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "access_check",
+    "id": "access_check.webapp.ratelimit.ByIP",
+    "attrs": {
+      "form": "ratelimit",
+      "name": "ratelimit.ByIP"
+    },
+    "source": {
+      "path": "",
+      "lines": ""
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "access_check",
+    "id": "access_check.webapp.permissions.UserCanViewEmails",
+    "attrs": {
+      "form": "predicate",
+      "name": "permissions.UserCanViewEmails"
+    },
+    "source": {
+      "path": "permissions/permissions.go",
+      "lines": "4-6"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "access_check",
+    "id": "access_check.webapp.permissions.RequireEditor",
+    "attrs": {
+      "form": "marked",
+      "name": "permissions.RequireEditor"
+    },
+    "source": {
+      "path": "permissions/permissions.go",
+      "lines": "21-26"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "access_check",
+    "id": "access_check.webapp.permissions.VisibleNotes",
+    "attrs": {
+      "form": "marked",
+      "name": "permissions.VisibleNotes"
+    },
+    "source": {
+      "path": "permissions/permissions.go",
+      "lines": "32-34"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "access_check",
+    "id": "access_check.webapp.permissions.LoginWithRateLimit",
+    "attrs": {
+      "form": "marked",
+      "name": "permissions.LoginWithRateLimit"
+    },
+    "source": {
+      "path": "permissions/permissions.go",
+      "lines": "40-42"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "access_check",
+    "id": "access_check.webapp._canEditDrafts",
+    "attrs": {
+      "form": "marked",
+      "name": "_canEditDrafts"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "149-154"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "access_check",
+    "id": "access_check.webapp.validateRename",
+    "attrs": {
+      "form": "marked",
+      "name": "validateRename"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "295-300"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "access_check",
+    "id": "access_check.webapp._isActor",
+    "attrs": {
+      "form": "helper",
+      "name": "_isActor"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "363-365"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
     "kind": "api_type",
     "id": "api_type.AIProfile",
     "attrs": {
@@ -596,13 +820,13 @@
   },
   {
     "kind": "domain",
-    "id": "domain.webapp.resolvers/kaid.go:1-10",
+    "id": "domain.webapp.resolvers/kaid.go:1-16",
     "attrs": {
       "domain": "user"
     },
     "source": {
       "path": "resolvers/kaid.go",
-      "lines": "1-10"
+      "lines": "1-16"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -616,6 +840,19 @@
     "source": {
       "path": "resolvers/kaid.go",
       "lines": "3-5"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "domain",
+    "id": "domain.webapp.resolvers/kaid.go:14-16",
+    "attrs": {
+      "domain": "user"
+    },
+    "source": {
+      "path": "resolvers/kaid.go",
+      "lines": "14-16"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -807,6 +1044,7 @@
     "id": "route.graphql.mutation.addAuthEmail",
     "attrs": {
       "handler": "mutationResolver.AddAuthEmail",
+      "handler_lines": "3-10",
       "handler_path": "resolvers/guards.go",
       "method": "MUTATION",
       "path": "addAuthEmail"
@@ -823,6 +1061,7 @@
     "id": "route.graphql.mutation.addCoachRole",
     "attrs": {
       "handler": "mutationResolver.AddCoachRole",
+      "handler_lines": "12-18",
       "handler_path": "resolvers/guards.go",
       "method": "MUTATION",
       "path": "addCoachRole"
@@ -839,6 +1078,7 @@
     "id": "route.graphql.mutation.enableTotp",
     "attrs": {
       "handler": "mutationResolver.EnableTotp",
+      "handler_lines": "381-390",
       "handler_path": "resolvers/guards.go",
       "method": "MUTATION",
       "path": "enableTotp"
@@ -855,6 +1095,7 @@
     "id": "route.graphql.mutation.signup",
     "attrs": {
       "handler": "mutationResolver.Signup",
+      "handler_lines": "156-171",
       "handler_path": "resolvers/guards.go",
       "method": "MUTATION",
       "path": "signup"
@@ -871,6 +1112,7 @@
     "id": "route.graphql.mutation.merge",
     "attrs": {
       "handler": "mutationResolver.Merge",
+      "handler_lines": "229-239",
       "handler_path": "resolvers/guards.go",
       "method": "MUTATION",
       "path": "merge"
@@ -887,6 +1129,7 @@
     "id": "route.graphql.mutation.roster",
     "attrs": {
       "handler": "mutationResolver.Roster",
+      "handler_lines": "251-262",
       "handler_path": "resolvers/guards.go",
       "method": "MUTATION",
       "path": "roster"
@@ -903,6 +1146,7 @@
     "id": "route.graphql.mutation.optOut",
     "attrs": {
       "handler": "mutationResolver.OptOut",
+      "handler_lines": "264-276",
       "handler_path": "resolvers/guards.go",
       "method": "MUTATION",
       "path": "optOut"
@@ -919,6 +1163,7 @@
     "id": "route.graphql.mutation.cooldown",
     "attrs": {
       "handler": "mutationResolver.Cooldown",
+      "handler_lines": "278-285",
       "handler_path": "resolvers/guards.go",
       "method": "MUTATION",
       "path": "cooldown"
@@ -935,6 +1180,7 @@
     "id": "route.graphql.mutation.rename",
     "attrs": {
       "handler": "mutationResolver.Rename",
+      "handler_lines": "287-293",
       "handler_path": "resolvers/guards.go",
       "method": "MUTATION",
       "path": "rename"
@@ -951,6 +1197,7 @@
     "id": "route.graphql.mutation.login",
     "attrs": {
       "handler": "mutationResolver.Login",
+      "handler_lines": "302-309",
       "handler_path": "resolvers/guards.go",
       "method": "MUTATION",
       "path": "login"
@@ -967,6 +1214,7 @@
     "id": "route.graphql.entity.findAIProfileByID",
     "attrs": {
       "handler": "entityResolver.FindAIProfileByID",
+      "handler_lines": "25-28",
       "handler_path": "resolvers/federation.go",
       "method": "ENTITY",
       "path": "findAIProfileByID"
@@ -983,6 +1231,7 @@
     "id": "route.graphql.entity.findAIProfileByKey",
     "attrs": {
       "handler": "entityResolver.FindAIProfileByKey",
+      "handler_lines": "63-65",
       "handler_path": "resolvers/federation.go",
       "method": "ENTITY",
       "path": "findAIProfileByKey"
@@ -999,6 +1248,7 @@
     "id": "route.graphql.entity.findAIProfileByUnchecked",
     "attrs": {
       "handler": "entityResolver.FindAIProfileByUnchecked",
+      "handler_lines": "67-69",
       "handler_path": "resolvers/federation.go",
       "method": "ENTITY",
       "path": "findAIProfileByUnchecked"
@@ -1015,6 +1265,7 @@
     "id": "route.graphql.entity.findManyRowByTeacherByTeacherIDAndKaLocales",
     "attrs": {
       "handler": "entityResolver.FindManyRowByTeacherByTeacherIDAndKaLocales",
+      "handler_lines": "20-23",
       "handler_path": "resolvers/federation.go",
       "method": "ENTITY",
       "path": "findManyRowByTeacherByTeacherIDAndKaLocales"
@@ -1031,6 +1282,7 @@
     "id": "route.graphql.mutation.blockEmail",
     "attrs": {
       "handler": "mutationResolver.BlockEmail",
+      "handler_lines": "31-36",
       "handler_path": "resolvers/federation.go",
       "method": "MUTATION",
       "path": "blockEmail"
@@ -1047,6 +1299,7 @@
     "id": "route.graphql.mutation.devadminAddAuthEmail",
     "attrs": {
       "handler": "mutationResolver.DevadminAddAuthEmail",
+      "handler_lines": "73-75",
       "handler_path": "resolvers/federation.go",
       "method": "MUTATION",
       "path": "devadminAddAuthEmail"
@@ -1063,6 +1316,7 @@
     "id": "route.graphql.query.serverTime",
     "attrs": {
       "handler": "queryResolver.ServerTime",
+      "handler_lines": "175-178",
       "handler_path": "resolvers/guards.go",
       "method": "QUERY",
       "path": "serverTime"
@@ -1079,6 +1333,7 @@
     "id": "route.graphql.entity.findManyUserByKaids",
     "attrs": {
       "handler": "entityResolver.FindManyUserByKaids",
+      "handler_lines": "13-18",
       "handler_path": "resolvers/federation.go",
       "method": "ENTITY",
       "path": "findManyUserByKaids"
@@ -1095,6 +1350,7 @@
     "id": "route.graphql.entity.findUserByKaid",
     "attrs": {
       "handler": "entityResolver.FindUserByKaid",
+      "handler_lines": "54-60",
       "handler_path": "resolvers/federation.go",
       "method": "ENTITY",
       "path": "findUserByKaid"
@@ -1111,25 +1367,10 @@
     "id": "route.graphql.query.checkUsername",
     "attrs": {
       "handler": "queryResolver.CheckUsername",
+      "handler_lines": "20-23",
       "handler_path": "resolvers/guards.go",
       "method": "QUERY",
       "path": "checkUsername"
-    },
-    "source": {
-      "path": "user.graphql",
-      "lines": "19-19"
-    },
-    "origin": "webapp",
-    "certainty": "static"
-  },
-  {
-    "kind": "route",
-    "id": "route.graphql.query.recoveryCodes",
-    "attrs": {
-      "handler": "queryResolver.RecoveryCodes",
-      "handler_path": "resolvers/guards.go",
-      "method": "QUERY",
-      "path": "recoveryCodes"
     },
     "source": {
       "path": "user.graphql",
@@ -1140,12 +1381,13 @@
   },
   {
     "kind": "route",
-    "id": "route.graphql.query.deviceAuthRequestInfo",
+    "id": "route.graphql.query.recoveryCodes",
     "attrs": {
-      "handler": "queryResolver.DeviceAuthRequestInfo",
+      "handler": "queryResolver.RecoveryCodes",
+      "handler_lines": "367-379",
       "handler_path": "resolvers/guards.go",
       "method": "QUERY",
-      "path": "deviceAuthRequestInfo"
+      "path": "recoveryCodes"
     },
     "source": {
       "path": "user.graphql",
@@ -1156,12 +1398,13 @@
   },
   {
     "kind": "route",
-    "id": "route.graphql.query.search",
+    "id": "route.graphql.query.deviceAuthRequestInfo",
     "attrs": {
-      "handler": "queryResolver.Search",
+      "handler": "queryResolver.DeviceAuthRequestInfo",
+      "handler_lines": "25-32",
       "handler_path": "resolvers/guards.go",
       "method": "QUERY",
-      "path": "search"
+      "path": "deviceAuthRequestInfo"
     },
     "source": {
       "path": "user.graphql",
@@ -1172,16 +1415,34 @@
   },
   {
     "kind": "route",
+    "id": "route.graphql.query.search",
+    "attrs": {
+      "handler": "queryResolver.Search",
+      "handler_lines": "204-216",
+      "handler_path": "resolvers/guards.go",
+      "method": "QUERY",
+      "path": "search"
+    },
+    "source": {
+      "path": "user.graphql",
+      "lines": "23-23"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "route",
     "id": "route.graphql.query.tools",
     "attrs": {
       "handler": "queryResolver.Tools",
+      "handler_lines": "311-325",
       "handler_path": "resolvers/guards.go",
       "method": "QUERY",
       "path": "tools"
     },
     "source": {
       "path": "user.graphql",
-      "lines": "23-23"
+      "lines": "24-24"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -1230,10 +1491,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/federation.go:5-7",
     "attrs": {
+      "check_args": "[{\"check\":\"acl.IsLoggedIn\",\"var\":\"caller.loggedIn\",\"means\":\"login\"}]",
+      "checks": "acl.IsLoggedIn",
       "condition": "{\"not\":{\"var\":\"caller.loggedIn\",\"op\":\"equal\",\"value\":true}}",
       "domain": "federation",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "AIProfile.summary",
       "requirement": "IF the caller is not logged in, THEN the system shall reject AIProfile.summary with the `Unauthorized` error.",
       "slug": "authz-aiprofile-summary",
       "title": "Access control: AIProfile.summary"
@@ -1249,10 +1513,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/federation.go:14-16",
     "attrs": {
+      "check_args": "[{\"check\":\"acl.IsLoggedIn\",\"var\":\"caller.loggedIn\",\"means\":\"login\"}]",
+      "checks": "acl.IsLoggedIn",
       "condition": "{\"not\":{\"var\":\"caller.loggedIn\",\"op\":\"equal\",\"value\":true}}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "Entity.findManyUserByKaids",
       "requirement": "IF the caller is not logged in, THEN the system shall reject Entity.findManyUserByKaids with the `Unauthorized` error.",
       "route": "route.graphql.entity.findManyUserByKaids",
       "slug": "authz-entity-findmanyuserbykaids",
@@ -1269,9 +1536,11 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/federation.go:21-21",
     "attrs": {
+      "checks": "open",
       "domain": "federation",
       "ears": "ubiquitous",
       "nature": "business",
+      "operation": "Entity.findManyRowByTeacherByTeacherIDAndKaLocales",
       "requirement": "The system shall allow any caller to call Entity.findManyRowByTeacherByTeacherIDAndKaLocales.",
       "route": "route.graphql.entity.findManyRowByTeacherByTeacherIDAndKaLocales",
       "slug": "authz-entity-findmanyrowbyteacherbyteacheridandkalocales",
@@ -1288,9 +1557,11 @@
     "kind": "rule",
     "id": "rule.webapp.unchecked.resolvers/federation.go:26-26",
     "attrs": {
+      "checks": "todo",
       "domain": "federation",
       "ears": "ubiquitous",
       "nature": "business",
+      "operation": "Entity.findAIProfileByID",
       "requirement": "The system shall let any caller call Entity.findAIProfileByID without a permission check (`acl.TODO()`: the check is still missing).",
       "route": "route.graphql.entity.findAIProfileByID",
       "slug": "unchecked-entity-findaiprofilebyid",
@@ -1307,10 +1578,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/federation.go:39-41",
     "attrs": {
+      "check_args": "[{\"check\":\"acl.ActorHasPermission\",\"var\":\"caller.hasPermission.CanManageBlockList\",\"means\":\"capability\",\"scope\":\"global\",\"capability\":\"CanManageBlockList\",\"matcher\":\"acl.GlobalScope\"}]",
+      "checks": "acl.ActorHasPermission",
       "condition": "{\"not\":{\"var\":\"caller.hasPermission.CanManageBlockList\",\"op\":\"equal\",\"value\":true}}",
       "domain": "federation",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "Mutation.blockEmail",
       "requirement": "IF the caller lacks permission `CanManageBlockList` for `acl.GlobalScope`, THEN the system shall reject Mutation.blockEmail with the `Unauthorized` error.",
       "route": "route.graphql.mutation.blockEmail",
       "slug": "authz-mutation-blockemail-via-blockemail",
@@ -1327,10 +1601,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/federation.go:47-49",
     "attrs": {
+      "check_args": "[{\"check\":\"acl.IsLoggedIn\",\"var\":\"caller.loggedIn\",\"means\":\"login\"}]",
+      "checks": "acl.IsLoggedIn",
       "condition": "{\"not\":{\"var\":\"caller.loggedIn\",\"op\":\"equal\",\"value\":true}}",
       "domain": "resolvers",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "Mutation._unused",
       "requirement": "IF the caller is not logged in, THEN the system shall reject Mutation._unused with the `Unauthorized` error.",
       "slug": "authz-mutation-unused",
       "title": "Access control: Mutation._unused"
@@ -1346,9 +1623,12 @@
     "kind": "rule",
     "id": "rule.webapp.authzcheck.resolvers/federation.go:55-55",
     "attrs": {
+      "delegates_to": "entityResolver.FindManyUserByKaids",
+      "delegates_to_operation": "Entity.findManyUserByKaids",
       "domain": "user",
       "ears": "ubiquitous",
       "nature": "business",
+      "operation": "Entity.findUserByKaid",
       "requirement": "The system shall check access to Entity.findUserByKaid with `r.FindManyUserByKaids`.",
       "route": "route.graphql.entity.findUserByKaid",
       "slug": "authzcheck-entity-finduserbykaid",
@@ -1365,9 +1645,12 @@
     "kind": "rule",
     "id": "rule.webapp.authzcheck.resolvers/federation.go:74-74",
     "attrs": {
+      "delegates_to": "mutationResolver.AddAuthEmail",
+      "delegates_to_operation": "Mutation.addAuthEmail",
       "domain": "federation",
       "ears": "ubiquitous",
       "nature": "business",
+      "operation": "Mutation.devadminAddAuthEmail",
       "requirement": "The system shall check access to Mutation.devadminAddAuthEmail with `(\u0026mutationResolver{e.Resolver}).AddAuthEmail`.",
       "route": "route.graphql.mutation.devadminAddAuthEmail",
       "slug": "authzcheck-mutation-devadminaddauthemail",
@@ -1384,10 +1667,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:6-8",
     "attrs": {
+      "check_args": "[{\"check\":\"method.RequestIsServiceAdminQuery\",\"var\":\"request.isServiceAdmin\",\"means\":\"service_admin\"}]",
+      "checks": "method.RequestIsServiceAdminQuery",
       "condition": "{\"not\":{\"var\":\"request.isServiceAdmin\",\"op\":\"equal\",\"value\":true}}",
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "Mutation.addAuthEmail",
       "requirement": "IF the request is not a service-admin query, THEN the system shall reject Mutation.addAuthEmail with the `Unauthorized` error.",
       "route": "route.graphql.mutation.addAuthEmail",
       "slug": "authz-mutation-addauthemail",
@@ -1404,10 +1690,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:14-16",
     "attrs": {
+      "check_args": "[{\"check\":\"acl.IsCurrentUser\",\"var\":\"acl.IsCurrentUser\",\"means\":\"self\",\"subject\":\"kaid\",\"subject_from\":\"arg:kaid\"},{\"check\":\"method.RequestIsServiceAdminQuery\",\"var\":\"request.isServiceAdmin\",\"means\":\"service_admin\"}]",
+      "checks": "acl.IsCurrentUser,method.RequestIsServiceAdminQuery",
       "condition": "{\"all\":[{\"not\":{\"var\":\"acl.IsCurrentUser\",\"op\":\"equal\",\"value\":true}},{\"not\":{\"var\":\"request.isServiceAdmin\",\"op\":\"equal\",\"value\":true}}]}",
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "Mutation.addCoachRole",
       "requirement": "IF the caller is not the user `kaid` AND the request is not a service-admin query, THEN the system shall reject Mutation.addCoachRole with the `Unauthorized` error.",
       "route": "route.graphql.mutation.addCoachRole",
       "slug": "authz-mutation-addcoachrole",
@@ -1424,9 +1713,11 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:21-21",
     "attrs": {
+      "checks": "open",
       "domain": "user",
       "ears": "ubiquitous",
       "nature": "business",
+      "operation": "Query.checkUsername",
       "requirement": "The system shall allow any caller to call Query.checkUsername.",
       "route": "route.graphql.query.checkUsername",
       "slug": "authz-query-checkusername",
@@ -1443,10 +1734,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:27-30",
     "attrs": {
+      "check_args": "[{\"check\":\"acl.IsLoggedIn\",\"var\":\"caller.loggedInNonPhantom\",\"means\":\"login_strict\"}]",
+      "checks": "acl.IsLoggedIn",
       "condition": "{\"not\":{\"var\":\"caller.loggedInNonPhantom\",\"op\":\"equal\",\"value\":true}}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "Query.deviceAuthRequestInfo",
       "requirement": "IF the caller is not logged in with a non-phantom account, THEN the system shall reject Query.deviceAuthRequestInfo with the `Unauthorized` error.",
       "route": "route.graphql.query.deviceAuthRequestInfo",
       "slug": "authz-query-deviceauthrequestinfo",
@@ -1463,10 +1757,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:36-39",
     "attrs": {
+      "check_args": "[{\"check\":\"acl.IsCurrentUser\",\"var\":\"acl.IsCurrentUser\",\"means\":\"self\",\"subject\":\"user.Kaid\",\"subject_from\":\"parent:Kaid\"},{\"check\":\"acl.ActorHasPermission\",\"var\":\"caller.hasPermission.CanViewUserIdentity\",\"means\":\"capability\",\"scope\":\"user\",\"capability\":\"CanViewUserIdentity\",\"matcher\":\"acl.UserScope\",\"matcher_arg\":\"user.Kaid\",\"subject_from\":\"parent:Kaid\"}]",
+      "checks": "acl.ActorHasPermission,acl.IsCurrentUser",
       "condition": "{\"all\":[{\"not\":{\"var\":\"acl.IsCurrentUser\",\"op\":\"equal\",\"value\":true}},{\"not\":{\"var\":\"caller.hasPermission.CanViewUserIdentity\",\"op\":\"equal\",\"value\":true}}]}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "User.pendingEmailVerifications",
       "requirement": "IF the caller is not the user `user.Kaid` AND the caller lacks permission `CanViewUserIdentity` for the user `user.Kaid`, THEN the system shall return no data for User.pendingEmailVerifications.",
       "slug": "authz-user-pendingemailverifications",
       "title": "Access control: User.pendingEmailVerifications"
@@ -1482,10 +1779,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:40-46",
     "attrs": {
+      "check_args": "[{\"check\":\"acl.ActorHasPermissionErr\",\"var\":\"caller.hasPermission.CanChangeUserData\",\"means\":\"capability\",\"scope\":\"any\",\"capability\":\"CanChangeUserData\",\"matcher\":\"acl.AnyScope\"},{\"check\":\"acl.IsCoachedByActor\",\"var\":\"acl.IsCoachedByActor\",\"means\":\"coach\",\"subject\":\"user.Kaid\",\"subject_from\":\"parent:Kaid\"}]",
+      "checks": "acl.ActorHasPermissionErr,acl.IsCoachedByActor",
       "condition": "{\"any\":[{\"not\":{\"var\":\"caller.hasPermission.CanChangeUserData\",\"op\":\"equal\",\"value\":true}},{\"all\":[{\"var\":\"customCheck\",\"op\":\"equal\",\"value\":true},{\"var\":\"acl.IsCoachedByActor\",\"op\":\"equal\",\"value\":true}]}]}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "User.pendingEmailVerifications",
       "requirement": "IF the caller lacks permission `CanChangeUserData` for any user OR (`customCheck(ktx)` holds AND the user `user.Kaid` is coached by the caller), THEN the system shall reject User.pendingEmailVerifications with the `NotAllowed` error.",
       "slug": "authz-user-pendingemailverifications-2",
       "title": "Access control: User.pendingEmailVerifications (2)"
@@ -1501,10 +1801,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:51-53",
     "attrs": {
+      "check_args": "[{\"check\":\"permissions.UserCanViewEmails\",\"var\":\"permissions.UserCanViewEmails\",\"args\":[{\"text\":\"ctx\"},{\"text\":\"user.Kaid\",\"from\":\"parent:Kaid\"}]}]",
+      "checks": "permissions.UserCanViewEmails",
       "condition": "{\"not\":{\"var\":\"permissions.UserCanViewEmails\",\"op\":\"equal\",\"value\":true}}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "User.emails",
       "requirement": "IF `permissions.UserCanViewEmails(ctx, *user.Kaid)` does not hold, THEN the system shall return no data for User.emails.",
       "slug": "authz-user-emails",
       "title": "Access control: User.emails"
@@ -1524,6 +1827,7 @@
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "User.nickname",
       "requirement": "IF `err != nil` holds OR `canView` does not hold, THEN the system shall reject User.nickname with the `Unauthorized` error.",
       "slug": "authz-user-nickname",
       "title": "Access control: User.nickname"
@@ -1539,10 +1843,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:77-80",
     "attrs": {
-      "condition": "{\"any\":[{\"var\":\"acl.ActorHasPermissionErr.fails\",\"op\":\"equal\",\"value\":true},{\"not\":{\"var\":\"caller.hasPermission.CanViewUserIdentity\",\"op\":\"equal\",\"value\":true}}]}",
+      "check_args": "[{\"check\":\"acl.ActorHasPermissionErr\",\"var\":\"acl.ActorHasPermissionErr.fails\",\"fails\":true,\"means\":\"capability\",\"scope\":\"any\",\"capability\":\"CanViewUserIdentity\",\"matcher\":\"acl.AnyScope\"},{\"check\":\"acl.ActorHasPermissionErr\",\"var\":\"acl.ActorHasPermissionErr.fails\",\"fails\":true,\"means\":\"capability\",\"scope\":\"any\",\"capability\":\"CanViewUserIdentity\",\"matcher\":\"acl.AnyScope\"}]",
+      "checks": "acl.ActorHasPermissionErr",
+      "condition": "{\"any\":[{\"var\":\"acl.ActorHasPermissionErr.fails\",\"op\":\"equal\",\"value\":true},{\"not\":{\"var\":\"acl.ActorHasPermissionErr.fails\",\"op\":\"equal\",\"value\":true}}]}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "User.nickname",
       "requirement": "IF `acl.ActorHasPermissionErr(ctx, capabilities.CanViewUserIdentity, acl.AnyScope)` fails OR the caller lacks permission `CanViewUserIdentity` for any user, THEN the system shall reject User.nickname with the `Unauthorized` error.",
       "slug": "authz-user-nickname-2",
       "title": "Access control: User.nickname (2)"
@@ -1558,10 +1865,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:87-94",
     "attrs": {
+      "check_args": "[{\"check\":\"method.RequestIsServiceAdminQuery\",\"var\":\"request.isServiceAdmin\",\"means\":\"service_admin\"},{\"check\":\"acl.IsCurrentUser\",\"var\":\"acl.IsCurrentUser\",\"means\":\"self\",\"subject\":\"actor.Kaid\"}]",
+      "checks": "acl.IsCurrentUser,method.RequestIsServiceAdminQuery",
       "condition": "{\"all\":[{\"not\":{\"var\":\"request.isServiceAdmin\",\"op\":\"equal\",\"value\":true}},{\"not\":{\"var\":\"acl.IsCurrentUser\",\"op\":\"equal\",\"value\":true}}]}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "User.bio",
       "requirement": "IF the request is not a service-admin query AND the caller is not the user `actor.Kaid`, the caller themselves (never true), THEN the system shall return no data for User.bio.",
       "slug": "authz-user-bio",
       "title": "Access control: User.bio"
@@ -1577,10 +1887,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:98-101",
     "attrs": {
+      "check_args": "[{\"check\":\"acl.IsLoggedIn\",\"var\":\"caller.loggedIn\",\"means\":\"login\"}]",
+      "checks": "acl.IsLoggedIn",
       "condition": "{\"all\":[{\"exists\":\"user.Kaid\"},{\"not\":{\"var\":\"caller.loggedIn\",\"op\":\"equal\",\"value\":true}}]}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "User.bio",
       "requirement": "IF `user.Kaid != nil` holds AND the caller is not logged in, THEN the system shall reject User.bio with the `Unauthorized` error.",
       "slug": "authz-user-bio-2",
       "title": "Access control: User.bio (2)"
@@ -1600,6 +1913,7 @@
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "User.partner",
       "requirement": "IF `user.Kaid != nil` holds AND `ktx.RequestUser()` fails, THEN the system shall reject User.partner with the `Unauthorized` error.",
       "slug": "authz-user-partner",
       "title": "Access control: User.partner"
@@ -1615,10 +1929,14 @@
     "kind": "rule",
     "id": "rule.webapp.visibility.resolvers/guards.go:123-123",
     "attrs": {
+      "check_args": "[{\"check\":\"permissions.VisibleNotes\",\"args\":[{\"text\":\"ctx\"}]}]",
+      "checks": "permissions.VisibleNotes",
       "domain": "user",
       "ears": "ubiquitous",
       "nature": "business",
+      "operation": "User.notes",
       "requirement": "The system shall limit User.notes to the `notes` that `permissions.VisibleNotes(ctx)` lets the caller see.",
+      "scope_of_check": "item",
       "slug": "visibility-user-notes",
       "title": "Visibility: User.notes"
     },
@@ -1633,10 +1951,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:128-130",
     "attrs": {
+      "check_args": "[{\"check\":\"permissions.RequireEditor\",\"var\":\"permissions.RequireEditor.fails\",\"fails\":true,\"args\":[{\"text\":\"ctx\"}]}]",
+      "checks": "permissions.RequireEditor",
       "condition": "{\"var\":\"permissions.RequireEditor.fails\",\"op\":\"equal\",\"value\":true}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "User.notes",
       "requirement": "IF `permissions.RequireEditor(ctx)` fails, THEN the system shall reject User.notes.",
       "slug": "authz-user-notes",
       "title": "Access control: User.notes"
@@ -1652,10 +1973,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:137-140",
     "attrs": {
+      "check_args": "[{\"check\":\"_canEditDrafts\",\"var\":\"_canEditDrafts.fails\",\"fails\":true,\"args\":[{\"text\":\"ctx\"}]}]",
+      "checks": "_canEditDrafts",
       "condition": "{\"var\":\"_canEditDrafts.fails\",\"op\":\"equal\",\"value\":true}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "User.drafts",
       "requirement": "IF `_canEditDrafts(ctx)` fails, THEN the system shall reject User.drafts.",
       "slug": "authz-user-drafts",
       "title": "Access control: User.drafts"
@@ -1671,10 +1995,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:158-163",
     "attrs": {
+      "check_args": "[{\"check\":\"ratelimit.ByIP\",\"var\":\"caller.overRateLimit.Signup\",\"rate\":{\"key\":\"Signup\",\"count\":\"200\",\"window\":\"600 * time.Second\"}}]",
+      "checks": "ratelimit.ByIP",
       "condition": "{\"var\":\"caller.overRateLimit.Signup\",\"op\":\"equal\",\"value\":true}",
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "Mutation.signup",
       "requirement": "IF the caller exceeds the `Signup` rate limit by IP (200 requests per 600 seconds), THEN the system shall reject Mutation.signup.",
       "route": "route.graphql.mutation.signup",
       "slug": "ratelimit-mutation-signup",
@@ -1691,10 +2018,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:164-169",
     "attrs": {
+      "check_args": "[{\"check\":\"ratelimit.ByAccount\",\"var\":\"caller.overRateLimit.SignupAccount\",\"rate\":{\"key\":\"SignupAccount\",\"count\":\"5\",\"window\":\"time.Minute * 10\"}}]",
+      "checks": "ratelimit.ByAccount",
       "condition": "{\"var\":\"caller.overRateLimit.SignupAccount\",\"op\":\"equal\",\"value\":true}",
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "Mutation.signup",
       "requirement": "IF the caller exceeds the `SignupAccount` rate limit by account (5 requests per 10 minutes), THEN the system shall reject Mutation.signup.",
       "route": "route.graphql.mutation.signup",
       "slug": "ratelimit-mutation-signup-2",
@@ -1711,9 +2041,11 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:176-176",
     "attrs": {
+      "checks": "open",
       "domain": "guards",
       "ears": "ubiquitous",
       "nature": "business",
+      "operation": "Query.serverTime",
       "requirement": "The system shall allow any caller to call Query.serverTime.",
       "route": "route.graphql.query.serverTime",
       "slug": "authz-query-servertime",
@@ -1730,10 +2062,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:184-187",
     "attrs": {
+      "check_args": "[{\"check\":\"method.RequestIsServiceAdminQuery\",\"var\":\"request.isServiceAdmin\",\"means\":\"service_admin\"},{\"check\":\"acl.IsCurrentUser\",\"var\":\"acl.IsCurrentUser\",\"means\":\"self\",\"subject\":\"user.Kaid\",\"subject_from\":\"parent:Kaid\"}]",
+      "checks": "acl.IsCurrentUser,method.RequestIsServiceAdminQuery",
       "condition": "{\"not\":{\"any\":[{\"var\":\"request.isServiceAdmin\",\"op\":\"equal\",\"value\":true},{\"var\":\"acl.IsCurrentUser\",\"op\":\"equal\",\"value\":true}]}}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "User.grants",
       "requirement": "IF the request is not a service-admin query AND the caller is not the user `user.Kaid`, THEN the system shall return no data for User.grants.",
       "slug": "authz-user-grants",
       "title": "Access control: User.grants"
@@ -1749,10 +2084,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:194-200",
     "attrs": {
+      "check_args": "[{\"check\":\"acl.IsLoggedIn\",\"var\":\"caller.loggedIn\",\"means\":\"login\"},{\"check\":\"method.RequestIsServiceAdminQuery\",\"var\":\"request.isServiceAdmin\",\"means\":\"service_admin\"}]",
+      "checks": "acl.IsLoggedIn,method.RequestIsServiceAdminQuery",
       "condition": "{\"not\":{\"any\":[{\"var\":\"caller.loggedIn\",\"op\":\"equal\",\"value\":true},{\"var\":\"request.isServiceAdmin\",\"op\":\"equal\",\"value\":true}]}}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "User.badges",
       "requirement": "IF the caller is not logged in AND the request is not a service-admin query, THEN the system shall reject User.badges with the `Unauthorized` error.",
       "slug": "authz-user-badges",
       "title": "Access control: User.badges"
@@ -1768,10 +2106,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:207-213",
     "attrs": {
+      "check_args": "[{\"check\":\"method.RequestIsServiceAdminQuery\",\"var\":\"request.isServiceAdmin\",\"means\":\"service_admin\"},{\"check\":\"acl.ActorHasPermission\",\"var\":\"caller.hasPermission.CanViewUserIdentity\",\"means\":\"capability\",\"scope\":\"any\",\"capability\":\"CanViewUserIdentity\",\"matcher\":\"acl.AnyScope\"}]",
+      "checks": "acl.ActorHasPermission,method.RequestIsServiceAdminQuery",
       "condition": "{\"all\":[{\"not\":{\"var\":\"request.isServiceAdmin\",\"op\":\"equal\",\"value\":true}},{\"not\":{\"var\":\"caller.hasPermission.CanViewUserIdentity\",\"op\":\"equal\",\"value\":true}}]}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "Query.search",
       "requirement": "IF the request is not a service-admin query AND the caller lacks permission `CanViewUserIdentity` for any user, THEN the system shall return no data for Query.search.",
       "route": "route.graphql.query.search",
       "slug": "authz-query-search",
@@ -1788,10 +2129,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:220-225",
     "attrs": {
+      "check_args": "[{\"check\":\"acl.ActorHasPermissionErr\",\"var\":\"caller.hasPermission.CanEditDrafts\",\"means\":\"capability\",\"scope\":\"any\",\"capability\":\"CanEditDrafts\",\"matcher\":\"acl.AnyScope\"}]",
+      "checks": "acl.ActorHasPermissionErr",
       "condition": "{\"not\":{\"var\":\"caller.hasPermission.CanEditDrafts\",\"op\":\"equal\",\"value\":true}}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "User.avatar",
       "requirement": "IF the caller lacks permission `CanEditDrafts` for any user, THEN the system shall reject User.avatar with the `Unauthorized` error.",
       "slug": "authz-user-avatar",
       "title": "Access control: User.avatar"
@@ -1807,11 +2151,15 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:232-236",
     "attrs": {
+      "check_args": "[{\"check\":\"acl.IsCurrentUser\",\"means\":\"self\",\"subject\":\"kaid\"}]",
+      "checks": "acl.IsCurrentUser",
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "Mutation.merge",
       "requirement": "IF the caller is not the user `kaid`, THEN the system shall reject that `kaid` of Mutation.merge with the `Unauthorized` error.",
       "route": "route.graphql.mutation.merge",
+      "scope_of_check": "item",
       "slug": "authz-mutation-merge",
       "title": "Access control: Mutation.merge"
     },
@@ -1826,9 +2174,12 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:243-246",
     "attrs": {
+      "check_args": "[{\"check\":\"acl.IsCoachedByActor\",\"means\":\"coach\",\"subject\":\"kaid\"}]",
+      "checks": "acl.IsCoachedByActor",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "User.peek",
       "requirement": "IF for some `kaid` in `kaids`, the user `kaid` is not coached by the caller, THEN the system shall return no data for User.peek.",
       "slug": "authz-user-peek",
       "title": "Access control: User.peek"
@@ -1844,10 +2195,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:254-258",
     "attrs": {
+      "check_args": "[{\"check\":\"method.RequestIsServiceAdminQuery\",\"var\":\"request.isServiceAdmin\",\"means\":\"service_admin\"},{\"check\":\"acl.ActorHasPermission\",\"var\":\"caller.hasPermission.CanRosterDistrict\",\"means\":\"capability\",\"scope\":\"any\",\"capability\":\"CanRosterDistrict\",\"matcher\":\"acl.AnyScope\"},{\"check\":\"acl.ActorHasPermission\",\"var\":\"caller.hasPermission.CanAccessDevadmin\",\"means\":\"capability\",\"scope\":\"any\",\"capability\":\"CanAccessDevadmin\",\"matcher\":\"acl.AnyScope\"}]",
+      "checks": "acl.ActorHasPermission,method.RequestIsServiceAdminQuery",
       "condition": "{\"all\":[{\"not\":{\"var\":\"request.isServiceAdmin\",\"op\":\"equal\",\"value\":true}},{\"not\":{\"var\":\"caller.hasPermission.CanRosterDistrict\",\"op\":\"equal\",\"value\":true}},{\"not\":{\"var\":\"caller.hasPermission.CanAccessDevadmin\",\"op\":\"equal\",\"value\":true}}]}",
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "Mutation.roster",
       "requirement": "IF the request is not a service-admin query AND the caller lacks permission `CanRosterDistrict` for any user AND the caller lacks permission `CanAccessDevadmin` for any user, THEN the system shall reject Mutation.roster with the `Unauthorized` error.",
       "route": "route.graphql.mutation.roster",
       "slug": "authz-mutation-roster",
@@ -1864,10 +2218,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:266-269",
     "attrs": {
+      "check_args": "[{\"check\":\"acl.IsLoggedIn\",\"var\":\"caller.loggedIn\",\"means\":\"login\"}]",
+      "checks": "acl.IsLoggedIn",
       "condition": "{\"all\":[{\"not\":{\"exists\":\"kaid\"}},{\"not\":{\"var\":\"caller.loggedIn\",\"op\":\"equal\",\"value\":true}}]}",
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "Mutation.optOut",
       "requirement": "IF `kaid == nil` holds AND the caller is not logged in, THEN the system shall reject Mutation.optOut with the `Unauthorized` error.",
       "route": "route.graphql.mutation.optOut",
       "slug": "authz-mutation-optout",
@@ -1884,10 +2241,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:266-273",
     "attrs": {
+      "check_args": "[{\"check\":\"acl.IsCurrentUser\",\"var\":\"acl.IsCurrentUser\",\"means\":\"self\",\"subject\":\"kaid\",\"subject_from\":\"arg:kaid\"}]",
+      "checks": "acl.IsCurrentUser",
       "condition": "{\"all\":[{\"exists\":\"kaid\"},{\"not\":{\"var\":\"acl.IsCurrentUser\",\"op\":\"equal\",\"value\":true}}]}",
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "Mutation.optOut",
       "requirement": "IF `kaid == nil` does not hold AND the caller is not the user `kaid`, THEN the system shall reject Mutation.optOut with the `Unauthorized` error.",
       "route": "route.graphql.mutation.optOut",
       "slug": "authz-mutation-optout-2",
@@ -1904,10 +2264,11 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:280-283",
     "attrs": {
-      "condition": "{\"any\":[{\"var\":\"cross_service.InKhanmigoDistrict.fails\",\"op\":\"equal\",\"value\":true},{\"not\":{\"var\":\"cross_service.InKhanmigoDistrict\",\"op\":\"equal\",\"value\":true}}]}",
+      "condition": "{\"any\":[{\"var\":\"cross_service.InKhanmigoDistrict.fails\",\"op\":\"equal\",\"value\":true},{\"not\":{\"var\":\"cross_service.InKhanmigoDistrict.fails\",\"op\":\"equal\",\"value\":true}}]}",
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "Mutation.cooldown",
       "requirement": "IF `cross_service.InKhanmigoDistrict(ctx, kaid)` fails OR `cross_service.InKhanmigoDistrict(ctx, kaid)` does not hold, THEN the system shall reject Mutation.cooldown with the `Unauthorized` error.",
       "route": "route.graphql.mutation.cooldown",
       "slug": "authz-mutation-cooldown",
@@ -1924,10 +2285,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:289-291",
     "attrs": {
+      "check_args": "[{\"check\":\"validateRename\",\"var\":\"validateRename.fails\",\"fails\":true,\"args\":[{\"text\":\"ctx\"},{\"text\":\"name\",\"from\":\"arg:name\"}]}]",
+      "checks": "validateRename",
       "condition": "{\"var\":\"validateRename.fails\",\"op\":\"equal\",\"value\":true}",
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "Mutation.rename",
       "requirement": "IF `validateRename(ctx, name)` fails, THEN the system shall reject Mutation.rename.",
       "route": "route.graphql.mutation.rename",
       "slug": "authz-mutation-rename",
@@ -1944,9 +2308,12 @@
     "kind": "rule",
     "id": "rule.webapp.authzcheck.resolvers/guards.go:304-304",
     "attrs": {
+      "check_args": "[{\"check\":\"permissions.LoginWithRateLimit\"}]",
+      "checks": "permissions.LoginWithRateLimit",
       "domain": "auth-emails",
       "ears": "ubiquitous",
       "nature": "business",
+      "operation": "Mutation.login",
       "requirement": "The system shall check access to Mutation.login with `permissions.LoginWithRateLimit`.",
       "route": "route.graphql.mutation.login",
       "slug": "authzcheck-mutation-login",
@@ -1963,10 +2330,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:320-323",
     "attrs": {
+      "check_args": "[{\"check\":\"method.RequestIsServiceAdminQuery\",\"var\":\"request.isServiceAdmin\",\"means\":\"service_admin\"},{\"check\":\"acl.IsCurrentUser\",\"var\":\"acl.IsCurrentUser\",\"means\":\"self\",\"subject\":\"kaid\"}]",
+      "checks": "acl.IsCurrentUser,method.RequestIsServiceAdminQuery",
       "condition": "{\"not\":{\"any\":[{\"var\":\"request.isServiceAdmin\",\"op\":\"equal\",\"value\":true},{\"var\":\"acl.IsCurrentUser\",\"op\":\"equal\",\"value\":true}]}}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "Query.tools",
       "requirement": "IF the request is not a service-admin query AND the caller is not the user `kaid`, the caller themselves (never true), THEN the system shall return no data for Query.tools.",
       "route": "route.graphql.query.tools",
       "slug": "authz-query-tools",
@@ -1983,10 +2353,14 @@
     "kind": "rule",
     "id": "rule.webapp.visibility.resolvers/guards.go:329-329",
     "attrs": {
+      "check_args": "[{\"check\":\"acl.ManyCoachedByActor\",\"args\":[{\"text\":\"ctx\"},{\"text\":\"kaids\",\"from\":\"arg:kaids\"}]}]",
+      "checks": "acl.ManyCoachedByActor",
       "domain": "user",
       "ears": "ubiquitous",
       "nature": "business",
+      "operation": "User.coachees",
       "requirement": "The system shall limit User.coachees to the `coached` that `acl.ManyCoachedByActor(ctx, kaids)` lets the caller see.",
+      "scope_of_check": "item",
       "slug": "visibility-user-coachees",
       "title": "Visibility: User.coachees"
     },
@@ -2001,9 +2375,11 @@
     "kind": "rule",
     "id": "rule.webapp.unchecked.resolvers/guards.go:334-334",
     "attrs": {
+      "checks": "todo",
       "domain": "user",
       "ears": "ubiquitous",
       "nature": "business",
+      "operation": "User.legacy",
       "requirement": "The system shall let any caller call User.legacy without a permission check (`acl.TODO()`: the check is still missing).",
       "slug": "unchecked-user-legacy",
       "title": "Unchecked access: User.legacy"
@@ -2019,10 +2395,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:349-351",
     "attrs": {
+      "check_args": "[{\"check\":\"acl.IsLoggedIn\",\"var\":\"caller.loggedIn\",\"means\":\"login\"}]",
+      "checks": "acl.IsLoggedIn",
       "condition": "{\"not\":{\"var\":\"caller.loggedIn\",\"op\":\"equal\",\"value\":true}}",
       "domain": "resolvers",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "Query.orphan",
       "requirement": "IF the caller is not logged in, THEN the system shall reject Query.orphan with the `Unauthorized` error.",
       "slug": "authz-query-orphan",
       "title": "Access control: Query.orphan"
@@ -2038,10 +2417,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:368-370",
     "attrs": {
+      "check_args": "[{\"check\":\"_isActor\",\"var\":\"_isActor\",\"args\":[{\"text\":\"ctx\"},{\"text\":\"kaid\",\"from\":\"arg:kaid\"}]}]",
+      "checks": "_isActor",
       "condition": "{\"not\":{\"var\":\"_isActor\",\"op\":\"equal\",\"value\":true}}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "Query.recoveryCodes",
       "requirement": "IF `_isActor(ctx, kaid)` does not hold, THEN the system shall return no data for Query.recoveryCodes.",
       "route": "route.graphql.query.recoveryCodes",
       "slug": "authz-query-recoverycodes",
@@ -2062,6 +2444,7 @@
       "domain": "auth-emails",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "Mutation.enableTotp",
       "requirement": "IF `age.IsUnderAgeGateByKaid(ctx, kaid)` holds, THEN the system shall reject Mutation.enableTotp with the `Unauthorized` error.",
       "route": "route.graphql.mutation.enableTotp",
       "slug": "authz-mutation-enabletotp",
@@ -2070,6 +2453,27 @@
     "source": {
       "path": "resolvers/guards.go",
       "lines": "382-388"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
+    "id": "rule.webapp.authzcheck.resolvers/kaid.go:15-15",
+    "attrs": {
+      "delegates_to": "aiProfileResolver.Summary",
+      "delegates_to_operation": "AIProfile.summary",
+      "domain": "user",
+      "ears": "ubiquitous",
+      "nature": "business",
+      "operation": "User.aiSummary",
+      "requirement": "The system shall check access to User.aiSummary with `(\u0026aiProfileResolver{r.Resolver}).Summary`.",
+      "slug": "authzcheck-user-aisummary",
+      "title": "Access check: User.aiSummary"
+    },
+    "source": {
+      "path": "resolvers/kaid.go",
+      "lines": "15-15"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -2104,6 +2508,7 @@
       "domain": "shared-serve",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "requests through `ValidateGraphqlSecretMiddleware`",
       "requirement": "IF `r.Header.Get(\"X-Ka-Gateway-Secret\")` is `\"\"`, THEN the system shall reject requests through `ValidateGraphqlSecretMiddleware` with the `StatusUnauthorized` error.",
       "slug": "authz-requests-through-validategraphqlsecretmiddleware",
       "title": "Access control: requests through `ValidateGraphqlSecretMiddleware`"
@@ -2124,6 +2529,7 @@
       "domain": "shared-serve",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "requests through `ValidateGraphqlSecretMiddleware`",
       "requirement": "IF `ctx.Secrets().Get(ctx, web.GatewayToBackendSecret)` fails OR `r.Header.Get(\"X-Ka-Gateway-Secret\")` is not `expected`, THEN the system shall reject requests through `ValidateGraphqlSecretMiddleware` with the `StatusUnauthorized` error.",
       "slug": "authz-requests-through-validategraphqlsecretmiddleware-2",
       "title": "Access control: requests through `ValidateGraphqlSecretMiddleware` (2)"
@@ -2191,6 +2597,103 @@
     "source": {
       "path": "models/nonce.go",
       "lines": "8-17"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "unguarded",
+    "id": "unguarded.webapp.resolvers/federation.go:31-36",
+    "attrs": {
+      "operation": "Mutation.blockEmail",
+      "route": "route.graphql.mutation.blockEmail"
+    },
+    "source": {
+      "path": "resolvers/federation.go",
+      "lines": "31-36"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "unguarded",
+    "id": "unguarded.webapp.resolvers/federation.go:63-65",
+    "attrs": {
+      "operation": "Entity.findAIProfileByKey",
+      "route": "route.graphql.entity.findAIProfileByKey"
+    },
+    "source": {
+      "path": "resolvers/federation.go",
+      "lines": "63-65"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "unguarded",
+    "id": "unguarded.webapp.resolvers/federation.go:67-69",
+    "attrs": {
+      "operation": "Entity.findAIProfileByUnchecked",
+      "route": "route.graphql.entity.findAIProfileByUnchecked"
+    },
+    "source": {
+      "path": "resolvers/federation.go",
+      "lines": "67-69"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "unguarded",
+    "id": "unguarded.webapp.resolvers/kaid.go:3-5",
+    "attrs": {
+      "operation": "User.kaid"
+    },
+    "source": {
+      "path": "resolvers/kaid.go",
+      "lines": "3-5"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "value_kind",
+    "id": "value_kind.webapp.capabilities.Capability",
+    "attrs": {
+      "type": "capabilities.Capability",
+      "value_kind": "staff"
+    },
+    "source": {
+      "path": "",
+      "lines": ""
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "value_kind",
+    "id": "value_kind.webapp.featureflags.FeatureFlagName",
+    "attrs": {
+      "type": "featureflags.FeatureFlagName",
+      "value_kind": "flag"
+    },
+    "source": {
+      "path": "",
+      "lines": ""
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "value_kind",
+    "id": "value_kind.webapp.permissions.CapabilityName",
+    "attrs": {
+      "type": "permissions.CapabilityName",
+      "value_kind": "staff"
+    },
+    "source": {
+      "path": "",
+      "lines": ""
     },
     "origin": "webapp",
     "certainty": "static"

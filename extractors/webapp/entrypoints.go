@@ -279,8 +279,8 @@ func entryScan(sources, shared []source, known checks, w *wording) []Fact {
 	for i := range entries {
 		e := &entries[i]
 		op := operation{name: e.name(), domain: dirDomain(e.file.name)}
-		facts = append(facts, ruleFacts(e.file.fset, w, e.file.name, &methods[i], &op)...)
-		facts = append(facts, wrapperFacts(e, wrapping, &op, w)...)
+		facts = append(facts, ruleFacts(e.file.fset, w, known, e.file.name, &methods[i], &op)...)
+		facts = append(facts, wrapperFacts(e, wrapping, &op, w, known)...)
 	}
 	return facts
 }
@@ -289,7 +289,13 @@ func entryScan(sources, shared []source, known checks, w *wording) []Fact {
 // registered through, that it checks access to it ("checked by
 // serve.CreateTaskHandler"), cited on the wrapper call in the
 // registration: the check itself lives in webapp's shared code.
-func wrapperFacts(e *entryPoint, wrapping map[string]bool, op *operation, w *wording) []Fact {
+func wrapperFacts(
+	e *entryPoint,
+	wrapping map[string]bool,
+	op *operation,
+	w *wording,
+	known checks,
+) []Fact {
 	var facts []Fact
 	seen := make(map[string]bool)
 	for _, use := range e.wrappers {
@@ -305,7 +311,7 @@ func wrapperFacts(e *entryPoint, wrapping map[string]bool, op *operation, w *wor
 			start:   fset.Position(use.call.Pos()).Line,
 			end:     fset.Position(use.call.End()).Line,
 		}}}
-		facts = append(facts, ruleFacts(fset, w, use.file.name, &m, op)...)
+		facts = append(facts, ruleFacts(fset, w, known, use.file.name, &m, op)...)
 	}
 	return facts
 }

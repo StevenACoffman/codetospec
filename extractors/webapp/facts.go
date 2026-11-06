@@ -58,8 +58,13 @@ const (
 	attrPath        = "path"
 	attrHandler     = "handler"
 	attrHandlerPath = "handler_path"
-	attrColumns     = "columns"
-	attrSymbol      = "symbol" // the reached declaration, package-qualified
+	// attrHandlerLines is the span of the handler in attrHandlerPath: a
+	// resolver method's, so codetospec follows calls from it (journeys) and
+	// links the rules it covers to the endpoint (codetospec's
+	// extract.AttrHandlerLines).
+	attrHandlerLines = "handler_lines"
+	attrColumns      = "columns"
+	attrSymbol       = "symbol" // the reached declaration, package-qualified
 	// attrDescription, on a table fact, is the entity's authored
 	// description: its struct's doc comment (codetospec's
 	// extract.AttrDescription).

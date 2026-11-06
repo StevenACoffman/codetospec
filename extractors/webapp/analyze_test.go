@@ -147,7 +147,7 @@ func TestAnalyzeFacts(t *testing.T) {
 		// (acl.TODO: unchecked)
 		// …and the entity finders of User (@key): one checks, its alias
 		// delegates to it
-		"user.graphql operations": {"user", 24},
+		"user.graphql operations": {"user", 25},
 		// Orphan, and _unused: a private method with no caller
 		"field-less resolver": {"resolvers", 2},
 		// AIProfile.summary (its resolver type is named by the factory), and
@@ -178,8 +178,8 @@ func TestAnalyzeFacts(t *testing.T) {
 	// of an unchecked one), blockEmail and its helper _blockEmail,
 	// devadminAddAuthEmail (federation.go spans two domains: no whole-file
 	// fact).
-	if domainFacts != 41 {
-		t.Errorf("got %d domain facts, want 41", domainFacts)
+	if domainFacts != 42 {
+		t.Errorf("got %d domain facts, want 42", domainFacts)
 	}
 	wholeFile := map[string]bool{}
 	for _, f := range facts {
@@ -278,14 +278,14 @@ func TestCatchAllSchemas(t *testing.T) {
 // TestAccessPredicates: only the exported bool-first functions of an
 // access package are checks.
 func TestAccessPredicates(t *testing.T) {
-	names, err := goSources(testInputs("en").Service)
+	names, err := goSources(testInputs("en").Service, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	sources, _ := parseSources(testInputs("en").Service, names)
 	got := accessPredicates(sources, []string{"permissions"})
 	cases := map[string]bool{
-		"permissions.UserCanViewEmails": true,
+		userCanViewEmails:               true,
 		"permissions.LoadVisibleEmails": false, // a loader
 		"permissions.canSee":            false, // unexported
 		"resolvers.helper":              false, // not an access package
@@ -378,7 +378,7 @@ func (r *Resolver) StudentData() studentDataResolver { return &entityResolver{r}
 func TestAnalyzeAll(t *testing.T) {
 	const gateway, users = "gateway", "users"
 	webapp := os.DirFS(filepath.Join("testdata", "allwebapp"))
-	services, err := goServices(webapp)
+	services, err := goServices(webapp, nil)
 	if err != nil || !slices.Equal(services, []string{gateway, users}) {
 		t.Fatalf("goServices = %v, %v; want the two Go services", services, err)
 	}

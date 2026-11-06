@@ -66,8 +66,11 @@ a model reproduces at high cost and approximately, or not at all:
   the exported method of the same resolver that it calls
   (`FindManyStudentListByDescriptors` → `r.FindManyClassroomByDescriptors`),
   including on a rebuilt receiver
-  (`(&mutationResolver{r.Resolver}).SyncActiveAssignmentsInClassroomToLms`),
-  only if that method has a rule.
+  (`(&mutationResolver{r.Resolver}).SyncActiveAssignmentsInClassroomToLms`)
+  or on another resolver type built in place (districts'
+  `studentListResolver` calling `(&classroomResolver{r.Resolver}).…`),
+  only if that method has a rule; `delegates_to` names it
+  (`classroomResolver.IsKacPilotClassroom`).
   The forms that need data flow stay at this level: a deferred
   error (`err = errors.Unauthorized()` returned later), chained errors
   (`if err == nil { err = check() }`), a granting branch
@@ -160,6 +163,22 @@ a model reproduces at high cost and approximately, or not at all:
   `oldMobileExceptions`), lists by key (`map[string][]string`,
   `_safelistedKAIDsForOperation`). The table and its reader are named without
   backticks: their names are not on the cited lines.
+- **What each guard checks** (attributes of the rules above): `checks`
+  names the checks a guard calls, sorted (`acl.IsCurrentUser`,
+  `permissions.UserCanViewDistrict`, `method.RequestIsTask`), or `open` /
+  `todo` for a marker; `check_args` lists each check call in source order
+  with what the condition leaves out: the `capability` (a
+  `capabilities.X` argument, by Go name), the scope `matcher` as itself
+  (`acl.UserScope`) and its `matcher_arg`, the `subject` of a self or
+  coach check, a rate limit's `key`, `count` and `window`;
+  `scope_of_check: item` on a guard that drops one item (a loop's, a
+  filter's). One **`access_check`** fact per check named says how it is
+  known (`form`: marked, predicate, helper, acl, ratelimit), cited at its
+  definition in the service or in `pkg/` (root `pkg`) when parsed.
+- **Unguarded resolvers** (`unguarded`): a public resolver method with a
+  schema field and no guard, marker or delegation, cited on the method:
+  how "no check found" differs from "not a resolver" (none in the seven
+  services measured on 2026-11-06).
 - **Rate limits** (`rule`, "Rate limit: …"): each
   `if ratelimit.ByIP|ByAccount|ByEmailRecipient(ctx, "Key", …) { return … }`
   (true past the limit), with the limit written as in the code for
@@ -202,8 +221,10 @@ a model reproduces at high cost and approximately, or not at all:
 - **Endpoints** (`route`): each root field (`Query`, `Mutation`,
   `Subscription`) that has a resolver method, and each federation
   finder (method `ENTITY`: the gateway's `_entities` query calls it
-  for any service that references the type), with `handler_path`; the
-  authorization rules are linked to them (`exposed_by`).
+  for any service that references the type), with `handler_path` and
+  `handler_lines` (the resolver method's span, from which codetospec
+  follows calls to give each endpoint its journey); the authorization
+  rules are linked to them (`exposed_by`).
 - **Entities** (`table`): each `datastore.RegisterKind("Kind", new(T))`,
   columns = fields of `T` as Datastore stores them (`datastore` tag),
   `description` = the doc comment of `T`, on one line.
@@ -231,6 +252,12 @@ go build -o extract .
 ./extract -root ~/khan/webapp/services/users -lang en
 ./extract -all -root ~/khan/webapp -lang en   # all of webapp, consolidated
 ```
+
+`-exclude-dirs testutil` (comma-separated) leaves those directories out
+of the walk entirely, beside `vendor`, `node_modules`, `generated`,
+`testdata` and hidden ones: pass codetospec's `--exclude` directories, so
+a role a test helper registers never becomes a rule. `scanwebapp.sh`
+passes its `test_helper_dirs`.
 
 `-all` analyzes each service of `services/` that contains Go, as a
 single service, then consolidates: citations become relative to the root

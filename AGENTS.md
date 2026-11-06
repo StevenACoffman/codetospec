@@ -98,7 +98,13 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
 - `internal/testreach` — rules reached by a test, no LLM: the `test` facts
   (Go extractor: what each `TestXxx`/`FuzzXxx` or suite method `TestXxx()`
   uses — webapp has almost only those —, itself or through the helpers of
-  its `_test.go` files) then the `call` facts, at most `MaxDepth` = 3
+  its `_test.go` files, plus the package-level variables it reads:
+  `extractors/go/vars.go`, so a test of a registry table such as admin's
+  role definitions reaches the rule citing it; constants and blank
+  variables don't count; `docs/verification/testreach-package-vars-2026-11-06.md`)
+  then the `call` facts (a package-level variable holding a function,
+  such as webapp's `cache.Cache` wrappers, is a caller and a callee:
+  `docs/verification/calls-through-vars-2026-11-06.md`), at most `MaxDepth` = 3
   definitions. Frontmatter `tests` (0 included), `test_depth`, `tested_by`;
   with no `test` fact at all, nothing (unknown ≠ untested), nor for a rule
   that cites only another root. Pitfall: the extractor loads the tests
@@ -156,7 +162,10 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   At build, `grounding.Annotate` drops a condition whose values the cited
   lines lack (`condition_dropped`) and records a disagreement with the
   EARS conditions (`condition_disagreement`, values marked cited or not;
-  0 and "" are implicit in prose) → `condition_mismatch` question.
+  0 and "" are implicit in prose; a value an extractor carries in
+  `check_args`, such as a check's scope matcher or a rate limit's numbers,
+  counts as stated: `docs/verification/check-args-disagreement-2026-11-06.md`)
+  → `condition_mismatch` question.
 - `internal/vocabulary` — the condition variables offered to each map
   chunk, no LLM: extractor rule-condition variables (scoped to their
   file), then schema facts (`table.column`, enums with values, struct
@@ -215,6 +224,48 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   the crosscheck: dropped. Verified against the downloaded frontmatter
   schemas (jsonschema) on roster and districts; no local `quire validate`
   (no published binary).
+- `internal/policy` — the policy inventory (`policies` command,
+  `policy_inventory_plan.md` Part 2): pure `Build(facts, rules, registry)`
+  over the merged facts and the rule nodes' `checks`/`check_args`/
+  `operation`; a check's inputs are the `reads`, `uses_value` and `loads`
+  facts of its definition and of what it calls (direct `call` facts, by
+  span overlap, `MaxDepth` 3); kinds by structure only (a call's `means`,
+  `value_kind` facts the extractor emits per declared type), never by
+  words or webapp names: the extractor states what each recorded check
+  call means (`check_args`: `var` the condition variable it became,
+  `fails`, `means`, `scope`, `subject_from`; webapp's table is
+  `extractors/webapp/meanings.go`).
+  A registry (`ParseRegistry`, a person's YAML, never written) declares
+  fields and loads; methods aren't supported yet.
+- `internal/cerbos`, `internal/cedarpolicy` — `export --format cerbos |
+  cedar-policy` (`policy_inventory_plan.md` Part 3). Both render
+  `policy.BuildModel`: each extractor guard whose condition's variables
+  map, through the one call that became each (`CheckCall.Var`), to the
+  pinned leaves (`policy.Leaf*`, scopes `policy.Scope*`, operands joined
+  from `check_args` and capability facts) becomes a deny. Never
+  over-permit: an operation is left out whole when a guard doesn't
+  translate, a rule of it names no check (`guard names no check`), its
+  resolver reaches a recognized check its guards don't call
+  (`checksBelow`, call facts, `MaxDepth`), or its checks are about a
+  local or about two users (`subjectOf`: one `resource.subject`). An
+  operation whose rules all delegate (`delegates_to_operation`) to an
+  exported operation is its alias. `export --checkers` (`ParseCheckers`,
+  a person's YAML, never written) pins what checks the extractor doesn't
+  know mean: one leaf, or `any`/`all` of leaves (parts named
+  `<check>#n`, `Deny.Defined` lets the oracle decide the checker's
+  variable from them), `subject_arg` for a user check, `item: <Kind>`
+  for a visibility filter (`Model.Items`: a `view` policy per kind).
+  Formats pinned in each package doc, with the loader contract; the
+  subject binding is an annotation (Cerbos `subject:<action>`, the Cedar
+  policy language `@subject`). Verified against the oracle, not the
+  rendering: `Operation.Cases()` decides each truth assignment with
+  `condition.Evaluate` on the rule's condition; Cerbos writes them as its
+  test suite (`go test -tags cerboslocal` runs `cerbos compile`,
+  `CERBOS_BIN`), cedarpolicy's test runs `cedar.Authorize` on them.
+  Dependencies approved for these: cedar-go (pinned v1.9.0, `x/exp`
+  validator) and jsonschema/v6 (Cerbos's vendored schemas in testdata).
+  Name the Cedar policy language in full: CEDAR is Khan's analytics
+  pipeline.
 - `internal/nfrtarget` — a person's answers to `nfr_target`:
   `<out>/targets.yaml` (never written), keyed by rule id (a question id
   hashes the cited code; a rule id survives edits and renames), each one
@@ -376,7 +427,10 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   ignored as for drift), each endpoint lists the rules reached, by depth
   then first citation then id: frontmatter `journey`, numbered body list.
   An endpoint field, not a node type: a journey has one entry point, and
-  the code shows no sequence of endpoints.
+  the code shows no sequence of endpoints. Handler spans come from the Go
+  extractor's routes and the webapp extractor's GraphQL resolvers (its
+  route facts' `handler_lines`,
+  `docs/verification/resolver-journeys-2026-11-06.md`).
 - `extract.Roots` — the only reader of cited files: `--src`, plus the
   `--ref-root name=dir` trees a citation names (`Ref.Root`: the shared
   code, `pkg` for webapp and districts-jobs). A cited root without
@@ -488,7 +542,11 @@ that set. The SCIP converter and the Go extractor emit `symbol` facts with
 `precise: true` (same IDs, they merge) that the map injects as citation
 anchors; for Go, SCIP is therefore optional (`SCIP=0` by default in the
 scripts). The Go extractor also emits the `constant` facts (webapp no
-longer emits them) and `call`.
+longer emits them) and `call`, and, for the policy inventory, what each
+function reads: `reads` (struct fields), `uses_value` (package-level
+constants and basic-typed variables, with type and value: capabilities,
+flags), `loads` (datastore kinds and filtered properties), plus `tags`
+on struct facts (`docs/verification/check-inputs-2026-11-06.md`).
 
 `api_type` (webapp: federated `@key` types, `owned` or extended,
 `deprecated`) and the `table` facts' `references` (Go extractor: foreign
@@ -506,7 +564,16 @@ to the LLM.
 extractor can provide deterministic rules (validated by
 `graph.ValidateRuleFacts`, rendered `extracted_by` + `crosscheck: mechanical`,
 listed to the map as `MECHANICAL_RULES`) and domains by line range
-(`extract.DomainHints`, taking priority over the domain strategy). No
+(`extract.DomainHints`, taking priority over the domain strategy).
+`--exclude` applies to them too: an extractor walks with its own skip
+list, so `pipeline.extract` drops a rule or domain fact citing a path the
+walk skips (`extract.WithoutExcluded`, `source.Excluded`; counted in the
+README). The webapp extractor also names what each guard checks
+(`checks`, `check_args`: the operands the condition notation drops,
+`delegates_to`), one `access_check` fact per check named, and
+`unguarded` for a resolver with none (contract: `extract.KindAccessCheck`,
+`KindUnguarded`, `AttrChecks`…; read by the policy inventory, not the
+spec; `docs/verification/policy-checks-2026-11-06.md`). No
 repository-specific code in the core: all webapp knowledge lives in
 `extractors/webapp`.
 

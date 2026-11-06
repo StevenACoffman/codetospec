@@ -9,7 +9,7 @@
 //   - `domain` facts: each resolver method's domain, named after the schema
 //     file that declares its field (auth_emails.graphql → auth-emails).
 //
-// Usage: extract -root <service dir> [-lang fr|en]
+// Usage: extract -root <service dir> [-lang fr|en] [-exclude-dirs d1,d2]
 //
 //	extract -all -root <webapp checkout> [-lang fr|en]: every Go service,
 //	consolidated relative to the checkout (see AnalyzeAll).
@@ -59,6 +59,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	)
 	accessPkgs := flags.String("access-pkgs", "permissions",
 		"comma-separated service packages whose bool functions are access checks")
+	excludeDirs := flags.String("exclude-dirs", "",
+		"comma-separated directory names never analyzed, beside vendor, generated and "+
+			"testdata: codetospec's --exclude directories (e.g. testutil)")
 	all := flags.Bool("all", false,
 		"analyze every Go service of the webapp checkout -root, consolidated")
 	if err := flags.Parse(args); err != nil {
@@ -70,9 +73,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	if *all {
 		facts, warnings, err := AnalyzeAll(&AllInputs{
-			Webapp:     os.DirFS(*root),
-			Lang:       *lang,
-			AccessPkgs: strings.Split(*accessPkgs, ","),
+			Webapp:      os.DirFS(*root),
+			Lang:        *lang,
+			AccessPkgs:  strings.Split(*accessPkgs, ","),
+			ExcludeDirs: dirList(*excludeDirs),
 		})
 		return emit(facts, warnings, err, stdout, logf)
 	}
@@ -82,6 +86,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		ServiceGraph: *graph,
 		Lang:         *lang,
 		AccessPkgs:   strings.Split(*accessPkgs, ","),
+		ExcludeDirs:  dirList(*excludeDirs),
 	}
 	if in.ServiceGraph == "" {
 		in.ServiceGraph = strings.ToUpper(strings.ReplaceAll(filepath.Base(*root), "-", "_"))
@@ -128,4 +133,16 @@ func emit(
 		return exitFailure
 	}
 	return exitOK
+}
+
+// dirList splits a comma-separated list of directory names, dropping
+// blanks: "" is none.
+func dirList(csv string) []string {
+	var dirs []string
+	for d := range strings.SplitSeq(csv, ",") {
+		if d = strings.TrimSpace(d); d != "" {
+			dirs = append(dirs, d)
+		}
+	}
+	return dirs
 }

@@ -13,6 +13,7 @@ type User @key(fields: "kaid") {
   peek(kaids: [String!]!): [String]
   coachees(kaids: [String!]!): [String]
   legacy: String
+  aiSummary: String
 }
 
 extend type Query {

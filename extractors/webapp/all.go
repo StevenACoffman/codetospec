@@ -18,9 +18,10 @@ const attrInServices = "in_services"
 
 // AllInputs are what AnalyzeAll reads: a whole webapp checkout.
 type AllInputs struct {
-	Webapp     fs.FS // the checkout root: services/, pkg/, gengraphql/, go.mod
-	Lang       string
-	AccessPkgs []string
+	Webapp      fs.FS // the checkout root: services/, pkg/, gengraphql/, go.mod
+	Lang        string
+	AccessPkgs  []string
+	ExcludeDirs []string // more directories every service walk skips (Inputs.ExcludeDirs)
 }
 
 // AnalyzeAll analyzes every webapp service holding Go code, as Analyze does
@@ -30,7 +31,7 @@ type AllInputs struct {
 //
 // Ensures: facts are sorted (sortFacts); warnings are prefixed by service.
 func AnalyzeAll(in *AllInputs) ([]Fact, []string, error) {
-	services, err := goServices(in.Webapp)
+	services, err := goServices(in.Webapp, in.ExcludeDirs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -77,12 +78,13 @@ func analyzeService(in *AllInputs, supergraph fs.FS, svc string) ([]Fact, []stri
 		ServiceGraph: strings.ToUpper(strings.ReplaceAll(svc, "-", "_")),
 		Lang:         in.Lang,
 		AccessPkgs:   in.AccessPkgs,
+		ExcludeDirs:  in.ExcludeDirs,
 	})
 }
 
 // goServices lists the services of the checkout holding non-test Go code,
 // sorted; the others (JavaScript, VCL) are no business of this extractor.
-func goServices(webapp fs.FS) ([]string, error) {
+func goServices(webapp fs.FS, excludeDirs []string) ([]string, error) {
 	entries, err := fs.ReadDir(webapp, servicesDir)
 	if err != nil {
 		return nil, fmt.Errorf("list services: %w", err)
@@ -97,7 +99,7 @@ func goServices(webapp fs.FS) ([]string, error) {
 		if subErr != nil {
 			continue
 		}
-		if names, listErr := goSources(sub); listErr == nil && len(names) > 0 {
+		if names, listErr := goSources(sub, excludeDirs); listErr == nil && len(names) > 0 {
 			services = append(services, e.Name())
 		}
 	}

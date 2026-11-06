@@ -29,7 +29,7 @@ rest.
     count (`docs/verification/map-technical-rules-2026-11-04.md`).
   - Done: the map prompt says so. It changes the prompt key: the next
     run of every output re-maps.
-- [ ] Measure run-to-run variance after the next remap. Remap one output
+- [x] Measure run-to-run variance after the next remap. Remap one output
       (pkg) twice with the same prompt and model into two `--out`
       directories, then compare candidates per chunk and by nature, and
       the rules `diff --old --new` reports removed or added. Folded into
@@ -43,6 +43,12 @@ rest.
     near 786, small chunks not inflated (the ablation gave +29 % rules
     on chunks under 100 lines). Section 2 of the same report, against
     the snapshot and `~/spec-graphs.before-remap-2026-11-02`.
+  - Measured (2026-11-05, `docs/verification/remap-2026-11-05.md`):
+    whole-run totals move 0.4 % (about 2 % within a nature), so a count
+    change beyond a few percent is real; but about half the rules have
+    no match between the two runs, so compare counts, not rule lists.
+    Technical candidates 907–926 against 786 before the loss; rules on
+    chunks under 100 lines +24–31 %, as the ablation predicted.
 
 ## Requirement Classification
 
@@ -354,11 +360,29 @@ rest.
 
 ## Repository Checks
 
-- [ ] Re-record the corpus baselines: `make corpus` skips every entry
+- [x] Re-record the corpus baselines: `make corpus` skips every entry
       since webapp moved past the baselines' commit (`88b55ce5c33` →
       `bfad3957bf1`), so it has compared nothing since. Folded into
       `scripts/remap.sh`: it re-records them after the remap and shows the
       manifest's diff (old counts against new) for review before commit.
+  - Done (2026-11-05): webapp `c55b04b0090`; rules +26–44 % per output,
+    share proven unchanged, no violations, drift or `ears_issue`
+    (`docs/verification/remap-2026-11-05.md`).
+- [ ] Fix what checking admin's role rules against their code found
+      (2026-11-05): findings, recommendations and the step-by-step plan
+      are in `FIX.md`. The 46 role rules are exact, but `--exclude` doesn't
+      reach extractor rule facts (a `testutil` role and domain leaked in),
+      and tests that name a package-level `var` reach nothing, so every
+      role rule says `tests: 0`. The remap has finished, so it can start.
+      Only the exclusion fix moves the corpus (admin loses its leaked
+      `testutil` rule): one reviewed re-record after it. The corpus
+      doesn't count `tests`. `policy_inventory_plan.md` builds on the same
+      package-level `var` index (its Part 2 design 8, after FIX R3).
+  - Done in the working tree (2026-11-06): R1 (`source.Excluded`,
+    `extract.WithoutExcluded`), R2 (webapp `-exclude-dirs`), R3
+    (`extractors/go/vars.go`; 50 admin rules gain tests,
+    `docs/verification/testreach-package-vars-2026-11-06.md`). Open:
+    R4-R6, and the corpus re-record once the outputs are regenerated.
 - [x] Enforce the `AGENTS.md` architecture rules that exist only as prose.
       Each failure should name the rule and the repair.
   - "`internal/atomicfs` is the only writer of output" (`AGENTS.md:239-241`):
@@ -436,8 +460,15 @@ examples) land before the remap. Decided 2026-11-02:
       occurs in a condition variable's name or as a constant a variable
       names; drop the condition side (a condition's values are already
       grounded in the cited code, so it only says the text is vaguer).
-- [ ] Have the webapp extractor's conditions carry what its EARS text
+- [x] Have the webapp extractor's conditions carry what its EARS text
       states: a permission check's scope and a rate limit's numbers.
+  - Done (2026-11-06) beside the condition rather than in it: rule facts'
+    `check_args` carry each check's capability, scope matcher, subject and
+    a rate limit's key and numbers, and grounding counts them as stated.
+    Extractor-rule disagreements 164 → 98 (districts), 170 → 87 (users);
+    what remains is the text quoting a whole call the condition names as
+    a variable, the next item's
+    (`docs/verification/check-args-disagreement-2026-11-06.md`).
 - [x] Executable examples (#5): written by the acceptance pass (see
       Acceptance), not the map, as `{given, expect}` rows checked against
       the condition with go-rule-engine; a contradicted example flags a

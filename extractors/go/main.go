@@ -154,6 +154,12 @@ func moduleFacts(m *loadedModule, root string, opts *options, log logf) ([]Fact,
 	tests := TestFacts(m, root)
 	log("%d test fact(s)", len(tests))
 	facts = append(facts, tests...)
+	reads, values, loads := ReadFacts(pkgs, fset, root), ValueFacts(pkgs, fset, root),
+		LoadFacts(pkgs, fset, root)
+	log("%d read(s), %d value use(s), %d load(s)", len(reads), len(values), len(loads))
+	facts = append(facts, reads...)
+	facts = append(facts, values...)
+	facts = append(facts, loads...)
 	if opts.cover != "" {
 		executed, err := executedFacts(opts.cover, m, root, log)
 		if err != nil {

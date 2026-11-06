@@ -455,6 +455,70 @@ func TestEndToEndMechanicalRule(t *testing.T) {
 	}
 }
 
+// TestEndToEndExcludedRuleFact: an extractor walks with its own skip list,
+// so a rule and a domain it states about code --exclude leaves out are
+// dropped and counted, while a rule elsewhere stays (FIX.md F2: a test
+// helper's role leaked into admin's spec).
+func TestEndToEndExcludedRuleFact(t *testing.T) {
+	server := mockLLM(t)
+	defer server.Close()
+	outDir := t.TempDir()
+	cfg := e2eConfig(t, server.URL, outDir)
+	cfg.Lang = "en"
+	cfg.Exclude = append(cfg.Exclude, "Billing")
+
+	factsPath := filepath.Join(t.TempDir(), "excluded.facts.json")
+	facts := `{"schema":"codetospec/facts/v1","facts":[
+{"kind":"rule","id":"rule.kept","origin":"webapp","certainty":"static",
+ "source":{"path":"app/Models/Invoice.php","lines":"1-3"},
+ "attrs":{"slug":"invoice-kept","title":"Invoice kept",
+  "requirement":"The system shall keep invoices.",
+  "ears":"ubiquitous","nature":"business","domain":"billing"}},
+{"kind":"rule","id":"rule.excluded","origin":"webapp","certainty":"static",
+ "source":{"path":"app/Services/Billing/ProrataCalculator.php","lines":"13-15"},
+ "attrs":{"slug":"excluded-rule","title":"Excluded rule",
+  "requirement":"The system shall prorate.",
+  "ears":"ubiquitous","nature":"business","domain":"helpers"}},
+{"kind":"domain","id":"domain.excluded","origin":"webapp","certainty":"static",
+ "source":{"path":"app/Services/Billing/ProrataCalculator.php","lines":"7-25"},
+ "attrs":{"domain":"helpers"}}]}`
+	if err := os.WriteFile(factsPath, []byte(facts), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg.FactsFiles = append(cfg.FactsFiles, factsPath)
+
+	if err := runPipeline(
+		context.Background(),
+		cfg,
+		ui.Discard{},
+		slog.New(slog.NewTextHandler(t.Output(), nil)),
+	); err != nil {
+		t.Fatalf("runPipeline: %v", err)
+	}
+	outFS := os.DirFS(outDir)
+	if _, err := fs.Stat(outFS, "nodes/rules/billing.invoice-kept.md"); err != nil {
+		t.Errorf("rule outside the excluded code was dropped: %v", err)
+	}
+	for _, gone := range []string{
+		"nodes/rules/helpers.excluded-rule.md",
+		"nodes/domains/helpers.md",
+	} {
+		if _, err := fs.Stat(outFS, gone); err == nil {
+			t.Errorf("%s rendered, though it cites excluded code", gone)
+		}
+	}
+	readme, err := fs.ReadFile(outFS, "README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "Extractor facts dropped (they cite code --exclude leaves out, see the logs): 2"; !strings.Contains(
+		string(readme),
+		want,
+	) {
+		t.Errorf("README.md lacks %q:\n%s", want, readme)
+	}
+}
+
 // TestEndToEndRootedRule: an extractor rule cited in another source tree
 // (--ref-root) is rendered with its root, grounded and digested from that
 // tree, and verified against it; without the root, verify reports it.

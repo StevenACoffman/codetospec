@@ -1,7 +1,9 @@
 package grounding
 
 import (
+	"encoding/json"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -68,7 +70,10 @@ func disagreement(n *graph.Node, values []literal, cited []string, opts Options)
 		return "not cited"
 	}
 	var parts []string
-	var written []string
+	// What the condition states, and what the extractor carries beside it
+	// that the notation can't (a check's scope matcher, a rate limit's
+	// numbers): the text naming either agrees with the rule.
+	written := carriedValues(n)
 	for i := range values {
 		written = append(written, values[i].text)
 		if !values[i].implicit() && !values[i].foundIn([]string{text}, nil) {
@@ -120,4 +125,47 @@ func citedLines(citations []Citation) []string {
 		cited = append(cited, c.File[c.Start-1:c.End]...)
 	}
 	return cited
+}
+
+// carriedValues are the values an extractor carries beside a rule's
+// condition, in graph.ExtraCheckArgs (JSON): every string in it, whatever
+// its shape, but those of labels (labels), sorted. None when absent or
+// malformed.
+func carriedValues(n *graph.Node) []string {
+	raw := n.Extra[graph.ExtraCheckArgs]
+	if raw == "" {
+		return nil
+	}
+	var decoded any
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		return nil
+	}
+	var out []string
+	var walk func(v any)
+	walk = func(v any) {
+		switch x := v.(type) {
+		case string:
+			out = append(out, x)
+		case []any:
+			for _, e := range x {
+				walk(e)
+			}
+		case map[string]any:
+			for k, e := range x {
+				if !slices.Contains(labels(), k) {
+					walk(e)
+				}
+			}
+		}
+	}
+	walk(decoded)
+	slices.Sort(out)
+	return out
+}
+
+// labels are the check_args keys whose strings describe a call (the
+// variable it became, what it means) rather than carry a value of the
+// code.
+func labels() []string {
+	return []string{"var", "means", "scope"}
 }

@@ -23,6 +23,93 @@ type resolverMethod struct {
 	// the methods that call it (see privateOps).
 	private bool
 	calls   []string // the methods it calls on its receiver
+	// params are its parameters' names after the context: a field
+	// resolver's first is the parent object (hasParent).
+	params []string
+	// locals maps each local its body defines once, at its top level,
+	// to the source of its value (userKaid := *user.Kaid).
+	locals map[string]string
+}
+
+// hasParent reports whether m resolves a field of an object, its first
+// parameter that object: not a root operation's, nor a federation
+// entity's (whose parameters are the keys).
+func (m *resolverMethod) hasParent() bool {
+	return !isRootType(m.typeName) && m.typeName != entityType
+}
+
+// bind says where an operand written as text comes from, when the
+// request supplies it: "arg:<param>[.field…]" for a parameter of m,
+// "parent[:field…]" for the parent object of a field resolver; "" for
+// anything else (a local, a call's result).
+func (m *resolverMethod) bind(text string) string {
+	t := strings.TrimLeft(text, "*&")
+	root, rest, _ := strings.Cut(t, ".")
+	if value, ok := m.locals[root]; ok && !slices.Contains(m.params, root) {
+		if rest != "" {
+			value += "." + rest
+		}
+		return m.bind(value) // a value is never itself a local of the body (definedOnce)
+	}
+	switch i := slices.Index(m.params, root); {
+	case i < 0 || root == "":
+		return ""
+	case i == 0 && m.hasParent() && rest == "":
+		return "parent"
+	case i == 0 && m.hasParent():
+		return "parent:" + rest
+	}
+	return "arg:" + t
+}
+
+// definedOnce maps each local fn's body defines at its top level with a
+// single := and never assigns again to the source of its value.
+func definedOnce(fset *token.FileSet, fn *ast.FuncDecl) map[string]string {
+	r := renderer{fset: fset}
+	locals := map[string]string{}
+	assigned := map[string]int{}
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		if as, ok := n.(*ast.AssignStmt); ok {
+			for _, lhs := range as.Lhs {
+				if id, isIdent := lhs.(*ast.Ident); isIdent {
+					assigned[id.Name]++
+				}
+			}
+		}
+		return true
+	})
+	for _, stmt := range fn.Body.List {
+		as, ok := stmt.(*ast.AssignStmt)
+		if !ok || as.Tok != token.DEFINE || len(as.Lhs) != 1 || len(as.Rhs) != 1 {
+			continue
+		}
+		if id, isIdent := as.Lhs[0].(*ast.Ident); isIdent && assigned[id.Name] == 1 {
+			locals[id.Name] = r.source(as.Rhs[0])
+		}
+	}
+	// A value naming another local would chain: keep only values rooted
+	// elsewhere, so bind never loops.
+	for name, value := range locals {
+		root, _, _ := strings.Cut(strings.TrimLeft(value, "*&"), ".")
+		if _, chained := locals[root]; chained {
+			delete(locals, name)
+		}
+	}
+	return locals
+}
+
+// paramNames lists fn's parameter names after the first (the context).
+func paramNames(fn *ast.FuncDecl) []string {
+	var names []string
+	for _, field := range fn.Type.Params.List {
+		for _, name := range field.Names {
+			names = append(names, name.Name)
+		}
+	}
+	if len(names) > 0 {
+		names = names[1:]
+	}
+	return names
 }
 
 // ruleKind is what a guard says about access.
@@ -65,9 +152,12 @@ type guard struct {
 	// that it rejects that loop's item and carries on (continue).
 	loop    *loop
 	perItem bool
-	// callee is the receiver method a delegation guard names (see
-	// delegate); "" for any other guard.
-	callee string
+	// callee is the resolver method a delegation guard names (see
+	// delegate); "" for any other guard. calleeRecv is its receiver type
+	// when it is not the delegating method's own (a receiver built in
+	// place, see rebuiltResolver).
+	callee     string
+	calleeRecv string
 	// alts are the branches a policy accepts in (rulePermit): their
 	// conditions, and the loop each sits in.
 	alts []guard
@@ -105,6 +195,8 @@ func resolverMethods(
 			guards:   sc.rules(fn),
 			private:  !fn.Name.IsExported(),
 			calls:    receiverCalls(fn),
+			params:   paramNames(fn),
+			locals:   definedOnce(fset, fn),
 		})
 	}
 	return methods
@@ -899,6 +991,10 @@ func isAuthorizationError(name string) bool {
 	return false
 }
 
+// aclPkg is webapp's access-control package (pkg/khan/acl), named in
+// calls by its package name.
+const aclPkg = "acl"
+
 // isAccessCheck reports whether call is an access predicate: acl.Is…,
 // acl.Actor…, acl.Has…, acl.Can… or a ktx.RequestIs…() method.
 func isAccessCheck(call *ast.CallExpr) bool {
@@ -907,7 +1003,7 @@ func isAccessCheck(call *ast.CallExpr) bool {
 		return false
 	}
 	name := sel.Sel.Name
-	if pkg, isIdent := sel.X.(*ast.Ident); isIdent && pkg.Name == "acl" {
+	if pkg, isIdent := sel.X.(*ast.Ident); isIdent && pkg.Name == aclPkg {
 		for _, prefix := range []string{"Is", "Actor", "Has", "Can"} {
 			if strings.HasPrefix(name, prefix) {
 				return true
@@ -926,7 +1022,7 @@ func aclMarker(call *ast.CallExpr) (ruleKind, bool) {
 	if !ok {
 		return 0, false
 	}
-	if pkg, isIdent := sel.X.(*ast.Ident); !isIdent || pkg.Name != "acl" {
+	if pkg, isIdent := sel.X.(*ast.Ident); !isIdent || pkg.Name != aclPkg {
 		return 0, false
 	}
 	switch sel.Sel.Name {
@@ -1180,20 +1276,30 @@ func (sc scanner) rules(fn *ast.FuncDecl) []guard {
 	return nil
 }
 
-// delegate names the first exported method fn calls on its receiver: an
-// alias resolver (FindManyStudentListByDescriptors calling
-// r.FindManyClassroomByDescriptors) is checked as the one it calls.
+// delegate names the first exported method fn calls on its receiver, or on
+// another resolver type's value built in place: an alias resolver
+// (FindManyStudentListByDescriptors calling r.FindManyClassroomByDescriptors,
+// districts' studentListResolver calling
+// (&classroomResolver{r.Resolver}).IsKacPilotClassroom) is checked as the
+// one it calls.
 func (sc scanner) delegate(fn *ast.FuncDecl) (guard, bool) {
 	var (
-		found  *ast.CallExpr
-		callee string
+		found              *ast.CallExpr
+		callee, calleeRecv string
 	)
 	ast.Inspect(fn.Body, func(n ast.Node) bool {
-		if call, ok := n.(*ast.CallExpr); ok && found == nil {
-			if sel, isSel := call.Fun.(*ast.SelectorExpr); isSel &&
-				sel.Sel.IsExported() && isReceiver(fn, sel.X) {
-				found, callee = call, sel.Sel.Name
-			}
+		call, ok := n.(*ast.CallExpr)
+		if !ok || found != nil {
+			return found == nil
+		}
+		sel, isSel := call.Fun.(*ast.SelectorExpr)
+		if !isSel || !sel.Sel.IsExported() {
+			return true
+		}
+		if isReceiver(fn, sel.X) {
+			found, callee = call, sel.Sel.Name
+		} else if recv, built := rebuiltResolver(sel.X); built {
+			found, callee, calleeRecv = call, sel.Sel.Name, recv
 		}
 		return found == nil
 	})
@@ -1201,12 +1307,38 @@ func (sc scanner) delegate(fn *ast.FuncDecl) (guard, bool) {
 		return guard{}, false
 	}
 	return guard{
-		kind:    ruleChecked,
-		subject: found.Fun,
-		start:   sc.fset.Position(found.Pos()).Line,
-		end:     sc.fset.Position(found.End()).Line,
-		callee:  callee,
+		kind:       ruleChecked,
+		subject:    found.Fun,
+		start:      sc.fset.Position(found.Pos()).Line,
+		end:        sc.fset.Position(found.End()).Line,
+		callee:     callee,
+		calleeRecv: calleeRecv,
 	}, true
+}
+
+// rebuiltResolver returns the resolver type of a value built in place,
+// (&classroomResolver{r.Resolver}): gqlgen's resolver types all end in
+// resolverSuffix. False for anything else.
+func rebuiltResolver(x ast.Expr) (string, bool) {
+	for {
+		paren, ok := x.(*ast.ParenExpr)
+		if !ok {
+			break
+		}
+		x = paren.X
+	}
+	if addr, ok := x.(*ast.UnaryExpr); ok && addr.Op == token.AND {
+		x = addr.X
+	}
+	lit, isLit := x.(*ast.CompositeLit)
+	if !isLit {
+		return "", false
+	}
+	name, isIdent := lit.Type.(*ast.Ident)
+	if !isIdent || !strings.HasSuffix(name.Name, resolverSuffix) || name.Name == rootResolver {
+		return "", false
+	}
+	return name.Name, true
 }
 
 // keepBackedDelegations returns methods without the delegation of a method
@@ -1229,7 +1361,7 @@ func keepBackedDelegations(methods [][]resolverMethod) [][]resolverMethod {
 			for j := range fileMethods {
 				m := &fileMethods[j]
 				if len(m.guards) == 1 && m.guards[0].callee != "" &&
-					!ruled[m.recv+"."+m.guards[0].callee] {
+					!ruled[m.guards[0].delegatesTo(m.recv)] {
 					m.guards = nil
 					changed = true
 				}

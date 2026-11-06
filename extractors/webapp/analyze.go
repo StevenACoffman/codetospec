@@ -35,6 +35,10 @@ type Inputs struct {
 	// AccessPkgs names the service's own access packages (permissions):
 	// their exported functions returning bool first are access checks.
 	AccessPkgs []string
+	// ExcludeDirs names more directories the service walk skips, beside the
+	// fixed ones (see skippedDir): codetospec's --exclude directories, such
+	// as testutil, whose code the spec must not cite.
+	ExcludeDirs []string
 }
 
 // Analyze derives facts from a webapp service.
@@ -49,7 +53,7 @@ func Analyze(in *Inputs) ([]Fact, []string, error) {
 	if err != nil {
 		return nil, warnings, err
 	}
-	names, err := goSources(fsys)
+	names, err := goSources(fsys, in.ExcludeDirs)
 	if err != nil {
 		return nil, warnings, err
 	}
@@ -70,7 +74,7 @@ func Analyze(in *Inputs) ([]Fact, []string, error) {
 	facts := slices.Concat(
 		resolverFacts,
 		entryScan(sources, shared.sources, known, &w),
-		policyFacts(found, &w, domainAt(resolverFacts)),
+		policyFacts(found, &w, known, domainAt(resolverFacts)),
 		tableFacts(sources, found, &w),
 		sharedFacts(shared, reach, known, &w),
 		contractFacts(sources, shared, reach, &w),
@@ -79,10 +83,13 @@ func Analyze(in *Inputs) ([]Fact, []string, error) {
 		entFacts,
 		depFacts,
 		roleFacts(sources, &w),
+		capabilityFacts(sources),
 		apiTypeFacts(fsys),
+		valueKindFacts(),
 	)
 	warnings = slices.Concat(
 		warnings, sharedWarnings, resolverWarnings, entWarnings, depWarnings)
+	facts = append(facts, accessCheckFacts(facts, known, sources, shared.sources)...)
 	sortFacts(facts)
 	return facts, warnings, nil
 }
@@ -168,7 +175,7 @@ func resolverScan(
 		trees[i] = s.file
 	}
 	known.helpers = helperPredicates(trees, known)
-	rs := resolverScanner{schema: schema, w: *w}
+	rs := resolverScanner{schema: schema, w: *w, known: known}
 	types := resolverTypes(trees, schema)
 	methods := make([][]resolverMethod, len(resolverFiles))
 	for i, s := range resolverFiles {
@@ -177,6 +184,7 @@ func resolverScan(
 	methods = keepBackedDelegations(methods)
 	rs.catchAll = catchAllSchemas(schema, resolverFiles, methods)
 	rs.private = rs.privateOps(resolverFiles, methods)
+	rs.handlers = rs.handlerOps(resolverFiles, methods)
 	var (
 		facts    []Fact
 		warnings []string
@@ -196,7 +204,11 @@ type resolverScanner struct {
 	// private holds the operation of each private resolver method
 	// ("mutationResolver._helper") whose callers agree on one.
 	private map[string]operation
-	w       wording
+	// handlers holds the operation each public resolver method serves, by
+	// "recv.Method": what a delegation's target is.
+	handlers map[string]string
+	w        wording
+	known    checks // helpers included: the checks guards are named against
 }
 
 // A schema file is a catch-all, naming no domain, when it declares the
@@ -291,8 +303,11 @@ func (rs *resolverScanner) scanFile(s *source, methods []resolverMethod) ([]Fact
 		default:
 			fileDomains[op.domain] = true
 			facts = append(facts, rs.fieldFacts(s.name, &m, &field, &op)...)
+			if len(m.guards) == 0 {
+				facts = append(facts, unguardedFact(s.name, &m, &op))
+			}
 		}
-		facts = append(facts, ruleFacts(s.fset, &rs.w, s.name, &m, &op)...)
+		facts = append(facts, rs.resolved(ruleFacts(s.fset, &rs.w, rs.known, s.name, &m, &op))...)
 	}
 	if len(fileDomains) == 1 {
 		// The file's helpers serve its resolvers: give the whole file their
@@ -313,6 +328,36 @@ func (rs *resolverScanner) operationOf(file string, m *resolverMethod) (operatio
 		op.domain = rs.domainFor(file, field.file)
 	}
 	return op, field
+}
+
+// handlerOps returns the operation of each public resolver method that
+// matches a schema field, by "recv.Method".
+func (rs *resolverScanner) handlerOps(
+	files []*source,
+	methods [][]resolverMethod,
+) map[string]string {
+	ops := map[string]string{}
+	for i, s := range files {
+		for j := range methods[i] {
+			m := &methods[i][j]
+			if op, field := rs.operationOf(s.name, m); !m.private && field.file != "" {
+				ops[m.recv+"."+m.method] = op.name
+			}
+		}
+	}
+	return ops
+}
+
+// resolved names, on each delegation rule of facts, the operation its
+// target serves (attrDelegatesToOperation), when a public resolver method
+// of the service is that target.
+func (rs *resolverScanner) resolved(facts []Fact) []Fact {
+	for _, f := range facts {
+		if op := rs.handlers[f.Attrs[attrDelegatesTo]]; op != "" {
+			f.Attrs[attrDelegatesToOperation] = op
+		}
+	}
+	return facts
 }
 
 // privateOps returns the operation each private resolver method serves:
@@ -423,25 +468,27 @@ func (rs *resolverScanner) fieldFacts(
 	return facts
 }
 
-// skippedDirs hold no code the spec cites: dependencies, generated code and
-// test fixtures.
-func skippedDir(name string) bool {
+// skippedDir reports whether a directory holds no code the spec cites:
+// dependencies, generated code, test fixtures, hidden directories, and
+// those named in extra.
+func skippedDir(name string, extra []string) bool {
 	switch name {
 	case "vendor", "node_modules", "generated", "testdata":
 		return true
 	}
-	return strings.HasPrefix(name, ".")
+	return strings.HasPrefix(name, ".") || slices.Contains(extra, name)
 }
 
-// goSources lists the service's non-test Go files, sorted.
-func goSources(fsys fs.FS) ([]string, error) {
+// goSources lists the non-test Go files of fsys, sorted, skipping the
+// directories skippedDir names (with excludeDirs as its extra ones).
+func goSources(fsys fs.FS, excludeDirs []string) ([]string, error) {
 	var files []string
 	err := fs.WalkDir(fsys, ".", func(name string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
-			if name != "." && skippedDir(d.Name()) {
+			if name != "." && skippedDir(d.Name(), excludeDirs) {
 				return fs.SkipDir
 			}
 			return nil
@@ -578,16 +625,17 @@ type operation struct {
 }
 
 // routeFact makes a root field an endpoint: method is the operation type,
-// path the field, handler the resolver method in file.
+// path the field, handler the resolver method in file, at its span.
 func routeFact(file string, m *resolverMethod, field *schemaField) Fact {
 	return Fact{
 		Kind: kindRoute,
 		ID:   "route.graphql." + strings.ToLower(m.typeName) + "." + field.name,
 		Attrs: map[string]string{
-			attrMethod:      strings.ToUpper(m.typeName),
-			attrPath:        field.name,
-			attrHandler:     m.recv + "." + m.method,
-			attrHandlerPath: file,
+			attrMethod:       strings.ToUpper(m.typeName),
+			attrPath:         field.name,
+			attrHandler:      m.recv + "." + m.method,
+			attrHandlerPath:  file,
+			attrHandlerLines: lines(m.start, m.end),
 		},
 		Source:    Ref{Path: field.file, Lines: lines(field.line, field.line)},
 		Origin:    origin,
@@ -602,10 +650,12 @@ const (
 	natureBusiness = "business"
 )
 
-// ruleFacts turns each guard of m into a rule fact for op.
+// ruleFacts turns each guard of m into a rule fact for op, naming the
+// checks it calls among known (see checks.checkAttrs).
 func ruleFacts(
 	fset *token.FileSet,
 	w *wording,
+	known checks,
 	file string,
 	m *resolverMethod,
 	op *operation,
@@ -641,8 +691,15 @@ func ruleFacts(
 		if op.route != "" {
 			attrs[attrRoute] = op.route
 		}
+		if op.name != "" {
+			attrs[attrOperation] = op.name // the enforcement point, endpoint or not
+		}
 		if cond := conditionOf(fset, g); cond != "" {
 			attrs[attrCondition] = cond
+		}
+		maps.Copy(attrs, known.checkAttrs(fset, g, m.bind))
+		if to := g.delegatesTo(m.recv); to != "" {
+			attrs[attrDelegatesTo] = to
 		}
 		facts = append(facts, Fact{
 			Kind:      kindRule,

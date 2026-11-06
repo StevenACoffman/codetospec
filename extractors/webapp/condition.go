@@ -73,12 +73,8 @@ func (c conditioner) node(e ast.Expr) cnode {
 			return n
 		}
 	case *ast.CallExpr:
-		if isRateLimit(x) || isAccessCheck(x) {
-			return holds(c.checkVariable(x))
-		}
-		// A predicate call by its function: the notation has no call
-		// operands, the arguments stay in the requirement's text.
-		return holds(variableName(c.r.source(x.Fun)))
+		name, _ := c.callVariable(x)
+		return holds(name)
 	case *ast.IndexExpr:
 		if c.r.marks.present[x] {
 			return cnode{Exists: variableName(c.r.source(x.X) + "." + c.key(x.Index))}
@@ -113,6 +109,10 @@ const opEqual = "equal"
 
 // isLoggedIn names acl.IsLoggedIn, the login check.
 const isLoggedIn = "IsLoggedIn"
+
+// isServiceAdminQuery names the request method saying a call is a
+// service-admin request.
+const isServiceAdminQuery = "RequestIsServiceAdminQuery"
 
 // comparisonOp maps a Go comparison operator to the notation's; false for
 // any other token.
@@ -188,6 +188,21 @@ func isNil(e ast.Expr) bool {
 	return ok && id.Name == "nil"
 }
 
+// callVariable is the variable a call in the condition becomes, and
+// whether it holds when the call fails: a bound error's call
+// ("X.fails"), a known check (checkVariable), or a predicate by its
+// function (the notation has no call operands, the arguments stay in the
+// requirement's text).
+func (c conditioner) callVariable(call *ast.CallExpr) (string, bool) {
+	switch {
+	case c.r.marks.failed[call]:
+		return variableName(c.r.source(call.Fun) + ".fails"), true
+	case isRateLimit(call) || isAccessCheck(call):
+		return c.checkVariable(call), false
+	}
+	return variableName(c.r.source(call.Fun)), false
+}
+
 // checkVariable names the variable a known check stands for: the caller's
 // login, a permission, a rate limit, a service-admin request; another
 // access check by its function (its arguments stay in the requirement's
@@ -206,7 +221,7 @@ func (c conditioner) checkVariable(call *ast.CallExpr) string {
 		return "caller.loggedIn"
 	case sel.Sel.Name == "ActorHasPermission" || sel.Sel.Name == "ActorHasPermissionErr":
 		return variableName("caller.hasPermission." + c.r.permission(call))
-	case sel.Sel.Name == "RequestIsServiceAdminQuery":
+	case sel.Sel.Name == isServiceAdminQuery:
 		return "request.isServiceAdmin"
 	}
 	return variableName(c.r.source(call.Fun))

@@ -89,3 +89,59 @@ func TestAnnotateConditions(t *testing.T) {
 		})
 	}
 }
+
+// guardFile is an access guard whose scope its condition can't state (the
+// notation has no call operands): admin's getIPRestrictionInfo.
+const guardFile = "if !acl.ActorHasPermission(ctx, capabilities.CanModerateUsers, acl.GlobalScope) {\n" +
+	"\treturn nil, errors.Unauthorized()\n}\n"
+
+// TestDisagreementReadsCheckArgs: a value the EARS text names that the
+// condition leaves out but the rule's check_args carries (a check's
+// capability, its scope matcher) is no disagreement; without check_args
+// it is one.
+func TestDisagreementReadsCheckArgs(t *testing.T) {
+	fsys := fstest.MapFS{"guard.go": {Data: []byte(guardFile)}}
+	const (
+		requirement = "IF the caller lacks permission `CanModerateUsers` for `acl.GlobalScope`, " +
+			"THEN the system shall reject Query.getIPRestrictionInfo with the `Unauthorized` error."
+		cond      = `{"not":{"var":"caller.hasPermission.CanModerateUsers","op":"equal","value":true}}`
+		checkArgs = `[{"check":"acl.ActorHasPermission","var":"caller.hasPermission.CanModerateUsers",` +
+			`"means":"capability","scope":"global","capability":"CanModerateUsers","matcher":"acl.GlobalScope"}]`
+		// A call's labels (its variable, meanings) name; they carry no value.
+		labelsOnly = `[{"var":"CanModerateUsers","means":"acl.GlobalScope"}]`
+	)
+	cases := []struct {
+		name, checkArgs, want string
+	}{
+		{
+			"without check_args",
+			"",
+			"text `CanModerateUsers` (cited); text `acl.GlobalScope` (cited)",
+		},
+		{"with check_args", checkArgs, ""},
+		{
+			"labels only",
+			labelsOnly,
+			"text `CanModerateUsers` (cited); text `acl.GlobalScope` (cited)",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			node := graph.Node{
+				ID:      "rule.admin.authz-query-getiprestrictioninfo",
+				Type:    graph.TypeRule,
+				Body:    "**Requirement (EARS)**: " + requirement,
+				Sources: []extract.Ref{{Path: "guard.go", Lines: "1-3"}},
+				Extra:   map[string]string{graph.ExtraCondition: cond},
+			}
+			if tc.checkArgs != "" {
+				node.Extra[graph.ExtraCheckArgs] = tc.checkArgs
+			}
+			got := grounding.Annotate(extract.Roots{Src: fsys}, []graph.Node{node},
+				grounding.Options{DecimalSeparator: '.'})[0]
+			if d := got.Extra[graph.ExtraConditionDisagreement]; d != tc.want {
+				t.Errorf("disagreement = %q, want %q", d, tc.want)
+			}
+		})
+	}
+}

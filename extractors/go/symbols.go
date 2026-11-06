@@ -46,7 +46,9 @@ func moduleDecls(
 }
 
 // addFileDecls adds a file's functions, methods and named types to decls;
-// variables and constants are skipped: a rule is about behavior.
+// variables and constants are skipped: a rule is about behavior. Test reach
+// alone adds package-level variables (packageVars), since a test that reads
+// a registry table tests the rule citing it.
 func addFileDecls(decls map[types.Object]moduleDecl, file *ast.File, rel string, info *types.Info) {
 	for _, decl := range file.Decls {
 		for _, d := range declared(decl) {
@@ -113,7 +115,10 @@ func symbolKind(obj types.Object) string {
 
 // CallFacts lists which of the module's functions and methods call or use
 // which others of the module: one call fact per caller and callee, both
-// cited by their declaration span. codetospec places a definition used by
+// cited by their declaration span. A package-level variable holding a
+// function (see callableVars) is a caller and a callee too, so a call
+// through a cache wrapper or a dataloader reaches the code behind it.
+// codetospec places a definition used by
 // callers of one domain alone in that domain. A call of a method of one of
 // the module's interfaces gives a fact per implementation, marked
 // attrDispatch; a direct use of the same callee wins.
@@ -123,13 +128,15 @@ func symbolKind(obj types.Object) string {
 func CallFacts(pkgs []*packages.Package, fset *token.FileSet, root string) []Fact {
 	decls := moduleDecls(pkgs, fset, root)
 	impls := implementations(decls, fset)
+	// A function held in a package-level variable calls and is called too.
+	maps.Copy(decls, callableVars(pkgs, fset, root))
 	byID := map[string]Fact{} // two declarations may share one span
 	for _, caller := range decls {
-		fn, isFunc := caller.node.(*ast.FuncDecl)
-		if !isFunc || fn.Body == nil {
+		body := callerBody(caller.node)
+		if body == nil {
 			continue
 		}
-		for callee, static := range calleesOf(fn, &caller, decls, impls, fset) {
+		for callee, static := range calleesOf(body, &caller, decls, impls, fset) {
 			f := callFact(&caller, &callee, static, fset)
 			if prior, seen := byID[f.ID]; !seen || prior.Attrs[attrDispatch] != "" {
 				byID[f.ID] = f
@@ -141,17 +148,32 @@ func CallFacts(pkgs []*packages.Package, fset *token.FileSet, root string) []Fac
 	return facts
 }
 
-// calleesOf lists the module declarations fn's body uses, each with
-// whether it uses it directly (true) or only through an interface (false).
+// callerBody is the code a declaration runs: a function's body, a callable
+// variable's initializer; nil for anything else (a type, a function
+// without a body).
+func callerBody(node ast.Node) ast.Node {
+	switch d := node.(type) {
+	case *ast.FuncDecl:
+		if d.Body != nil {
+			return d.Body
+		}
+	case *ast.ValueSpec:
+		return d
+	}
+	return nil
+}
+
+// calleesOf lists the module declarations body uses, each with whether it
+// uses it directly (true) or only through an interface (false).
 func calleesOf(
-	fn *ast.FuncDecl,
+	body ast.Node,
 	caller *moduleDecl,
 	decls map[types.Object]moduleDecl,
 	impls map[token.Position][]moduleDecl,
 	fset *token.FileSet,
 ) map[moduleDecl]bool {
 	callees := map[moduleDecl]bool{}
-	ast.Inspect(fn.Body, func(n ast.Node) bool {
+	ast.Inspect(body, func(n ast.Node) bool {
 		id, isIdent := n.(*ast.Ident)
 		if !isIdent {
 			return true

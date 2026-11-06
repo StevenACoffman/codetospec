@@ -108,6 +108,27 @@ const (
 	ExtraConditionHash = "condition_hash"
 )
 
+// ExtraChecks and ExtraCheckArgs are the frontmatter keys of what an
+// extractor's access rule checks (extract.AttrChecks, extract.AttrCheckArgs):
+// the checks' names and, as JSON, the operands its condition can't state.
+// ExtraDelegatesTo is the handler an alias rule is checked as;
+// ExtraCheckScope says a guard drops one item, not the call
+// (extract.AttrCheckScope). Copied from
+// the rule fact as the extractor wrote them; the policy inventory reads
+// them, and grounding counts a value they carry as stated.
+const (
+	ExtraChecks      = "checks"
+	ExtraCheckArgs   = "check_args"
+	ExtraDelegatesTo = "delegates_to"
+	ExtraCheckScope  = "scope_of_check"
+	// ExtraDelegatesToOperation is the operation an alias rule's handler
+	// serves (extract.AttrDelegatesToOperation).
+	ExtraDelegatesToOperation = "delegates_to_operation"
+	// ExtraOperation is what an extractor rule guards (extract.AttrOperation,
+	// "User.emails"): the enforcement point when it has no endpoint.
+	ExtraOperation = "operation"
+)
+
 // ExtraConditionDropped is the frontmatter key of the values a rule's
 // condition compared with that its cited lines do not hold: the condition
 // was removed. ExtraConditionDisagreement is that of how a kept condition
@@ -385,6 +406,18 @@ func ruleFactExtra(f *extract.Fact) map[string]string {
 		"ears":   f.Attrs[extract.AttrEARS],
 		"nature": f.Attrs[extract.AttrNature],
 		"origin": "explicit",
+	}
+	for _, carried := range [][2]string{
+		{extract.AttrChecks, ExtraChecks},
+		{extract.AttrCheckArgs, ExtraCheckArgs},
+		{extract.AttrDelegatesTo, ExtraDelegatesTo},
+		{extract.AttrCheckScope, ExtraCheckScope},
+		{extract.AttrDelegatesToOperation, ExtraDelegatesToOperation},
+		{extract.AttrOperation, ExtraOperation},
+	} {
+		if v := f.Attrs[carried[0]]; v != "" {
+			extra[carried[1]] = v
+		}
 	}
 	from := f.Attrs[extract.AttrInheritedFrom]
 	if from == "" {

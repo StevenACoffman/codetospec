@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"maps"
 	"sort"
 	"strings"
 	"unicode"
@@ -12,9 +13,9 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-// TestFacts lists which of the module's declarations each test function
-// uses: one test fact per test and declaration, citing the test, with the
-// declaration as callee. A use through a helper declared in a _test.go
+// TestFacts lists which of the module's declarations and package-level
+// variables (see packageVars) each test function uses: one test fact per
+// test and declaration, citing the test, with the declaration as callee. A use through a helper declared in a _test.go
 // file counts as the test's own: helpers are how tests share setup and
 // assertions. A call of a method of one of the module's interfaces uses
 // each implementation, marked attrDispatch unless also used directly. codetospec follows the module's call facts from there to
@@ -28,6 +29,8 @@ func TestFacts(m *loadedModule, root string) []Fact {
 		decls: declsByPosition(module, m.fset),
 		impls: map[token.Position][]declSpan{},
 	}
+	// A test that reads a package-level table tests it (see packageVars).
+	maps.Copy(uses.decls, packageVars(m.pkgs, m.fset, root))
 	for pos, impls := range implementations(module, m.fset) {
 		for i := range impls {
 			uses.impls[pos] = append(uses.impls[pos], spanOf(&impls[i], m.fset))

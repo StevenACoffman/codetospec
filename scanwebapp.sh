@@ -53,6 +53,9 @@
 #                    rules get `executed: k/n`; files changed since are left out
 #   DRY_RUN=1        stop before calling the LLM, print the command
 #
+# <OUT_DIR>/adopted.facts.json, when present, is passed with --facts: rule
+# facts a person records for what the pipeline can't derive.
+#
 # Note: codetospec counts prompt+completion tokens only; Gemini also bills
 # thinking tokens — check the Gemini usage page for the real cost.
 set -euo pipefail
@@ -124,6 +127,11 @@ default_exclude+=',*.md,*.txt,*.json,*.yaml,*.yml,*.sql,*.graphql,*.sh,*.toml'
 default_exclude+=',*.png,*.jpg,*.xml,*.gotxt,*.gohtml,Makefile,*.proto.dep'
 default_exclude+=',README,*.ipynb,*.tf,*.feature'
 exclude=${EXCLUDE:-$default_exclude}
+# Test-helper directories: the Go extractor takes their route
+# registrations for mock servers (-skip-dirs), the webapp extractor would
+# take their role registrations for the service's (-exclude-dirs). One list
+# for both; codetospec also drops any rule citing an --exclude'd path.
+test_helper_dirs='testutil'
 if [ -n "${EXTRA_EXCLUDE:-}" ]; then
     exclude+=",$EXTRA_EXCLUDE"
 fi
@@ -168,7 +176,8 @@ if [ "$service" != pkg ]; then
         inherit_args=(--inherit "pkg=$pkg_graph")
     fi
     printf '==> extracting %s → %s\n' "$service_dir" "$facts_file" >&2
-    "$repo_dir/bin/webapp-extract" -root "$service_dir" -lang "$spec_lang" >"$facts_file"
+    "$repo_dir/bin/webapp-extract" -root "$service_dir" -lang "$spec_lang" \
+        -exclude-dirs "$test_helper_dirs" >"$facts_file"
     count() { grep -o "\"kind\":\"$1\"" "$facts_file" | wc -l | tr -d ' '; }
     printf '    rules %s · domains %s · endpoints %s · entities %s · docs %s · cross-service calls %s · pkg declarations reached %s (inheriting from %s)\n' \
         "$(count rule)" "$(count domain)" "$(count route)" "$(count table)" \
@@ -185,7 +194,7 @@ cover_args=()
 if [ -n "${COVER:-}" ]; then
     cover_args=(-cover "$(cd "$(dirname "$COVER")" && pwd)/$(basename "$COVER")")
 fi
-if (cd "$service_dir" && "$repo_dir/bin/go-extract" -root . -skip-dirs testutil "${cover_args[@]}" >"$go_file" 2>"$go_file.log"); then
+if (cd "$service_dir" && "$repo_dir/bin/go-extract" -root . -skip-dirs "$test_helper_dirs" "${cover_args[@]}" >"$go_file" 2>"$go_file.log"); then
     gcount() { grep -o "\"kind\":\"$1\"" "$go_file" | wc -l | tr -d ' '; }
     printf '    routes %s · constants %s · precise symbols %s · calls %s\n' \
         "$(gcount route)" "$(gcount constant)" "$(gcount symbol)" "$(gcount call)" >&2
@@ -203,6 +212,13 @@ if [ "$scip" = 1 ]; then
     "$repo_dir/bin/scip2facts" --index "$scip_index" --root "$scip_root" >"$scip_facts"
     printf '    %s precise symbols\n' "$(grep -o '"kind":"symbol"' "$scip_facts" | wc -l | tr -d ' ')" >&2
     facts_args+=(--facts "$scip_facts")
+fi
+
+# A person's hand-recorded rule facts (FIX.md R5), kept beside the output.
+adopted=$out_dir/adopted.facts.json
+if [ -f "$adopted" ]; then
+    printf '==> adopting %s\n' "$adopted" >&2
+    facts_args+=(--facts "$adopted")
 fi
 
 # --- 3. run codetospec -----------------------------------------------------

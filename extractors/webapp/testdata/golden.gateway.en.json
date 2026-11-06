@@ -1,5 +1,48 @@
 [
   {
+    "kind": "access_check",
+    "id": "access_check.webapp.method.RequestIsTask",
+    "attrs": {
+      "form": "acl",
+      "name": "method.RequestIsTask"
+    },
+    "source": {
+      "path": "",
+      "lines": ""
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "access_check",
+    "id": "access_check.webapp.pubsub.DecodeAndValidatePushMsg",
+    "attrs": {
+      "form": "marked",
+      "name": "pubsub.DecodeAndValidatePushMsg"
+    },
+    "source": {
+      "path": "gcloud/pubsub/receiving.go",
+      "lines": "5-15",
+      "root": "pkg"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "access_check",
+    "id": "access_check.webapp._ensureLoggedIn",
+    "attrs": {
+      "form": "marked",
+      "name": "_ensureLoggedIn"
+    },
+    "source": {
+      "path": "routes/settings.go",
+      "lines": "39-44"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
     "kind": "reach",
     "id": "reach.pkg.gcloud/pubsub/protobuf.go#computeSignature",
     "attrs": {
@@ -94,6 +137,7 @@
       "domain": "gateway",
       "ears": "ubiquitous",
       "nature": "business",
+      "operation": "ValidateCSRF",
       "requirement": "The system shall accept a request checked by `ValidateCSRF` only when `_isApp(originHeaderValue)` holds OR `_validateCSRF(xKAFKeyHeaderValue)` succeeds OR `_isExempted(operationName)` holds, and reject it otherwise.",
       "slug": "policy-validatecsrf",
       "title": "Access policy: ValidateCSRF"
@@ -205,6 +249,7 @@
       "domain": "routes",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "/graphql/, /tasks/graphql/",
       "requirement": "IF `r.Method == http.MethodPost` holds AND `os.Getenv(\"KA_IS_DEV_SERVER\") != \"0\"` does not hold AND `validateIsTrustedClient(ctx, r.Header, \"X-Ka-Task-Secret\", useTaskSecret)` fails AND `validateIsTrustedClient(ctx, r.Header, \"X-Ka-Service-Admin-Query\", useServiceAdminSecret)` fails AND `gateway.ValidateCSRF(r.Header.Get(\"Origin\"), r.Header.Get(\"X-Ka-Fkey\"))` fails, THEN the system shall reject /graphql/, /tasks/graphql/ with the `StatusUnauthorized` error.",
       "slug": "authz-graphql-tasks-graphql-2",
       "title": "Access control: /graphql/, /tasks/graphql/ (2)"
@@ -224,6 +269,7 @@
       "domain": "routes",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "/graphql/, /tasks/graphql/",
       "requirement": "IF `gateway.RateLimit(ctx, operationName(r), r.Header.Get(\"X-Ka-Kaid\"))` holds, THEN the system shall reject /graphql/, /tasks/graphql/ with the `RateLimitExceeded` error.",
       "slug": "authz-graphql-tasks-graphql",
       "title": "Access control: /graphql/, /tasks/graphql/"
@@ -263,6 +309,7 @@
       "domain": "routes",
       "ears": "ubiquitous",
       "nature": "business",
+      "operation": "_validatePermission",
       "requirement": "The system shall accept a request checked by `_validatePermission` only when `isDev` holds OR (`queryIsSafelisted` holds AND `operationName == queryName` holds) OR `validateIsTrustedClient(ctx, requestHeaders, \"X-Ka-Gateway-Secret\", useGatewaySecret)` succeeds OR (`operationName == _devadminQueryOperationName` holds AND the caller has permission `CanPerformDynamicGraphqlQueries` for any user) OR (`queryIsSafelisted` holds AND `queryName` is a key of `oldMobileExceptions` AND `operationName == allowedOpnameInURL` holds), and reject it otherwise with the `Unauthorized` error.",
       "slug": "policy-validatepermission",
       "title": "Access policy: _validatePermission"
@@ -296,10 +343,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.routes/pubsub.go:12-16",
     "attrs": {
+      "check_args": "[{\"check\":\"pubsub.DecodeAndValidatePushMsg\",\"var\":\"pubsub.DecodeAndValidatePushMsg.fails\",\"fails\":true,\"means\":\"push\"}]",
+      "checks": "pubsub.DecodeAndValidatePushMsg",
       "condition": "{\"var\":\"pubsub.DecodeAndValidatePushMsg.fails\",\"op\":\"equal\",\"value\":true}",
       "domain": "routes",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "/pubsub/push",
       "requirement": "IF `pubsub.DecodeAndValidatePushMsg(ctx, r)` fails, THEN the system shall reject /pubsub/push.",
       "slug": "authz-pubsub-push",
       "title": "Access control: /pubsub/push"
@@ -319,6 +369,7 @@
       "domain": "routes",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "/pubsub/token",
       "requirement": "IF `r.URL.Query().Get(\"token\") != _pushToken` holds, THEN the system shall reject /pubsub/token.",
       "slug": "authz-pubsub-token",
       "title": "Access control: /pubsub/token"
@@ -337,6 +388,7 @@
       "domain": "routes",
       "ears": "ubiquitous",
       "nature": "business",
+      "operation": "/tasks/cleanup",
       "requirement": "The system shall check access to /tasks/cleanup with `serve.CreateTaskHandler`.",
       "slug": "authzcheck-tasks-cleanup",
       "title": "Access check: /tasks/cleanup"
@@ -355,6 +407,7 @@
       "domain": "routes",
       "ears": "ubiquitous",
       "nature": "business",
+      "operation": "/tasks/archive",
       "requirement": "The system shall check access to /tasks/archive with `serve.CreateTaskHandler`.",
       "slug": "authzcheck-tasks-archive",
       "title": "Access check: /tasks/archive"
@@ -410,6 +463,7 @@
       "domain": "routes",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "/settings",
       "requirement": "IF `validateIsTrustedClient(ctx, r.Header, \"X-Ka-Secret-Key\", useSettingsSecret)` fails, THEN the system shall reject /settings with the `Unauthorized` error.",
       "slug": "authz-settings",
       "title": "Access control: /settings"
@@ -425,10 +479,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.routes/settings.go:27-29",
     "attrs": {
+      "check_args": "[{\"check\":\"method.RequestIsTask\",\"var\":\"ctx.RequestIsTask\",\"means\":\"task\"}]",
+      "checks": "method.RequestIsTask",
       "condition": "{\"not\":{\"var\":\"ctx.RequestIsTask\",\"op\":\"equal\",\"value\":true}}",
       "domain": "routes",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "/tasks/cleanup",
       "requirement": "IF `ctx.RequestIsTask()` does not hold, THEN the system shall reject /tasks/cleanup with the `Unauthorized` error.",
       "slug": "authz-tasks-cleanup",
       "title": "Access control: /tasks/cleanup"
@@ -444,10 +501,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.routes/settings.go:56-59",
     "attrs": {
+      "check_args": "[{\"check\":\"_ensureLoggedIn\",\"var\":\"_ensureLoggedIn.fails\",\"fails\":true,\"args\":[{\"text\":\"ctx\"}]}]",
+      "checks": "_ensureLoggedIn",
       "condition": "{\"var\":\"_ensureLoggedIn.fails\",\"op\":\"equal\",\"value\":true}",
       "domain": "routes",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "/dev",
       "requirement": "IF `_ensureLoggedIn(ctx)` fails, THEN the system shall reject /dev.",
       "slug": "authz-dev",
       "title": "Access control: /dev"
@@ -463,10 +523,13 @@
     "kind": "rule",
     "id": "rule.webapp.authz.pkg/web/serve/task_handler_util.go:4-10",
     "attrs": {
+      "check_args": "[{\"check\":\"method.RequestIsTask\",\"var\":\"ctx.RequestIsTask\",\"means\":\"task\"}]",
+      "checks": "method.RequestIsTask",
       "condition": "{\"not\":{\"var\":\"ctx.RequestIsTask\",\"op\":\"equal\",\"value\":true}}",
       "domain": "shared-serve",
       "ears": "unwanted",
       "nature": "business",
+      "operation": "requests through `CreateTaskHandler`",
       "requirement": "IF `ctx.RequestIsTask()` does not hold, THEN the system shall reject requests through `CreateTaskHandler` with the `StatusUnauthorized` error.",
       "slug": "authz-requests-through-createtaskhandler",
       "title": "Access control: requests through `CreateTaskHandler`"
@@ -475,6 +538,48 @@
       "path": "web/serve/task_handler_util.go",
       "lines": "4-10",
       "root": "pkg"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "value_kind",
+    "id": "value_kind.webapp.capabilities.Capability",
+    "attrs": {
+      "type": "capabilities.Capability",
+      "value_kind": "staff"
+    },
+    "source": {
+      "path": "",
+      "lines": ""
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "value_kind",
+    "id": "value_kind.webapp.featureflags.FeatureFlagName",
+    "attrs": {
+      "type": "featureflags.FeatureFlagName",
+      "value_kind": "flag"
+    },
+    "source": {
+      "path": "",
+      "lines": ""
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "value_kind",
+    "id": "value_kind.webapp.permissions.CapabilityName",
+    "attrs": {
+      "type": "permissions.CapabilityName",
+      "value_kind": "staff"
+    },
+    "source": {
+      "path": "",
+      "lines": ""
     },
     "origin": "webapp",
     "certainty": "static"

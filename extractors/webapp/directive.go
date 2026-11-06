@@ -259,7 +259,7 @@ func sharedCheckers(webapp fs.FS) (map[string]checker, []string) {
 	if err != nil {
 		return nil, []string{fmt.Sprintf("shared checkers: %v", err)}
 	}
-	names, err := goSources(pkg)
+	names, err := goSources(pkg, nil)
 	if err != nil {
 		return nil, []string{fmt.Sprintf("shared checkers: %v", err)}
 	}

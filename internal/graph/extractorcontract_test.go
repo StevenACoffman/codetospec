@@ -72,3 +72,36 @@ func goldenFacts(t *testing.T, testdata fs.FS, name string) []extract.Fact {
 	}
 	return facts
 }
+
+// TestExtractorEndpointJourneys: the webapp extractor's route facts give
+// each GraphQL endpoint its resolver's span (handler_lines), so the built
+// endpoint's journey lists the guard rules the extractor found in that
+// resolver. Without the span, GraphQL endpoints had no journey at all.
+func TestExtractorEndpointJourneys(t *testing.T) {
+	testdata := os.DirFS("../../extractors/webapp/testdata")
+	facts, rejected := graph.ValidateRuleFacts(goldenFacts(t, testdata, "golden.en.json"))
+	if len(rejected) > 0 {
+		t.Fatalf("golden rule facts rejected: %v", rejected)
+	}
+	nodes := graph.Build(facts, nil, extract.DomainResolver{}, "en", nil)
+
+	withJourney, endpoints := 0, 0
+	for i := range nodes {
+		n := &nodes[i]
+		if n.Type != graph.TypeEndpoint {
+			continue
+		}
+		endpoints++
+		if n.Extra[graph.ExtraJourney] != "" {
+			withJourney++
+		}
+	}
+	if endpoints == 0 {
+		t.Fatal("no endpoint node: the golden no longer exercises routes")
+	}
+	// Every guarded resolver's endpoint lists its guards; an open or
+	// unguarded one may have none, but most of the fixture's are guarded.
+	if withJourney*2 < endpoints {
+		t.Errorf("%d of %d endpoints have a journey, want most", withJourney, endpoints)
+	}
+}

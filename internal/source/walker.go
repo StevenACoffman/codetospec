@@ -63,6 +63,21 @@ func Walk(root string, exclude []string) ([]File, error) {
 	return files, nil
 }
 
+// Excluded reports whether Walk, given exclude, skips the file at rel (a
+// slash-separated path relative to the walked root): some element of rel
+// is hidden or matches an exclude entry. Facts an extractor states about
+// such a file describe code the user left out, so callers drop them by the
+// same rule Walk applies.
+func Excluded(rel string, exclude []string) bool {
+	excluded := excluder(exclude)
+	for name := range strings.SplitSeq(rel, "/") {
+		if strings.HasPrefix(name, ".") || excluded(name) {
+			return true
+		}
+	}
+	return false
+}
+
 // excluder matches a file or directory name against the exclude entries,
 // exactly or as a glob.
 func excluder(exclude []string) func(name string) bool {

@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -15,6 +16,10 @@ import (
 const (
 	kindStruct = "struct"
 	attrFields = "fields"
+	// attrTags maps each field the datastore stores to the name it stores
+	// it under, "Field:name" comma-separated, every field included: a
+	// query names a property, the inventory needs the field.
+	attrTags = "tags"
 )
 
 // StructFacts lists the module's struct types, outside generated files,
@@ -75,14 +80,31 @@ func newStructFact(id string, obj *types.TypeName, at Ref) (Fact, bool) {
 	if len(fields) == 0 {
 		return Fact{}, false
 	}
+	attrs := map[string]string{
+		attrName:   obj.Pkg().Name() + "." + obj.Name(),
+		attrFields: strings.Join(fields, ","),
+	}
+	if tags := datastoreNames(st); tags != "" {
+		attrs[attrTags] = tags
+	}
 	return Fact{
-		Kind: kindStruct, ID: id,
-		Attrs: map[string]string{
-			attrName:   obj.Pkg().Name() + "." + obj.Name(),
-			attrFields: strings.Join(fields, ","),
-		},
+		Kind: kindStruct, ID: id, Attrs: attrs,
 		Source: at, Origin: origin, Certainty: certain,
 	}, true
+}
+
+// datastoreNames lists the fields of st with a datastore tag as
+// "Field:name", comma-separated in field order; a field the tag skips
+// ("-") is left out.
+func datastoreNames(st *types.Struct) string {
+	var names []string
+	for i := range st.NumFields() {
+		name, _, _ := strings.Cut(reflect.StructTag(st.Tag(i)).Get("datastore"), ",")
+		if name != "" && name != "-" {
+			names = append(names, st.Field(i).Name()+":"+name)
+		}
+	}
+	return strings.Join(names, ",")
 }
 
 // conditionable reports whether a field of type t holds a value a

@@ -418,7 +418,7 @@ func (r renderer) check(call *ast.CallExpr, negate bool) string {
 			r.permission(call),
 			r.scope(call),
 		)
-	case "RequestIsServiceAdminQuery":
+	case isServiceAdminQuery:
 		return pick(r.w.serviceAdmin, r.w.notSvcAdmin)
 	}
 	return r.verbatim(call, negate)

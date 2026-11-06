@@ -1,0 +1,3 @@
+Policy.schema.json and TestSuite.schema.json are copied unchanged from
+github.com/cerbos/cerbos at 6340b18, schema/jsonschema/cerbos/policy/v1/.
+The tests validate the export against them; refresh both together.

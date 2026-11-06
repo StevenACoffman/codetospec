@@ -93,3 +93,62 @@ func TestTestFacts(t *testing.T) {
 		}
 	}
 }
+
+// TestTestFactsPackageVars: a test that reads a package-level variable
+// reaches it, so a rule citing a registry table (admin's role tables)
+// counts that test (FIX.md F3); a constant and a blank variable do not.
+func TestTestFactsPackageVars(t *testing.T) {
+	m, dir := loadModule(t, "example.com/roles", map[string]string{
+		"roles.go": `package roles
+
+type Role struct{ Caps []string }
+
+func register(r Role) Role { return r }
+
+var Impersonator = register(Role{
+	Caps: []string{"impersonate"},
+})
+
+var (
+	Supporter, Viewer = register(Role{}), register(Role{})
+	_                 = register(Role{})
+)
+
+const MaxRoles = 3
+`,
+		"roles_test.go": `package roles
+
+import "testing"
+
+func TestImpersonator(t *testing.T) {
+	if len(Impersonator.Caps) != 1 {
+		t.Fatal(MaxRoles)
+	}
+}
+
+func TestViewer(t *testing.T) { _ = Viewer }
+`,
+	})
+
+	got := map[string][]string{} // test name → callee lines
+	for _, f := range TestFacts(&m, dir) {
+		got[f.Attrs["name"]] = append(got[f.Attrs["name"]], f.Attrs["callee_lines"])
+	}
+	cases := map[string][]string{
+		"TestImpersonator": {"7-9"},   // Impersonator; not the field Caps, not MaxRoles
+		"TestViewer":       {"12-12"}, // the spec declaring Supporter and Viewer
+	}
+	for name, want := range cases {
+		t.Run(name, func(t *testing.T) {
+			if !slices.Equal(got[name], want) {
+				t.Errorf("callees = %v, want %v", got[name], want)
+			}
+		})
+	}
+
+	for _, f := range SymbolFacts(m.pkgs, m.fset, dir) {
+		if f.Attrs["name"] == "Impersonator" {
+			t.Errorf("a variable became a symbol fact: %+v", f)
+		}
+	}
+}

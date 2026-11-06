@@ -59,6 +59,9 @@ type Meta struct {
 	DuplicatePairs []consistency.DuplicatePair
 	// RuleFactsRejected counts extractor rule facts dropped as malformed.
 	RuleFactsRejected int
+	// FactsExcluded counts extractor facts dropped because they cite code
+	// --exclude leaves out (see extract.WithoutExcluded).
+	FactsExcluded int
 	// SharedEntities are the entities touched by rules of several domains
 	// (see graph.SharedEntities).
 	SharedEntities []graph.SharedEntity
@@ -189,6 +192,12 @@ func frontmatterExtras() []extraField {
 		{key: graph.ExtraEARSActions, quoted: true},
 		{key: graph.ExtraCondition, quoted: true},
 		{key: graph.ExtraConditionHash},
+		{key: graph.ExtraChecks, quoted: true},
+		{key: graph.ExtraCheckArgs, quoted: true},
+		{key: graph.ExtraDelegatesTo},
+		{key: graph.ExtraCheckScope},
+		{key: graph.ExtraDelegatesToOperation},
+		{key: graph.ExtraOperation},
 		{key: graph.ExtraConditionDropped, quoted: true},
 		{key: graph.ExtraConditionDisagreement, quoted: true},
 		{key: "acceptance"},
@@ -567,6 +576,9 @@ func readmeCoverage(meta *Meta, text *locale.Text) string {
 	}
 	if meta.RuleFactsRejected > 0 {
 		fmt.Fprintf(&b, text.RejectedRulesFmt+"\n", meta.RuleFactsRejected)
+	}
+	if meta.FactsExcluded > 0 {
+		fmt.Fprintf(&b, text.ExcludedFactsFmt+"\n", meta.FactsExcluded)
 	}
 	return b.String()
 }

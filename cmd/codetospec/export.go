@@ -10,10 +10,14 @@ import (
 	"slices"
 
 	"github.com/StevenACoffman/codetospec/internal/atomicfs"
+	"github.com/StevenACoffman/codetospec/internal/cedarpolicy"
+	"github.com/StevenACoffman/codetospec/internal/cerbos"
 	"github.com/StevenACoffman/codetospec/internal/config"
+	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/kiro"
 	"github.com/StevenACoffman/codetospec/internal/nfrtarget"
+	"github.com/StevenACoffman/codetospec/internal/policy"
 	"github.com/StevenACoffman/codetospec/internal/quire"
 	"github.com/StevenACoffman/codetospec/internal/render"
 )
@@ -31,8 +35,11 @@ func (c cli) export(cfg *config.Config) int {
 		c.logger.Error("cannot load graph", "err", err)
 		return exitFailure
 	}
-	if cfg.Format == config.ExportKiro {
+	switch cfg.Format {
+	case config.ExportKiro:
 		return c.exportKiro(cfg, nodes)
+	case config.ExportCerbos, config.ExportCedarPolicy:
+		return c.exportPolicies(cfg, nodes)
 	}
 	nfrTargets, err := nfrtarget.Load(cfg.Out)
 	if err != nil {
@@ -80,6 +87,104 @@ func (c cli) exportKiro(cfg *config.Config, nodes []graph.Node) int {
 		len(spec.Refuted),
 	)
 	return exitOK
+}
+
+// exportPolicies writes the graph's extractor guards as authorization
+// policies, Cerbos or the Cedar policy language, for the service the graph
+// directory is named after, from the run's merged facts (capabilities,
+// roles) and the person's checkers file (--checkers: what checks the
+// extractor doesn't know mean); each guard it can't translate is logged at
+// debug level, each relation a checker names that --registry doesn't
+// declare at warn level.
+func (c cli) exportPolicies(cfg *config.Config, nodes []graph.Node) int {
+	facts, err := extract.LoadFactsFile(filepath.Join(cfg.Out, ".codetospec", "facts.json"))
+	if err != nil {
+		c.logger.Error("cannot load the run's facts", "err", err)
+		return exitFailure
+	}
+	if cfg.CapabilitiesFrom != "" {
+		joined, joinErr := capabilityFacts(cfg.CapabilitiesFrom)
+		if joinErr != nil {
+			c.logger.Error(
+				"cannot load the capabilities",
+				"graph",
+				cfg.CapabilitiesFrom,
+				"err",
+				joinErr,
+			)
+			return exitFailure
+		}
+		facts = append(facts, joined...)
+	}
+	checkers, err := readCheckers(cfg.Checkers)
+	if err != nil {
+		c.logger.Error("cannot load the checkers", "err", err)
+		return exitFailure
+	}
+	reg, err := readRegistry(cfg.Registry)
+	if err != nil {
+		c.logger.Error("cannot load the registry", "err", err)
+		return exitFailure
+	}
+	if cfg.Registry != "" {
+		for _, rel := range checkers.Undeclared(reg) {
+			c.logger.Warn(
+				"a checker names a relation the registry doesn't declare",
+				"relation",
+				rel,
+			)
+		}
+	}
+	m := policy.BuildModel(facts, nodes, checkers)
+	service := filepath.Base(filepath.Clean(cfg.Out))
+	var files map[string][]byte
+	var operations, denies int
+	if cfg.Format == config.ExportCerbos {
+		spec, exportErr := cerbos.Export(&m, service)
+		files, operations, denies, err = spec.Files, spec.Operations, spec.Denies, exportErr
+	} else {
+		spec, exportErr := cedarpolicy.Export(&m, service)
+		files, operations, denies, err = spec.Files, spec.Operations, spec.Denies, exportErr
+	}
+	if err != nil {
+		c.logger.Error("cannot export", "err", err)
+		return exitFailure
+	}
+	if err = writeSpec(cfg.To, files); err != nil {
+		c.logger.Error("cannot write the policies", "dir", cfg.To, "err", err)
+		return exitFailure
+	}
+	for _, s := range m.Skipped {
+		c.logger.Debug("guard not exported", "rule", s.RuleID, "reason", s.Reason)
+	}
+	_, _ = fmt.Fprintf(
+		c.stdout,
+		"export: %d operation(s), %d item kind(s), %d deny rule(s) written to %s, "+
+			"%d guard(s) not translated (see --log-level debug)\n",
+		operations,
+		len(m.Items),
+		denies,
+		cfg.To,
+		len(m.Skipped),
+	)
+	return exitOK
+}
+
+// capabilityFacts reads the capability and role facts of the graph at dir:
+// what a service names but another (admin) registers.
+func capabilityFacts(dir string) ([]extract.Fact, error) {
+	facts, err := extract.LoadFactsFile(filepath.Join(dir, ".codetospec", "facts.json"))
+	if err != nil {
+		return nil, err
+	}
+	var kept []extract.Fact
+	for _, f := range facts {
+		if f.Kind == extract.KindCapability ||
+			(f.Kind == extract.KindRule && f.Attrs["role"] != "") {
+			kept = append(kept, f)
+		}
+	}
+	return kept, nil
 }
 
 // logRefuted reports, at debug level, the rules an export left out.

@@ -102,7 +102,17 @@ type Config struct {
 	Reground    bool
 	ReduceBatch int
 	ReduceMode  string // "full" or "merge" (see reducer.ModeMerge)
-	Format      string // drift and diff output: "text" | "json"; export: ExportQuire | ExportKiro
+	Format      string // drift and diff output: "text" | "json"; export: ExportQuire | ExportKiro; policies: "md" | "json"
+	// Registry is the policies command's registry file (--registry): the
+	// PIP's properties and relations, each mapped to its sources.
+	Registry string
+	// CapabilitiesFrom is the graph whose capability and role facts a
+	// policy export joins (--capabilities-from): admin's, for a service
+	// that names capabilities it doesn't register.
+	CapabilitiesFrom string
+	// Checkers is a policy export's checkers file (--checkers): what the
+	// checks the extractor doesn't know mean, pinned by a person.
+	Checkers string
 	// DomainModels are human modelith models (*.modelith.yaml) the graph is
 	// compared with (--domain-model, then domain_models resolved against
 	// --src); DomainModelEntities maps a model entity to the code entity it
@@ -356,7 +366,7 @@ func ParseDrift(args []string) (*Config, error) {
 	if cfg.Src == "" || cfg.Out == "" {
 		return nil, errors.New("drift requires --src and --out")
 	}
-	if cfg.Format != "text" && cfg.Format != "json" {
+	if cfg.Format != "text" && cfg.Format != FormatJSON {
 		return nil, fmt.Errorf("--format %q must be text or json", cfg.Format)
 	}
 	return cfg, nil
@@ -377,7 +387,7 @@ func ParseDiff(args []string) (*Config, error) {
 	if cfg.Old == "" || cfg.Out == "" {
 		return nil, errors.New("diff requires --old and --new")
 	}
-	if cfg.Format != "text" && cfg.Format != "json" {
+	if cfg.Format != "text" && cfg.Format != FormatJSON {
 		return nil, fmt.Errorf("--format %q must be text or json", cfg.Format)
 	}
 	return cfg, nil
@@ -385,8 +395,16 @@ func ParseDiff(args []string) (*Config, error) {
 
 // The export formats (export --format).
 const (
-	ExportQuire = "quire" // ISO 29148 FRs (internal/quire)
-	ExportKiro  = "kiro"  // Kiro specs (internal/kiro)
+	// FormatJSON is the machine-readable output of drift, diff and policies;
+	// FormatMarkdown the policies command's default.
+	FormatJSON     = "json"
+	FormatMarkdown = "md"
+	ExportQuire    = "quire"  // ISO 29148 FRs (internal/quire)
+	ExportCerbos   = "cerbos" // Cerbos authorization policies (internal/cerbos)
+	// ExportCedarPolicy is the Cedar policy language (internal/cedarpolicy),
+	// named in full: CEDAR is also Khan's analytics pipeline.
+	ExportCedarPolicy = "cedar-policy"
+	ExportKiro        = "kiro" // Kiro specs (internal/kiro)
 )
 
 // ParseExport resolves the export command configuration.
@@ -400,7 +418,18 @@ func ParseExport(args []string) (*Config, error) {
 		"",
 		"new or empty directory to write the spec to (required)",
 	)
-	flags.StringVar(&cfg.Format, "format", ExportQuire, "spec format: quire or kiro")
+	flags.StringVar(
+		&cfg.Format,
+		"format",
+		ExportQuire,
+		"spec format: quire, kiro, cerbos or cedar-policy",
+	)
+	flags.StringVar(&cfg.CapabilitiesFrom, "capabilities-from", "",
+		"cerbos, cedar-policy: graph whose capability and role facts to join (admin's)")
+	flags.StringVar(&cfg.Checkers, "checkers", "",
+		"cerbos, cedar-policy: YAML file pinning what unknown checks mean")
+	flags.StringVar(&cfg.Registry, "registry", "",
+		"cerbos, cedar-policy: registry the checkers' relations must be declared in")
 	flags.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
 	if err := flags.Parse(args); err != nil {
 		return nil, err
@@ -408,8 +437,33 @@ func ParseExport(args []string) (*Config, error) {
 	if cfg.Out == "" || cfg.To == "" {
 		return nil, errors.New("export requires --out and --to")
 	}
-	if cfg.Format != ExportQuire && cfg.Format != ExportKiro {
-		return nil, fmt.Errorf("--format %q must be %s or %s", cfg.Format, ExportQuire, ExportKiro)
+	if !slices.Contains(
+		[]string{ExportQuire, ExportKiro, ExportCerbos, ExportCedarPolicy},
+		cfg.Format,
+	) {
+		return nil, fmt.Errorf("--format %q must be %s, %s, %s or %s",
+			cfg.Format, ExportQuire, ExportKiro, ExportCerbos, ExportCedarPolicy)
+	}
+	return cfg, nil
+}
+
+// ParsePolicies resolves the policies command configuration.
+func ParsePolicies(args []string) (*Config, error) {
+	flags := flag.NewFlagSet("policies", flag.ContinueOnError)
+	cfg := &Config{}
+	flags.StringVar(&cfg.Out, "out", "", "graph directory (required)")
+	flags.StringVar(&cfg.Registry, "registry", "",
+		"YAML registry mapping each property and relation to its sources (optional)")
+	flags.StringVar(&cfg.Format, "format", FormatMarkdown, "output: md or json")
+	flags.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
+	if err := flags.Parse(args); err != nil {
+		return nil, err
+	}
+	if cfg.Out == "" {
+		return nil, errors.New("policies requires --out")
+	}
+	if cfg.Format != FormatMarkdown && cfg.Format != FormatJSON {
+		return nil, fmt.Errorf("policies: --format %q must be md or json", cfg.Format)
 	}
 	return cfg, nil
 }

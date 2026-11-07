@@ -28,6 +28,7 @@ import (
 	"strings"
 
 	"github.com/StevenACoffman/codetospec/internal/atomicfs"
+	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/grounding"
 	"github.com/StevenACoffman/codetospec/internal/llm"
@@ -329,25 +330,50 @@ func IsNFR(rule *graph.Node) bool {
 
 // AnnotateThresholds records the threshold each non-functional rule's code
 // states: the quantities of its requirement (grounding.StatedNumbers, read
-// with decimalSeparator), when grounding found every stated value in the
-// cited code. A threshold the code does not state is left for a person
-// (questions.KindNFRTarget).
+// with opts.DecimalSeparator), when grounding found every stated value in
+// the cited code; else the quantities (grounding.Quantities: numeric
+// constants, enum values aside) its cited lines name
+// (grounding.NamedConstants), read through roots. A
+// requirement stating a quantity is marked (graph.ExtraQuantity): only such
+// a rule left without a threshold asks a person for its target
+// (questions.KindNFRTarget). A rule whose code names no quantity asks
+// nothing: there is nothing to set a target on.
 //
 // Requires: nodes annotated by quality.Annotate then grounding.Annotate.
-// Ensures:  nodes is not modified; only grounded NFRs stating a number get
-// the field.
-func AnnotateThresholds(nodes []graph.Node, decimalSeparator byte) []graph.Node {
+// Ensures:  nodes is not modified; a cited file that can't be read gives
+// no constant threshold.
+func AnnotateThresholds(
+	roots extract.Roots,
+	nodes []graph.Node,
+	opts grounding.Options,
+	quantities map[string]float64,
+) []graph.Node {
 	out := slices.Clone(nodes)
 	for i := range out {
-		if !IsNFR(&out[i]) || out[i].Extra["grounding"] != string(grounding.StatusGrounded) {
+		n := &out[i]
+		if !IsNFR(n) {
 			continue
 		}
-		stated := grounding.StatedNumbers(graph.RuleRequirement(out[i].Body), decimalSeparator)
-		if len(stated) == 0 {
+		stated := grounding.StatedNumbers(graph.RuleRequirement(n.Body), opts.DecimalSeparator)
+		threshold := ""
+		switch {
+		case len(stated) > 0 && n.Extra["grounding"] == string(grounding.StatusGrounded):
+			threshold = strings.Join(stated, "; ")
+		case len(stated) == 0:
+			if citations, err := grounding.Load(roots, n.Sources); err == nil {
+				threshold = strings.Join(grounding.NamedConstants(citations, quantities), "; ")
+			}
+		}
+		if threshold == "" && len(stated) == 0 {
 			continue
 		}
-		out[i].Extra = maps.Clone(out[i].Extra)
-		out[i].Extra[graph.ExtraThreshold] = strings.Join(stated, "; ")
+		n.Extra = maps.Clone(n.Extra)
+		if len(stated) > 0 {
+			n.Extra[graph.ExtraQuantity] = graph.QuantityStated
+		}
+		if threshold != "" {
+			n.Extra[graph.ExtraThreshold] = threshold
+		}
 	}
 	return out
 }

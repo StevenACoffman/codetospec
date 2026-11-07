@@ -9,6 +9,9 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/policy"
 )
 
+// unknownTerm is a name no registry declares.
+const unknownTerm = "ghost"
+
 // argKaid binds a user to the request's kaid argument.
 const argKaid = "arg:kaid"
 
@@ -232,5 +235,47 @@ canSeeBioFields:
 		if _, parseErr := policy.ParseCheckers([]byte(bad)); parseErr == nil {
 			t.Errorf("ParseCheckers(%q) parsed", bad)
 		}
+	}
+}
+
+// TestRegistryPhrases: a registry entry may give its plain phrase per
+// language and its concept; JSON and YAML read alike; an unknown key
+// stops with its path; a phrase in another language falls back to
+// English, and a term without one to its name.
+func TestRegistryPhrases(t *testing.T) {
+	reg, err := policy.ParseRegistry([]byte(`{
+  "teacher_of": {"from": ["models.Classroom.AllTeacherKaids"], "concept": "Classroom",
+    "phrase": {"en": "teaches the class", "fr": "enseigne dans la classe"}},
+  "internal_user": {"from": ["models.User.Email"]}
+}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ term, lang, want string }{
+		{teacherOf, "en", "teaches the class"},
+		{teacherOf, "fr", "enseigne dans la classe"},
+		{teacherOf, "de", "teaches the class"},
+		{"internal_user", "en", "internal_user"},
+		{unknownTerm, "en", unknownTerm},
+	} {
+		if got := reg.Phrase(tc.term, tc.lang); got != tc.want {
+			t.Errorf("Phrase(%s, %s) = %q, want %q", tc.term, tc.lang, got, tc.want)
+		}
+	}
+	if got := reg.Concept(teacherOf); got != classroom {
+		t.Errorf("concept = %q, want Classroom", got)
+	}
+	if _, err = policy.ParseRegistry(
+		[]byte(`{"x": {"from": ["a.B"], "phrases": {}}}`),
+	); err == nil ||
+		!strings.Contains(err.Error(), "phrases") {
+		t.Errorf("err = %v, want one naming phrases", err)
+	}
+	cs := policy.Checkers{"c": {All: []policy.Checker{
+		{Means: policy.MeansRelation, Relation: teacherOf},
+		{Means: policy.MeansAttribute, Of: policy.HolderCaller, Attribute: "deleted_user"},
+	}}}
+	if got := cs.Undeclared(reg); strings.Join(got, ",") != "deleted_user" {
+		t.Errorf("undeclared = %v, want [deleted_user]", got)
 	}
 }

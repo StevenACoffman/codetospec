@@ -135,6 +135,10 @@ func (c cli) exportPolicies(cfg *config.Config, nodes []graph.Node) int {
 			)
 		}
 	}
+	if checkers, _, err = c.joinedCheckers(cfg.Joins, facts, checkers); err != nil {
+		c.logger.Error("cannot join", "err", err)
+		return exitFailure
+	}
 	stale := c.stalePins(cfg, facts, checkers)
 	m := policy.BuildModel(facts, nodes, checkers)
 	service := filepath.Base(filepath.Clean(cfg.Out))

@@ -6,18 +6,22 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/StevenACoffman/codetospec/internal/config"
 	"github.com/StevenACoffman/codetospec/internal/drift"
 	"github.com/StevenACoffman/codetospec/internal/extract"
+	"github.com/StevenACoffman/codetospec/internal/locale"
 	"github.com/StevenACoffman/codetospec/internal/policy"
 	"github.com/StevenACoffman/codetospec/internal/render"
 )
 
 // policies writes the policy inventory of the graph at cfg.Out to stdout:
 // its rule nodes, its merged facts (.codetospec/facts.json, filtered by the
-// run) and, with --registry, a person's registry. It never writes the
-// graph directory.
+// run) and, with --registry and --checkers, a person's registry and pins,
+// each check defined and verified (policy.Define; with --src, a stale pin
+// told; with --compare, its pin compared with a second reader's). It never
+// writes the graph directory.
 func (c cli) policies(cfg *config.Config) int {
 	nodes, err := render.LoadDir(cfg.Out)
 	if err != nil {
@@ -34,7 +38,23 @@ func (c cli) policies(cfg *config.Config) int {
 		c.logger.Error("policies: cannot load the registry", "err", err)
 		return exitFailure
 	}
+	checkers, err := readCheckers(cfg.Checkers)
+	if err != nil {
+		c.logger.Error("policies: cannot load the checkers", "err", err)
+		return exitFailure
+	}
+	second, err := readCheckers(cfg.Compare)
+	if err != nil {
+		c.logger.Error("policies: cannot load the checkers to compare", "err", err)
+		return exitFailure
+	}
+	checkers, joined, err := c.joinedCheckers(cfg.Joins, facts, checkers)
+	if err != nil {
+		c.logger.Error("policies: cannot join", "err", err)
+		return exitFailure
+	}
 	inv := policy.Build(facts, nodes, reg)
+	inv.Joined = joined
 	if cfg.Src != "" {
 		names := make([]string, len(inv.Checks))
 		for i := range inv.Checks {
@@ -44,6 +64,10 @@ func (c cli) policies(cfg *config.Config) int {
 		for i := range inv.Checks {
 			inv.Checks[i].Digest = digests[inv.Checks[i].Name]
 		}
+	}
+	inv.Define(checkers, reg, locale.For(cfg.Lang))
+	if len(cfg.Compare) > 0 {
+		inv.Compare(checkers, second)
 	}
 	out := inv.Markdown()
 	if cfg.Format == config.FormatJSON {
@@ -97,6 +121,48 @@ func readRegistry(path string) (policy.Registry, error) {
 		return policy.Registry{}, fmt.Errorf("read registry: %w", err)
 	}
 	return policy.ParseRegistry(data)
+}
+
+// joinedCheckers adds to checkers the pins the --join graphs give the
+// checks calling their operations (policy.Join), logging each check that
+// takes none; it returns them and the join report.
+func (c cli) joinedCheckers(
+	joins []string,
+	facts []extract.Fact,
+	checkers policy.Checkers,
+) (policy.Checkers, []policy.Joined, error) {
+	if len(joins) == 0 {
+		return checkers, nil, nil
+	}
+	targets := make([]policy.JoinTarget, 0, len(joins))
+	for _, j := range joins {
+		dir, file, ok := strings.Cut(j, "=")
+		if !ok || dir == "" || file == "" {
+			return nil, nil, fmt.Errorf("--join %q: want <graph>=<checkers>", j)
+		}
+		rules, err := render.LoadDir(dir)
+		if err != nil {
+			return nil, nil, fmt.Errorf("--join %s: %w", dir, err)
+		}
+		pins, err := readCheckers([]string{file})
+		if err != nil {
+			return nil, nil, err
+		}
+		targets = append(targets, policy.JoinTarget{
+			Service: filepath.Base(filepath.Clean(dir)), Rules: rules, Checkers: pins,
+		})
+	}
+	joined, report := policy.Join(facts, checkers, targets)
+	for _, r := range report {
+		if r.Reason != "" {
+			c.logger.Info("a cross-service check takes no pin", "check", r.Check, "via", r.Via,
+				"reason", r.Reason)
+		}
+	}
+	merged, err := policy.MergeCheckers(
+		map[string]policy.Checkers{"--checkers": checkers, "--join": joined},
+	)
+	return merged, report, err
 }
 
 // readCheckers reads, parses and merges the checkers files at paths (none

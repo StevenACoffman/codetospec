@@ -41,7 +41,7 @@ func TestParseCheckers(t *testing.T) {
 		"x: {means: request}",
 	} {
 		if _, parseErr := policy.ParseCheckers([]byte(bad)); parseErr == nil ||
-			!strings.Contains(parseErr.Error(), `"x"`) {
+			!namesEntry(parseErr, "x") {
 			t.Errorf("ParseCheckers(%q) = %v, want an error naming x", bad, parseErr)
 		}
 	}
@@ -51,7 +51,7 @@ func TestParseCheckers(t *testing.T) {
 // reported; the loader couldn't serve it.
 func TestCheckersUndeclared(t *testing.T) {
 	cs, err := policy.ParseCheckers(
-		[]byte(checkersYAML + "y: {means: relation, relation: ghost}\n"),
+		[]byte(checkersYAML + "y: {means: relation, relation: " + unknownTerm + "}\n"),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestCheckersUndeclared(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cs.Undeclared(reg); !reflect.DeepEqual(got, []string{"ghost"}) {
+	if got := cs.Undeclared(reg); !reflect.DeepEqual(got, []string{unknownTerm}) {
 		t.Errorf("undeclared = %v, want [ghost]", got)
 	}
 }
@@ -205,7 +205,7 @@ func TestParseCompoundCheckers(t *testing.T) {
 		"x: {all: [{means: magic}]}",
 	} {
 		if _, parseErr := policy.ParseCheckers([]byte(bad)); parseErr == nil ||
-			!strings.Contains(parseErr.Error(), `"x"`) {
+			!namesEntry(parseErr, "x") {
 			t.Errorf("ParseCheckers(%q) = %v, want an error naming x", bad, parseErr)
 		}
 	}
@@ -269,23 +269,51 @@ func subjectGuard(id, op, subject, from string) graph.Node {
 }
 
 // TestModelSubjectBinding: an operation's checks about one user carry where
-// that user comes from (Operation.Subject, the PEP's binding); one whose
-// user is a local, or whose checks are about two users, is left out: the
-// one resource.subject can't stand for it.
+// that user comes from (Operation.Subject, the PEP's binding); checks
+// about two users bind the second as Subject2, its checks marked Second
+// and told apart from the same check about the first (the oracle keys
+// truth by variable); one whose user is a local, or whose checks are
+// about three users, is left out.
 func TestModelSubjectBinding(t *testing.T) {
 	m := policy.BuildModel(nil, []graph.Node{
 		subjectGuard("rule.a.bound", "User.emails", "obj.Kaid", "parent:Kaid"),
 		subjectGuard("rule.a.local", "Query.local", "actorKaid", ""),
 		subjectGuard("rule.a.two1", "Query.two", "kaid", "arg:kaid"),
 		subjectGuard("rule.a.two2", "Query.two", "other", "arg:other"),
+		subjectGuard("rule.a.three1", "Query.three", "a", "arg:a"),
+		subjectGuard("rule.a.three2", "Query.three", "b", "arg:b"),
+		subjectGuard("rule.a.three3", "Query.three", "c", "arg:c"),
 	}, nil)
-	if len(m.Operations) != 1 || m.Operations[0].Subject != "parent:Kaid" {
-		t.Errorf("operations = %+v, want User.emails bound to parent:Kaid", m.Operations)
+	ops := map[string]*policy.Operation{}
+	for i := range m.Operations {
+		ops[m.Operations[i].Action] = &m.Operations[i]
 	}
+	if op := ops["User.emails"]; op == nil || op.Subject != "parent:Kaid" || op.Subject2 != "" {
+		t.Errorf("User.emails = %+v, want bound to parent:Kaid", op)
+	}
+	two := ops["Query.two"]
+	if two == nil || two.Subject != "arg:kaid" || two.Subject2 != "arg:other" {
+		t.Fatalf("Query.two = %+v, want arg:kaid and arg:other", two)
+	}
+	leaves := two.Leaves()
+	if len(leaves) != 2 || leaves[0].Second == leaves[1].Second {
+		t.Fatalf("Query.two leaves = %+v, want one per user", leaves)
+	}
+	if cases := two.Cases(); len(cases) != 4 {
+		t.Errorf("Query.two: %d cases, want 4 (each user's check its own)", len(cases))
+	} else {
+		for _, c := range cases {
+			if allowed := c.Given[leaves[0].Var] && c.Given[leaves[1].Var]; c.Denied == allowed {
+				t.Errorf("case %+v: denied = %v", c.Given, c.Denied)
+			}
+		}
+	}
+	const three = "checks about more than two users: arg:a, arg:b, arg:c"
 	want := []policy.Skip{
 		{RuleID: "rule.a.local", Reason: "a check is about actorKaid, not a request value"},
-		{RuleID: "rule.a.two1", Reason: "checks about different users: arg:kaid, arg:other"},
-		{RuleID: "rule.a.two2", Reason: "checks about different users: arg:kaid, arg:other"},
+		{RuleID: "rule.a.three1", Reason: three},
+		{RuleID: "rule.a.three2", Reason: three},
+		{RuleID: "rule.a.three3", Reason: three},
 	}
 	if !reflect.DeepEqual(m.Skipped, want) {
 		t.Errorf("skipped = %+v, want %+v", m.Skipped, want)
@@ -405,4 +433,10 @@ func TestModelItemPolicy(t *testing.T) {
 	); parseErr == nil {
 		t.Error("an item checker about a user parsed")
 	}
+}
+
+// namesEntry reports whether err names the checkers entry name: quoted, or
+// as the start of a schema violation's path.
+func namesEntry(err error, name string) bool {
+	return strings.Contains(err.Error(), `"`+name+`"`) || strings.Contains(err.Error(), "/"+name)
 }

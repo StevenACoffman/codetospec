@@ -6,7 +6,6 @@ quality_attribute: security
 codetospec_rule: rule.billing.signed
 codetospec_crosscheck: supported
 codetospec_threshold: unknown
-codetospec_question: q-d02f3ccb9ce1
 ---
 
 # NFR-001: Signed webhooks
@@ -19,11 +18,11 @@ The system shall accept only signed webhooks.
 
 | Metric | Target | Threshold | Method |
 |--------|--------|-----------|--------|
-| Signed webhooks | Unknown: the code states none (question q-d02f3ccb9ce1) | Unknown: the code states none (question q-d02f3ccb9ce1) | To be decided with the target |
+| Signed webhooks | Unknown: neither the requirement nor the cited code names a quantity | Unknown: neither the requirement nor the cited code names a quantity | To be decided with the target |
 
 ## Verification
 
-Not verifiable until a person sets the target and threshold: question q-d02f3ccb9ce1 in questions.json.
+Not verifiable until a person sets a target and threshold in targets.yaml.
 
 ## Acceptance Criteria
 

@@ -12,7 +12,9 @@
 //   - an EFFECT_ALLOW rule over the exported operations for the principal
 //     kinds the loader sets as roles (anonymous, push, service, user), and a
 //     separate one each for open (acl.OpenAccess) and unchecked (acl.TODO)
-//     operations, so they stay visible;
+//     operations, so they stay visible; an operation whose guards pass
+//     only some kinds (policy.Operation.Principals: a push handler) is
+//     allowed for those roles alone, one rule "allow-<roles>" per set;
 //   - an alias operation (its handler only delegates) shares its
 //     target's rules: each lists both actions;
 //   - one EFFECT_DENY rule per guard, named after its rule id, with
@@ -28,7 +30,9 @@
 //   - P.attr.grants, the caller's grants as a list of {capability (stored
 //     name), global (bool: every scope key at its global value), userKind,
 //     country, locale, explicit (bool: granted to the caller, not implied
-//     by a role such as admin's)}, a role's capabilities expanded at the
+//     by a role such as admin's), contentKinds (the content kinds a
+//     content grant covers, empty for others)}, a role's capabilities
+//     expanded at the
 //     role grant's scope, and every capability at global scope for a site
 //     admin (GCP IAM);
 //   - P.attr.attributes, the names of the caller's boolean attributes a
@@ -36,6 +40,10 @@
 //   - R.attr.subject, the user a self or user-scope check is about, taken
 //     from the request where the policy's "subject:<action>" annotation
 //     says ("arg:<param>[.field]", "parent[:field]");
+//     R.attr.subject2, R.attr.coaches2 and R.attr.subjectRelations2,
+//     the same of the second user of an operation whose checks are about
+//     two (annotation "subject2:<action>"), always set (a placeholder
+//     user when there is none);
 //     R.attr.coaches, that user's coaches' KAIDs; R.attr.kmapDistrictOwned
 //     (bool, webapp's nwea-map scope test); R.attr.country;
 //     R.attr.isTask, R.attr.isOktaLifecycle (bool, the request's kind);
@@ -52,11 +60,15 @@
 // KMAP-district-owned data; acl.CountryScope the resource's country; a
 // service checker's user_all and user_nwea userKind "all" and "nwea-map",
 // whatever the data; locale a grant for the request's locale; explicit
-// any grant the caller holds itself, not through a role's implicit ones.
+// any grant the caller holds itself, not through a role's implicit ones;
+// content a grant for the request's locale covering the pinned content
+// kind.
 package cerbos
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/StevenACoffman/codetospec/internal/policy"
@@ -70,6 +82,16 @@ const APIVersion = "api.cerbos.dev/v1"
 // where the PEP takes R.attr.subject from (policy.Operation.Subject):
 // "subject:User.emails": "parent:Kaid".
 const subjectAnnotation = "subject:"
+
+// subject2Annotation is the same for R.attr.subject2, the second user of
+// an operation whose checks are about two (policy.Operation.Subject2).
+const subject2Annotation = "subject2:"
+
+// Effects of a rule, and of a test's expectation.
+const (
+	effectAllow = "EFFECT_ALLOW"
+	effectDeny  = "EFFECT_DENY"
+)
 
 // Principal kinds, the roles the loader sets.
 const (
@@ -141,6 +163,7 @@ func policyFor(resource string, ops []policy.Operation) (policyDoc, int) {
 		Resource: resource, Version: "default",
 	}}
 	var allowed, open, unchecked []string
+	byRoles := map[string][]string{} // restricted operations' actions, by role set
 	denies := 0
 	for i := range ops {
 		op := &ops[i]
@@ -149,22 +172,18 @@ func policyFor(resource string, ops []policy.Operation) (policyDoc, int) {
 			open = append(open, op.Actions()...)
 		case op.Unchecked:
 			unchecked = append(unchecked, op.Actions()...)
+		case op.Principals != nil:
+			key := strings.Join(op.Principals, "-")
+			byRoles[key] = append(byRoles[key], op.Actions()...)
 		default:
 			allowed = append(allowed, op.Actions()...)
 		}
-		if op.Subject != "" {
-			if doc.Metadata == nil {
-				doc.Metadata = &metadata{Annotations: map[string]string{}}
-			}
-			for _, a := range op.Actions() {
-				doc.Metadata.Annotations[subjectAnnotation+a] = op.Subject
-			}
-		}
+		doc.annotateSubjects(op)
 		for _, d := range op.Denies {
 			doc.ResourcePolicy.Rules = append(doc.ResourcePolicy.Rules, rule{
 				Name:      d.RuleID,
 				Actions:   op.Actions(),
-				Effect:    "EFFECT_DENY",
+				Effect:    effectDeny,
 				Roles:     []string{"*"},
 				Condition: &ruleCondition{Match: match{Expr: Expr(d.When)}},
 			})
@@ -180,12 +199,37 @@ func policyFor(resource string, ops []policy.Operation) (policyDoc, int) {
 		if len(a.actions) > 0 {
 			allows = append(
 				allows,
-				rule{Name: a.name, Actions: a.actions, Effect: "EFFECT_ALLOW", Roles: allRoles},
+				rule{Name: a.name, Actions: a.actions, Effect: effectAllow, Roles: allRoles},
 			)
 		}
 	}
+	for _, key := range slices.Sorted(maps.Keys(byRoles)) {
+		// Allowed for these principal kinds alone: no request of another
+		// kind passes the operation's guards.
+		allows = append(allows, rule{
+			Name: "allow-" + key, Actions: byRoles[key], Effect: effectAllow,
+			Roles: strings.Split(key, "-"),
+		})
+	}
 	doc.ResourcePolicy.Rules = append(allows, doc.ResourcePolicy.Rules...)
 	return doc, denies
+}
+
+// annotateSubjects records, per action of op, where the PEP takes the
+// users op's checks are about from (subject, and subject2 for a second).
+func (doc *policyDoc) annotateSubjects(op *policy.Operation) {
+	if op.Subject == "" {
+		return
+	}
+	if doc.Metadata == nil {
+		doc.Metadata = &metadata{Annotations: map[string]string{}}
+	}
+	for _, a := range op.Actions() {
+		doc.Metadata.Annotations[subjectAnnotation+a] = op.Subject
+		if op.Subject2 != "" {
+			doc.Metadata.Annotations[subject2Annotation+a] = op.Subject2
+		}
+	}
 }
 
 // Expr renders a guard's expression as CEL.
@@ -222,7 +266,7 @@ func leafExpr(l *policy.Leaf) string {
 		return `"` + RolePush + `" in P.roles`
 	case policy.LeafRelation:
 		if l.Subject != "" {
-			return fmt.Sprintf("%q in R.attr.subjectRelations", l.Relation)
+			return fmt.Sprintf("%q in R.attr.subjectRelations%s", l.Relation, slot(l))
 		}
 		return fmt.Sprintf("%q in R.attr.relations", l.Relation)
 	case policy.LeafAttribute:
@@ -232,22 +276,32 @@ func leafExpr(l *policy.Leaf) string {
 	case policy.LeafOkta:
 		return "R.attr.isOktaLifecycle == true"
 	case policy.LeafSelf:
-		return "R.attr.subject == P.id"
+		return "R.attr.subject" + slot(l) + " == P.id"
 	case policy.LeafCoach:
-		return "P.id in R.attr.coaches"
+		return "P.id in R.attr.coaches" + slot(l)
 	case policy.LeafCapability:
 		return fmt.Sprintf(
 			"P.attr.grants.exists(g, g.capability == %q && %s)",
 			l.Capability,
-			scopeTest(l.Scope),
+			scopeTest(l),
 		)
 	}
 	return "false"
 }
 
-// scopeTest is the CEL test of a grant g against a pinned matcher.
-func scopeTest(matcher string) string {
-	switch matcher {
+// slot is the suffix of the resource attributes about check l's user:
+// "2" for an operation's second user, else "".
+func slot(l *policy.Leaf) string {
+	if l.Second {
+		return "2"
+	}
+	return ""
+}
+
+// scopeTest is the CEL test of a grant g against capability check l's
+// pinned matcher.
+func scopeTest(l *policy.Leaf) string {
+	switch l.Scope {
 	case policy.ScopeGlobal:
 		return "g.global == true"
 	case policy.ScopeUser:
@@ -262,6 +316,8 @@ func scopeTest(matcher string) string {
 		return "g.locale == R.attr.locale"
 	case policy.ScopeExplicit:
 		return "g.explicit == true"
+	case policy.ScopeContent:
+		return fmt.Sprintf("g.locale == R.attr.locale && %q in g.contentKinds", l.ContentKind)
 	}
 	return "true" // any scope
 }

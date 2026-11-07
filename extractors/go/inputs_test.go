@@ -80,8 +80,12 @@ func slicesContains(s []string, v string) bool {
 	}
 }
 
-// checkFile is the access check's file in checkModule.
-const checkFile = "permissions/permissions.go"
+// checkFile is the access check's file in checkModule, checkLines
+// CanViewCDI's lines in it.
+const (
+	checkFile  = "permissions/permissions.go"
+	checkLines = "12-20"
+)
 
 // TestReadFacts: a function's reads name each struct field by the struct
 // declaring it, a promoted field included, slices included.
@@ -89,7 +93,7 @@ func TestReadFacts(t *testing.T) {
 	m, dir := loadModule(t, "example.com/svc", checkModule())
 	var got []string
 	for _, f := range ReadFacts(m.pkgs, m.fset, dir) {
-		if f.Source.Path == checkFile && f.Source.Lines == "12-20" {
+		if f.Source.Path == checkFile && f.Source.Lines == checkLines {
 			got = append(got, f.Attrs[attrField])
 		}
 	}
@@ -103,6 +107,21 @@ func TestReadFacts(t *testing.T) {
 	}
 }
 
+// TestMethodFacts: a function's calls of the module's methods name each
+// by the type declaring it.
+func TestMethodFacts(t *testing.T) {
+	m, dir := loadModule(t, "example.com/svc", checkModule())
+	var got []string
+	for _, f := range MethodFacts(m.pkgs, m.fset, dir) {
+		if f.Source.Path == checkFile && f.Source.Lines == checkLines {
+			got = append(got, f.Attrs[attrCalledMethod])
+		}
+	}
+	if want := []string{"datastore.Query.FilterField"}; !slices.Equal(got, want) {
+		t.Errorf("methods CanViewCDI calls = %v, want %v", got, want)
+	}
+}
+
 // TestValueFacts: a function's uses of package-level constants and of
 // variables of a basic type carry the value's type and literal value, so a
 // capability or a flag is recognized by its type; a variable holding data
@@ -111,7 +130,7 @@ func TestValueFacts(t *testing.T) {
 	m, dir := loadModule(t, "example.com/svc", checkModule())
 	got := map[string][2]string{} // name → type, value
 	for _, f := range ValueFacts(m.pkgs, m.fset, dir) {
-		if f.Source.Path == checkFile && f.Source.Lines == "12-20" {
+		if f.Source.Path == checkFile && f.Source.Lines == checkLines {
 			got[f.Attrs[attrName]] = [2]string{f.Attrs[attrType], f.Attrs[attrValue]}
 		}
 	}

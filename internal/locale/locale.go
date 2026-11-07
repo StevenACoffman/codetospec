@@ -34,6 +34,7 @@ type Text struct {
 	Labels
 	Readme
 	ModelFile
+	Policy
 }
 
 // ModelFile is the text codetospec writes into modelith model files.
@@ -217,6 +218,7 @@ model's own rating, not a check.`,
 		Labels:    newLabels(tr),
 		Readme:    newReadme(tr),
 		ModelFile: newModelFile(tr),
+		Policy:    newPolicy(tr),
 	}
 }
 

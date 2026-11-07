@@ -1,0 +1,277 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/StevenACoffman/codetospec/internal/policy/schema/inventory.schema.json",
+  "title": "codetospec policy inventory",
+  "description": "The policy inventory codetospec writes (policies --format json): each enforcement point and the checks its guards call, each check with what it reads and its definition (the code's allowing paths, a person's pin and its verification), then the gaps. Generated; every state is a boolean.",
+  "type": "object",
+  "required": ["endpoints", "checks", "depth"],
+  "properties": {
+    "endpoints": { "type": ["array", "null"], "items": { "$ref": "#/$defs/endpoint" } },
+    "checks": { "type": ["array", "null"], "items": { "$ref": "#/$defs/check" } },
+    "open": { "description": "Guards marked open: they call no check.", "type": "array", "items": { "$ref": "#/$defs/guard" } },
+    "todo": { "description": "Guards marked todo: they call no check yet.", "type": "array", "items": { "$ref": "#/$defs/guard" } },
+    "unguarded": { "description": "Handlers with no guard.", "type": "array", "items": { "$ref": "#/$defs/unguarded" } },
+    "undeclared": { "description": "Field and load inputs no registry entry declares.", "type": "array", "items": { "type": "string" } },
+    "unread": { "description": "Registry entries no check reads.", "type": "array", "items": { "type": "string" } },
+    "conditions": { "description": "Registry entries' free-text conditions, by entry.", "type": "object", "additionalProperties": { "type": "string" } },
+    "depth": { "description": "How many calls deep a check's inputs are looked for.", "type": "integer", "minimum": 0 },
+    "joined": {
+      "description": "The checks calling another service's operation: the pin each took from there, or why none (reason).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["check", "via"],
+        "properties": {
+          "check": { "type": "string" },
+          "via": { "description": "<service>:<operation>, comma-separated when several.", "type": "string" },
+          "answer": { "description": "The check the operation answers there.", "type": "string" },
+          "reason": { "description": "Why it took no pin; absent when it did.", "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "access": {
+      "description": "Who can do what, by concept (\"\" for operations naming none): each operation's guards, each with its statement or why it has none.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["concept", "operations"],
+        "properties": {
+          "concept": { "type": "string" },
+          "operations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["operation", "guards"],
+              "properties": {
+                "operation": { "type": "string" },
+                "guards": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["rule", "undecided"],
+                    "properties": {
+                      "rule": { "type": "string" },
+                      "checks": { "type": "array", "items": { "type": "string" } },
+                      "statement": { "description": "When the guard lets the request through, in words.", "type": "string" },
+                      "undecided": { "type": "boolean" },
+                      "reason": { "type": "string" }
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "ref": {
+      "description": "A citation: a path relative to the source tree (or to root), and its lines.",
+      "type": "object",
+      "required": ["path", "lines"],
+      "properties": {
+        "path": { "type": "string" },
+        "lines": { "type": "string" },
+        "root": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "endpoint": {
+      "type": "object",
+      "required": ["endpoint", "guards"],
+      "properties": {
+        "endpoint": { "description": "The endpoint node's id, or the operation a field resolver serves.", "type": "string" },
+        "guards": { "type": "array", "items": { "$ref": "#/$defs/guard" } }
+      },
+      "additionalProperties": false
+    },
+    "guard": {
+      "description": "One extractor rule guarding a handler.",
+      "type": "object",
+      "required": ["rule", "title", "source"],
+      "properties": {
+        "rule": { "type": "string" },
+        "title": { "type": "string" },
+        "source": { "$ref": "#/$defs/ref" },
+        "calls": { "type": "array", "items": { "$ref": "#/$defs/call" } },
+        "kinds": { "description": "Per call, its kind.", "type": "array", "items": { "type": "string" } },
+        "scope": { "type": "string" },
+        "delegates_to": { "type": "string" },
+        "concept": { "description": "The guard rule's concept.", "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "call": {
+      "description": "One check call, as the extractor's check_args records it.",
+      "type": "object",
+      "required": ["check"],
+      "properties": {
+        "check": { "type": "string" },
+        "var": { "description": "The condition variable the call became.", "type": "string" },
+        "fails": { "description": "The variable holds when the call fails.", "type": "boolean" },
+        "means": { "type": "string" },
+        "scope": { "type": "string" },
+        "capability": { "type": "string" },
+        "matcher": { "type": "string" },
+        "matcher_arg": { "type": "string" },
+        "subject": { "type": "string" },
+        "subject_from": { "type": "string" },
+        "rate": {
+          "type": "object",
+          "required": ["key"],
+          "properties": {
+            "key": { "type": "string" },
+            "count": { "type": "string" },
+            "window": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["text"],
+            "properties": { "text": { "type": "string" }, "from": { "type": "string" } },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "check": {
+      "description": "One access check: what it reads and what it means.",
+      "type": "object",
+      "required": ["name", "form", "source", "definition"],
+      "properties": {
+        "name": { "type": "string" },
+        "form": { "type": "string" },
+        "source": { "$ref": "#/$defs/ref" },
+        "digest": { "description": "The digest of the check's definition, with --src.", "type": "string" },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind", "name"],
+            "properties": {
+              "kind": { "enum": ["field", "load", "method", "staff", "flag", "value"] },
+              "name": { "type": "string" },
+              "detail": { "type": "string" },
+              "declared_by": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "descriptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["rule", "title"],
+            "properties": {
+              "rule": { "type": "string" },
+              "title": { "type": "string" },
+              "crosscheck": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "definition": { "$ref": "#/$defs/definition" }
+      },
+      "additionalProperties": false
+    },
+    "definition": {
+      "description": "What the check means and how far that is verified.",
+      "type": "object",
+      "required": ["not_analyzable", "pinned", "unpinnable", "approx", "stale"],
+      "properties": {
+        "paths": { "description": "The paths on which the check's code allows, in source order.", "type": "array", "items": { "$ref": "#/$defs/path" } },
+        "not_analyzable": { "description": "The extractor couldn't read the allowing paths.", "type": "boolean" },
+        "not_analyzable_reason": { "type": "string" },
+        "statement": { "description": "The pin in words, for people who don't read code; or why the check has none.", "type": "string" },
+        "pinned": { "description": "A checkers entry gives the check a meaning (pin).", "type": "boolean" },
+        "pin": { "$ref": "checkers.schema.json#/$defs/entry" },
+        "unpinnable": { "description": "The checkers entry says why the check has no meaning.", "type": "boolean" },
+        "unpinnable_reason": { "type": "string" },
+        "approx": { "description": "The person says the pin is stricter than the code.", "type": "boolean" },
+        "stale": { "description": "The pin was written for code that has changed since.", "type": "boolean" },
+        "leaves": {
+          "description": "The pin's leaves, each with its grounding in the code.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["means", "grounding"],
+            "properties": {
+              "means": { "type": "string" },
+              "operand": { "type": "string" },
+              "grounding": { "enum": ["grounded", "ungrounded", "unknown"] }
+            },
+            "additionalProperties": false
+          }
+        },
+        "path_coverage": {
+          "description": "The pin's alternatives matched with the paths, both ways; indexes from 0.",
+          "type": "object",
+          "required": ["covered", "parts"],
+          "properties": {
+            "covered": { "type": "boolean" },
+            "parts": { "type": "array", "items": { "type": "string" } },
+            "uncovered_paths": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+            "unmatched_parts": { "type": "array", "items": { "type": "integer", "minimum": 0 } }
+          },
+          "additionalProperties": false
+        },
+        "glossary_missing": { "description": "Relations and attributes the pin names that the registry doesn't declare.", "type": "array", "items": { "type": "string" } },
+        "concepts": { "description": "The registry concepts of the relations and attributes the pin names.", "type": "array", "items": { "type": "string" } },
+        "comparison": {
+          "description": "How a second reader's pin compares with the first's (policies --compare).",
+          "type": "object",
+          "required": ["equal"],
+          "properties": {
+            "equal": { "type": "boolean" },
+            "missing": { "description": "The side with no pin.", "enum": ["first", "second"] },
+            "reason": { "description": "Why the pins weren't compared by truth table.", "type": "string" },
+            "counterexample": {
+              "description": "An assignment of the leaves on which one pin allows and the other doesn't.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["leaf", "truth"],
+                "properties": { "leaf": { "type": "string" }, "truth": { "type": "boolean" } },
+                "additionalProperties": false
+              }
+            },
+            "allowed_by": { "description": "Which pin allows on the counterexample.", "enum": ["first", "second"] },
+            "case": { "description": "The first differing case of pins keyed on argument values.", "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "path": {
+      "description": "One allowing path: its condition (the condition notation; none when it always allows there), lines, and check calls.",
+      "type": "object",
+      "required": ["lines"],
+      "properties": {
+        "condition": { "type": "string" },
+        "lines": { "type": "string" },
+        "checks": { "type": "array", "items": { "$ref": "#/$defs/call" } }
+      },
+      "additionalProperties": false
+    },
+    "unguarded": {
+      "type": "object",
+      "required": ["operation", "source"],
+      "properties": {
+        "operation": { "type": "string" },
+        "source": { "$ref": "#/$defs/ref" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

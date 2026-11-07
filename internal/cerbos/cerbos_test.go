@@ -50,9 +50,16 @@ func usersCheckers() policy.Checkers {
 			{Means: policy.MeansRelation, Relation: "managing_coach_of", SubjectArg: &one},
 		}},
 		"permissions.CanViewCDI": {Means: policy.MeansRelation, Relation: "teacher_of"},
-		// districts' ActorCanViewUserDistrictData, as its code reads.
+		// districts' ActorCanViewUserDistrictData, as its code reads, plus a
+		// content grant (the content scope).
 		"permissions.ActorCanViewUserDistrictData": {Any: []policy.Checker{
 			{Means: policy.MeansServiceAdmin},
+			{
+				Means:       policy.MeansCapability,
+				Capability:  identityGoName,
+				Scope:       policy.ScopeContent,
+				ContentKind: "Video",
+			},
 			{
 				Means:      policy.MeansCapability,
 				Capability: identityGoName,
@@ -121,6 +128,24 @@ func usersModel() policy.Model {
 				`{"not":{"var":"caller.hasPermission.CanViewUserIdentity","op":"equal","value":true}}]}`,
 			`[{"check":"acl.IsCurrentUser","var":"acl.IsCurrentUser","means":"self","subject":"user.Kaid","subject_from":"parent:Kaid"},`+
 				`{"check":"acl.ActorHasPermission","var":"caller.hasPermission.CanViewUserIdentity","means":"capability","scope":"user","capability":"CanViewUserIdentity","matcher":"acl.UserScope","matcher_arg":"user.Kaid","subject_from":"parent:Kaid"}]`,
+		),
+		// Checks about two users: the second's self check names the same
+		// variable as the first's.
+		node(
+			"rule.user.authz-transfer-from",
+			"Mutation.transfer",
+			"acl.IsCurrentUser",
+			`{"not":{"var":"acl.IsCurrentUser","op":"equal","value":true}}`,
+			`[{"check":"acl.IsCurrentUser","var":"acl.IsCurrentUser","means":"self","subject":"from","subject_from":"arg:from"}]`,
+		),
+		node(
+			"rule.user.authz-transfer-to",
+			"Mutation.transfer",
+			"acl.IsCurrentUser,acl.IsCoach",
+			`{"all":[{"not":{"var":"acl.IsCurrentUser","op":"equal","value":true}},`+
+				`{"not":{"var":"acl.IsCoach","op":"equal","value":true}}]}`,
+			`[{"check":"acl.IsCurrentUser","var":"acl.IsCurrentUser","means":"self","subject":"to","subject_from":"arg:to"},`+
+				`{"check":"acl.IsCoach","var":"acl.IsCoach","means":"coach","subject":"to","subject_from":"arg:to"}]`,
 		),
 		node("rule.misc.authz-time", "Query.time", "open", "", ""),
 		node(

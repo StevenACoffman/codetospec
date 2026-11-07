@@ -10,7 +10,9 @@
 //     the principal types User, Service (a service-admin request), Push (a
 //     Pub/Sub push whose token validated) and Anonymous, the resource type
 //     Target, and the context RequestContext;
-//   - a permit per exported operation, @id("allow:<action>");
+//   - a permit per exported operation, @id("allow:<action>"), admitting
+//     only the principal types some request it allows can come from when
+//     not all of them (policy.Operation.Principals: a push handler);
 //   - a forbid per guard, @id(rule id) and @source(citation), whose `when`
 //     holds exactly when the guard rejects;
 //   - an alias operation (its handler only delegates) shares its target's
@@ -45,12 +47,15 @@
 //     resource.country})); a service checker's user_all and user_nwea
 //     principal in CapUserAll::"<c>", CapNwea::"<c>"; locale (principal is
 //     User && principal.localeGrants.contains({capability, locale:
-//     context.locale})); explicit principal in CapExplicit::"<c>". The
+//     context.locale})); explicit principal in CapExplicit::"<c>"; content
+//     (principal is User && principal.contentGrants.contains({capability,
+//     locale: context.locale, contentKind: "<kind>"})). The
 //     language has no quantifier over a grant list, so the loader flattens
 //     grants into these groups.
 //
 // Loader contract (codetospec writes none): User entities by KAID, with
-// loggedIn, phantom, countryGrants, localeGrants and attributes (the names
+// loggedIn, phantom, countryGrants, localeGrants, contentGrants (one per
+// content kind a content grant covers) and attributes (the names
 // of the caller's boolean attributes a checkers file pins), member of
 // CapAny::"<c>" for every grant of c, of CapGlobal::"<c>" for a global
 // one, CapUserAll::"<c>" for userKind "all", CapNwea::"<c>" for
@@ -62,7 +67,11 @@
 // "parent[:field]"), coaches, kmapDistrictOwned, country, relations (the
 // names of the relations, registry entries a checkers file pins, the
 // caller holds to the request's resource), subjectRelations (those it
-// holds to subject), attributes (the resource's). The context carries
+// holds to subject), attributes (the resource's), and subject2, coaches2,
+// subjectRelations2, the same of the second user of an operation whose
+// checks are about two (@subject2), always set (a placeholder User when
+// there is none: a missing attribute would make a forbid error, and an
+// erroring policy is skipped). The context carries
 // the request's attributes and locale. Expiry and similar are the
 // loader's to apply before building entities: the language has no now().
 package cedarpolicy
@@ -120,12 +129,16 @@ func Export(m *policy.Model, service string) (Spec, error) {
 		if op.Subject != "" {
 			subject = fmt.Sprintf("@subject(%q)\n", op.Subject)
 		}
+		if op.Subject2 != "" {
+			subject += fmt.Sprintf("@subject2(%q)\n", op.Subject2)
+		}
 		fmt.Fprintf(
 			&b,
-			"@id(%q)\n%spermit (principal, %s, resource);\n\n",
+			"@id(%q)\n%spermit (principal, %s, resource)%s;\n\n",
 			"allow:"+op.Action,
 			subject,
 			scope,
+			principalsWhen(ns, op.Principals),
 		)
 		for _, d := range op.Denies {
 			fmt.Fprintf(
@@ -189,7 +202,30 @@ func ItemType(kind string) string {
 // targetAttrs are the attributes of a Target, and of an item, which the
 // same templates read.
 const targetAttrs = "{subject: User, coaches: Set<User>, kmapDistrictOwned: Bool, country: String, " +
-	"relations: Set<String>, subjectRelations: Set<String>, attributes: Set<String>}"
+	"relations: Set<String>, subjectRelations: Set<String>, attributes: Set<String>, " +
+	"subject2: User, coaches2: Set<User>, subjectRelations2: Set<String>}"
+
+// principalTypes are the principal types of the principal kinds, by kind.
+func principalTypes() map[string]string {
+	return map[string]string{
+		policy.PrincipalUser: "User", policy.PrincipalService: "Service",
+		policy.PrincipalPush: "Push", policy.PrincipalAnonymous: "Anonymous",
+	}
+}
+
+// principalsWhen is a permit's condition admitting only the principal
+// kinds given (policy.Operation.Principals): "" for every kind.
+func principalsWhen(ns string, kinds []string) string {
+	if len(kinds) == 0 {
+		return ""
+	}
+	types := principalTypes()
+	tests := make([]string, len(kinds))
+	for i, k := range kinds {
+		tests[i] = "principal is " + ns + "::" + types[k]
+	}
+	return "\nwhen { " + strings.Join(tests, " || ") + " }"
+}
 
 // capGroups are the capability groups a principal may belong to.
 const capGroups = "CapAny, CapGlobal, CapUserAll, CapNwea, CapExplicit"
@@ -204,9 +240,12 @@ func Schema(ns string, actions, kinds []string) string {
 		"  entity CapNwea;\n  entity CapExplicit;\n")
 	b.WriteString("  type CountryGrant = {capability: String, country: String};\n")
 	b.WriteString("  type LocaleGrant = {capability: String, locale: String};\n")
+	b.WriteString(
+		"  type ContentGrant = {capability: String, locale: String, contentKind: String};\n",
+	)
 	b.WriteString("  entity User in [" + capGroups + "] " +
 		"{loggedIn: Bool, phantom: Bool, countryGrants: Set<CountryGrant>, " +
-		"localeGrants: Set<LocaleGrant>, attributes: Set<String>};\n")
+		"localeGrants: Set<LocaleGrant>, contentGrants: Set<ContentGrant>, attributes: Set<String>};\n")
 	b.WriteString("  entity Service in [" + capGroups + "];\n  entity Push;\n  entity Anonymous;\n")
 	fmt.Fprintf(&b, "  entity Target %s;\n", targetAttrs)
 	for _, k := range kinds {
@@ -269,7 +308,7 @@ func leafExpr(ns string, l *policy.Leaf) string {
 		return "principal is " + ns + "::Push"
 	case policy.LeafRelation:
 		if l.Subject != "" {
-			return fmt.Sprintf("resource.subjectRelations.contains(%q)", l.Relation)
+			return fmt.Sprintf("resource.subjectRelations%s.contains(%q)", slot(l), l.Relation)
 		}
 		return fmt.Sprintf("resource.relations.contains(%q)", l.Relation)
 	case policy.LeafAttribute:
@@ -285,13 +324,22 @@ func leafExpr(ns string, l *policy.Leaf) string {
 	case policy.LeafOkta:
 		return "context.isOktaLifecycle"
 	case policy.LeafSelf:
-		return "(" + user + " && resource.subject == principal)"
+		return "(" + user + " && resource.subject" + slot(l) + " == principal)"
 	case policy.LeafCoach:
-		return "(" + user + " && resource.coaches.contains(principal))"
+		return "(" + user + " && resource.coaches" + slot(l) + ".contains(principal))"
 	case policy.LeafCapability:
 		return capabilityExpr(ns, l)
 	}
 	return "false"
+}
+
+// slot is the suffix of the Target attributes about check l's user: "2"
+// for an operation's second user, else "".
+func slot(l *policy.Leaf) string {
+	if l.Second {
+		return "2"
+	}
+	return ""
 }
 
 // capabilityExpr renders a capability check by its matcher's template.
@@ -318,6 +366,9 @@ func capabilityExpr(ns string, l *policy.Leaf) string {
 			"{capability: %q, locale: context.locale}))", ns, l.Capability)
 	case policy.ScopeExplicit:
 		return group("CapExplicit")
+	case policy.ScopeContent:
+		return fmt.Sprintf("(principal is %s::User && principal.contentGrants.contains("+
+			"{capability: %q, locale: context.locale, contentKind: %q}))", ns, l.Capability, l.ContentKind)
 	}
 	return group("CapAny")
 }

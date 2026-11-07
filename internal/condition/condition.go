@@ -157,6 +157,36 @@ func (c *Condition) Literals() []string {
 	return slices.Compact(values)
 }
 
+// Required maps each variable c can match only with a given boolean
+// value to that value: a conjunct of c (c itself, or a part of its
+// top-level all, nested alls flattened) that is "var equal true|false",
+// negated by a not. A variable compared elsewhere (under any, against a
+// non-boolean) is not in the map.
+func (c *Condition) Required() map[string]bool {
+	out := map[string]bool{}
+	if c.root != nil {
+		c.root.required(out, false)
+	}
+	return out
+}
+
+// required adds n's required booleans to out, each flipped when negated.
+func (n *node) required(out map[string]bool, negated bool) {
+	switch {
+	case n.All != nil && !negated:
+		for i := range n.All {
+			n.All[i].required(out, false)
+		}
+	case n.Not != nil:
+		n.Not.required(out, !negated)
+	case n.Var != "" && n.Op == "equal" && n.Var2 == "":
+		var b bool
+		if json.Unmarshal(n.Value, &b) == nil {
+			out[n.Var] = b != negated
+		}
+	}
+}
+
 // appendLiterals appends the numbers and strings of a valid literal.
 func appendLiterals(values []string, raw json.RawMessage) []string {
 	value, _ := decodeLiteral(raw)

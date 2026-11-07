@@ -1,12 +1,12 @@
 package policy
 
 import (
+	"cmp"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 // Registry maps each property and relation a person declares (the PIP's
@@ -14,6 +14,7 @@ import (
 // does. An entry's From lists:
 //   - fields, "models.ClassroomDistrictInfo.AllTeacherUDIsIDs";
 //   - loads, "load UserMetaInfo" (an existence property: a kind queried);
+//   - methods, "models.Classroom.HasTeacher()" (a method the check calls);
 //
 // and its Condition, free text the inventory shows but never evaluates
 // ("when !IsGlobalAdmin", "minus grantees"). "Declared" means the same
@@ -22,32 +23,63 @@ type Registry struct {
 	entries map[string]RegistryEntry
 }
 
-// RegistryEntry is one property or relation of a Registry.
+// RegistryEntry is one property, relation or attribute of a Registry:
+// what it is built from, and how a person reads it (Phrase, by language,
+// for the business statements; Concept, the domain concept it belongs
+// to).
 type RegistryEntry struct {
-	From      []string `yaml:"from"`
-	Condition string   `yaml:"condition"`
+	From      []string          `json:"from"`
+	Condition string            `json:"condition,omitempty"`
+	Phrase    map[string]string `json:"phrase,omitempty"`
+	Concept   string            `json:"concept,omitempty"`
+	Note      string            `json:"note,omitempty"`
 }
 
-// loadPrefix marks a registry source that is a datastore kind.
-const loadPrefix = "load "
+// loadPrefix marks a registry source that is a datastore kind,
+// methodSuffix one that is a method.
+const (
+	loadPrefix   = "load "
+	methodSuffix = "()"
+)
 
-// ParseRegistry reads a registry: a YAML map from entry name to entry. An
-// entry with no source is an error, since it could declare nothing.
+// ParseRegistry reads a registry: a map from entry name to entry, JSON or
+// the same document in YAML, checked against registry.schema.json (an
+// entry with no source could declare nothing, so from is required).
 func ParseRegistry(data []byte) (Registry, error) {
-	var entries map[string]RegistryEntry
-	if err := yaml.Unmarshal(data, &entries); err != nil {
+	normalized, err := validated(SchemaRegistry, data)
+	if err != nil {
 		return Registry{}, fmt.Errorf("policy: registry: %w", err)
 	}
-	for _, name := range slices.Sorted(maps.Keys(entries)) {
-		if len(entries[name].From) == 0 {
-			return Registry{}, fmt.Errorf("policy: registry entry %q lists no source in from", name)
-		}
+	var entries map[string]RegistryEntry
+	if err = json.Unmarshal(normalized, &entries); err != nil {
+		return Registry{}, fmt.Errorf("policy: registry: %w", err)
 	}
 	return Registry{entries: entries}, nil
 }
 
+// Phrase is how a person reads the entry name in lang ("en", "fr"): its
+// phrase in that language, else in English, else the name itself.
+func (r Registry) Phrase(name, lang string) string {
+	phrase, _ := r.phrase(name, lang)
+	return cmp.Or(phrase, name)
+}
+
+// phrase is the entry name's phrase in lang, else in English; false when
+// it has neither.
+func (r Registry) phrase(name, lang string) (string, bool) {
+	phrases := r.entries[name].Phrase
+	phrase := cmp.Or(phrases[lang], phrases["en"])
+	return phrase, phrase != ""
+}
+
+// Concept is the domain concept the entry name belongs to; "" when none
+// is given.
+func (r Registry) Concept(name string) string {
+	return r.entries[name].Concept
+}
+
 // declares names the entry declaring in, sorted first by name; "" when
-// none does or in is not a field or load input.
+// none does or in is not a field, load or method input.
 func (r Registry) declares(in Input) string {
 	var want string
 	switch in.Kind {
@@ -55,6 +87,8 @@ func (r Registry) declares(in Input) string {
 		want = in.Name
 	case KindLoad:
 		want = loadPrefix + in.Name
+	case KindMethod:
+		want = in.Name + methodSuffix
 	default:
 		return ""
 	}

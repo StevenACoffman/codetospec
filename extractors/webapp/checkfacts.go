@@ -18,9 +18,17 @@ const (
 	attrCheckArgs   = "check_args"
 	attrCheckScope  = "scope_of_check"
 	attrForm        = "form"
+	// Allowing paths of a service's own checker (see allowingPaths), as
+	// extract.AttrPaths, AttrNotAnalyzable and AttrNotAnalyzableReason.
+	attrPaths               = "paths"
+	attrNotAnalyzable       = "not_analyzable"
+	attrNotAnalyzableReason = "not_analyzable_reason"
 	// attrDelegatesTo is the resolver method ("recv.Method") a delegation
 	// rule is checked as: its checks are that method's.
 	attrDelegatesTo = "delegates_to"
+	// attrAnswers names the checks whose result the guarded resolver
+	// returns as its value (see checks.answers), as extract.AttrAnswers.
+	attrAnswers = "answers"
 	// attrDelegatesToOperation is the operation that method serves, when
 	// the service's schema has it: the delegation is checked as it.
 	attrDelegatesToOperation = "delegates_to_operation"
@@ -213,7 +221,7 @@ func (col *callCollector) visit(n ast.Node) bool {
 // add records call, a known check or one of the guard's unknown calls
 // (formCall), once per variable.
 func (col *callCollector) add(call *ast.CallExpr, fails bool) {
-	name, _, known := col.known.nameOf(call)
+	name, known := col.known.nameOf(call)
 	unknown := !known && col.unknownAt[call]
 	if unknown {
 		name = unknownName(call)
@@ -238,31 +246,31 @@ func (col *callCollector) add(call *ast.CallExpr, fails bool) {
 	}
 }
 
-// nameOf names the check call calls and says how it is known, with has's
-// precedence: "pkg.Func" through a package, "Func" for one called in its
-// own package, "method.Name" for a method (its receiver's type is unknown
-// to a parse without types).
-func (c checks) nameOf(call *ast.CallExpr) (string, string, bool) {
+// nameOf names the check call calls, with has's precedence: "pkg.Func"
+// through a package, "Func" for one called in its own package,
+// "method.Name" for a method (its receiver's type is unknown to a parse
+// without types); false for no known check. formOf says how it is known.
+func (c checks) nameOf(call *ast.CallExpr) (string, bool) {
 	if isRateLimit(call) {
-		return selectorName(call.Fun), formRateLimit, true
+		return selectorName(call.Fun), true
 	}
 	if _, marked := c.checkerOf(call); marked {
-		return c.markedName(call), formMarked, true
+		return c.markedName(call), true
 	}
 	switch fun := call.Fun.(type) {
 	case *ast.Ident:
 		if c.helpers[fun.Name] {
-			return fun.Name, formHelper, true
+			return fun.Name, true
 		}
 	case *ast.SelectorExpr:
 		if pkg, ok := fun.X.(*ast.Ident); ok && c.predicates[pkg.Name+"."+fun.Sel.Name] {
-			return pkg.Name + "." + fun.Sel.Name, formPredicate, true
+			return pkg.Name + "." + fun.Sel.Name, true
 		}
 	}
 	if isAccessCheck(call) {
-		return selectorName(call.Fun), formACL, true
+		return selectorName(call.Fun), true
 	}
-	return "", "", false
+	return "", false
 }
 
 // unknownName names a call no known check makes (see
@@ -425,20 +433,34 @@ func accessCheckFacts(facts []Fact, known checks, own, shared []source) []Fact {
 	ownDefs, sharedDefs := checkDefinitions(own), checkDefinitions(shared)
 	out := make([]Fact, 0, len(names))
 	for _, name := range names {
-		src, ok := ownDefs[name]
+		def, ok := ownDefs[name]
+		src := def.ref
 		if !ok {
 			if shared, found := sharedDefs[name]; found {
-				src = underPkg(shared)
+				src = underPkg(shared.ref)
 			}
 		}
 		form := known.formOf(name)
 		if calls[name] {
 			form = formCall
 		}
+		attrs := map[string]string{attrName: name, attrForm: form}
+		if ok {
+			// The service's own checkers: where they allow, or why that
+			// can't be read (see scanner.allowingPaths).
+			paths, reason := fileScanner(def.src, known).allowingPaths(def.fn)
+			switch {
+			case reason != "":
+				attrs[attrNotAnalyzable] = "true"
+				attrs[attrNotAnalyzableReason] = reason
+			case len(paths) > 0:
+				attrs[attrPaths] = pathsJSON(paths)
+			}
+		}
 		out = append(out, Fact{
 			Kind:      kindAccessCheck,
 			ID:        "access_check.webapp." + name,
-			Attrs:     map[string]string{attrName: name, attrForm: form},
+			Attrs:     attrs,
 			Source:    src,
 			Origin:    origin,
 			Certainty: certain,
@@ -495,30 +517,42 @@ func (c checks) isMarkedName(name string) bool {
 // checkDefinitions indexes the functions and methods of sources by the
 // names nameOf gives their calls: "pkg.Func" and "Func" for a function,
 // "method.Name" for a method; the first definition of a name wins.
-func checkDefinitions(sources []source) map[string]Ref {
-	defs := map[string]Ref{}
-	add := func(name string, ref Ref) {
+func checkDefinitions(sources []source) map[string]checkDef {
+	defs := map[string]checkDef{}
+	add := func(name string, d checkDef) {
 		if _, seen := defs[name]; !seen {
-			defs[name] = ref
+			defs[name] = d
 		}
 	}
 	for i := range sources {
 		s := &sources[i]
 		pkg := s.file.Name.Name
 		for _, fn := range funcDecls(s.file) {
-			ref := Ref{
-				Path:  s.name,
-				Lines: lines(s.fset.Position(fn.Pos()).Line, s.fset.Position(fn.End()).Line),
+			d := checkDef{
+				ref: Ref{
+					Path:  s.name,
+					Lines: lines(s.fset.Position(fn.Pos()).Line, s.fset.Position(fn.End()).Line),
+				},
+				src: s,
+				fn:  fn,
 			}
 			if fn.Recv != nil {
-				add("method."+fn.Name.Name, ref)
+				add("method."+fn.Name.Name, d)
 				continue
 			}
-			add(pkg+"."+fn.Name.Name, ref)
-			add(fn.Name.Name, ref) // called unqualified in its own package
+			add(pkg+"."+fn.Name.Name, d)
+			add(fn.Name.Name, d) // called unqualified in its own package
 		}
 	}
 	return defs
+}
+
+// checkDef is a named check's definition: its citation, file and
+// declaration.
+type checkDef struct {
+	ref Ref
+	src *source
+	fn  *ast.FuncDecl
 }
 
 // delegatesTo is the resolver method ("recv.Method") a delegation guard is

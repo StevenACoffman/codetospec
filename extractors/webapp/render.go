@@ -174,9 +174,11 @@ func addRuleTexts(w *wording, tr translate) {
 	w.checkTitleFmt = tr("Vérification d'accès : %s", "Access check: %s")
 	w.uncheckedTitleFmt = tr("Accès non vérifié : %s", "Unchecked access: %s")
 	w.roleTitleFmt = tr("Rôle : %s", "Role: %s")
+	// A role grants its capabilities on the scope of each grant of it (a
+	// user kind, a country, global): the sentence says so (FIX.md R4).
 	w.roleFmt = tr(
-		"Le système doit accorder au rôle `%s`%s les capacités %s.",
-		"The system shall grant the `%s` role%s the capabilities %s.",
+		"Le système doit accorder au rôle `%s`%s les capacités %s, sur la portée de chaque attribution du rôle.",
+		"The system shall grant the `%s` role%s the capabilities %s, on the scope of each grant of the role.",
 	)
 	w.roleNoneFmt = tr(
 		"Le système ne doit accorder aucune capacité au rôle `%s`%s.",

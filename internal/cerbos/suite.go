@@ -66,9 +66,9 @@ func (s *suite) add(kind, prefix, label string, op *policy.Operation) {
 		if !feasible(leaves, c.Given, &p, &r) {
 			continue
 		}
-		effect := "EFFECT_ALLOW"
+		effect := effectAllow
 		if c.Denied {
-			effect = "EFFECT_DENY"
+			effect = effectDeny
 		}
 		key := fmt.Sprintf("%s_case%d", prefix, n)
 		r.Kind = kind
@@ -102,6 +102,7 @@ func realize(leaves []policy.Leaf, given map[string]bool) (principal, resource) 
 		Attr: resourceAttr{
 			Subject: otherID, Coaches: []string{}, Country: "US", Locale: "en",
 			Relations: []string{}, SubjectRelations: []string{},
+			Subject2: otherID, Coaches2: []string{}, SubjectRelations2: []string{},
 			Attributes: []string{}, RequestAttributes: []string{},
 		},
 	}
@@ -123,11 +124,9 @@ func apply(p *principal, r *resource, l *policy.Leaf, holds bool) {
 			p.Roles = []string{RolePush}
 		}
 	case policy.LeafRelation:
-		switch {
-		case holds && l.Subject != "":
-			r.Attr.SubjectRelations = append(r.Attr.SubjectRelations, l.Relation)
-		case holds:
-			r.Attr.Relations = append(r.Attr.Relations, l.Relation)
+		if holds {
+			list := relationList(r, l)
+			*list = append(*list, l.Relation)
 		}
 	case policy.LeafAttribute:
 		if holds {
@@ -145,11 +144,11 @@ func apply(p *principal, r *resource, l *policy.Leaf, holds bool) {
 		r.Attr.IsOktaLifecycle = holds
 	case policy.LeafSelf:
 		if holds {
-			r.Attr.Subject = actorID
+			*userOf(r, l) = actorID
 		}
 	case policy.LeafCoach:
 		if holds {
-			r.Attr.Coaches = []string{actorID}
+			*coachesOf(r, l) = []string{actorID}
 		}
 	case policy.LeafCapability:
 		if holds {
@@ -172,7 +171,10 @@ func attributeList(p *principal, r *resource, holder string) *[]string {
 // grantFor is a grant satisfying a capability check's matcher, and no
 // broader than it needs.
 func grantFor(l *policy.Leaf) grant {
-	g := grant{Capability: l.Capability, UserKind: noScope, Country: noScope, Locale: noScope}
+	g := grant{
+		Capability: l.Capability, UserKind: noScope, Country: noScope, Locale: noScope,
+		ContentKinds: []string{},
+	}
 	switch l.Scope {
 	case policy.ScopeGlobal:
 		g.Global = true
@@ -186,6 +188,8 @@ func grantFor(l *policy.Leaf) grant {
 		g.Locale = "en"
 	case policy.ScopeExplicit:
 		g.Explicit = true
+	case policy.ScopeContent:
+		g.Locale, g.ContentKinds = "en", []string{l.ContentKind}
 	}
 	return g
 }
@@ -213,10 +217,7 @@ func holds(l *policy.Leaf, p *principal, r *resource) bool {
 	case policy.LeafPush:
 		return slices.Contains(p.Roles, RolePush)
 	case policy.LeafRelation:
-		if l.Subject != "" {
-			return slices.Contains(r.Attr.SubjectRelations, l.Relation)
-		}
-		return slices.Contains(r.Attr.Relations, l.Relation)
+		return slices.Contains(*relationList(r, l), l.Relation)
 	case policy.LeafAttribute:
 		return slices.Contains(*attributeList(p, r, l.Holder), l.Attribute)
 	case policy.LeafTask:
@@ -224,20 +225,20 @@ func holds(l *policy.Leaf, p *principal, r *resource) bool {
 	case policy.LeafOkta:
 		return r.Attr.IsOktaLifecycle
 	case policy.LeafSelf:
-		return r.Attr.Subject == p.ID
+		return *userOf(r, l) == p.ID
 	case policy.LeafCoach:
-		return slices.Contains(r.Attr.Coaches, p.ID)
+		return slices.Contains(*coachesOf(r, l), p.ID)
 	case policy.LeafCapability:
 		return slices.ContainsFunc(p.Attr.Grants, func(g grant) bool {
-			return g.Capability == l.Capability && grantMatches(&g, l.Scope, r)
+			return g.Capability == l.Capability && grantMatches(&g, l, r)
 		})
 	}
 	return false
 }
 
 // grantMatches mirrors scopeTest.
-func grantMatches(g *grant, matcher string, r *resource) bool {
-	switch matcher {
+func grantMatches(g *grant, l *policy.Leaf, r *resource) bool {
+	switch l.Scope {
 	case policy.ScopeGlobal:
 		return g.Global
 	case policy.ScopeUser:
@@ -252,8 +253,38 @@ func grantMatches(g *grant, matcher string, r *resource) bool {
 		return g.Locale == r.Attr.Locale
 	case policy.ScopeExplicit:
 		return g.Explicit
+	case policy.ScopeContent:
+		return g.Locale == r.Attr.Locale && slices.Contains(g.ContentKinds, l.ContentKind)
 	}
 	return true
+}
+
+// relationList is the list relation check l reads: the resource's, or
+// its user's (the second's for a Second check).
+func relationList(r *resource, l *policy.Leaf) *[]string {
+	switch {
+	case l.Subject != "" && l.Second:
+		return &r.Attr.SubjectRelations2
+	case l.Subject != "":
+		return &r.Attr.SubjectRelations
+	}
+	return &r.Attr.Relations
+}
+
+// userOf is the user self check l is about: the subject, or subject2.
+func userOf(r *resource, l *policy.Leaf) *string {
+	if l.Second {
+		return &r.Attr.Subject2
+	}
+	return &r.Attr.Subject
+}
+
+// coachesOf is the coaches of coach check l's user.
+func coachesOf(r *resource, l *policy.Leaf) *[]string {
+	if l.Second {
+		return &r.Attr.Coaches2
+	}
+	return &r.Attr.Coaches
 }
 
 // caseName names an assignment: each check's variable, negated when false.
@@ -288,12 +319,13 @@ type (
 		Attributes []string `yaml:"attributes"`
 	}
 	grant struct {
-		Capability string `yaml:"capability"`
-		Global     bool   `yaml:"global"`
-		UserKind   string `yaml:"userKind"`
-		Country    string `yaml:"country"`
-		Locale     string `yaml:"locale"`
-		Explicit   bool   `yaml:"explicit"`
+		Capability   string   `yaml:"capability"`
+		Global       bool     `yaml:"global"`
+		UserKind     string   `yaml:"userKind"`
+		Country      string   `yaml:"country"`
+		Locale       string   `yaml:"locale"`
+		Explicit     bool     `yaml:"explicit"`
+		ContentKinds []string `yaml:"contentKinds"`
 	}
 	resource struct {
 		Kind string       `yaml:"kind"`
@@ -309,6 +341,9 @@ type (
 		IsOktaLifecycle   bool     `yaml:"isOktaLifecycle"`
 		Relations         []string `yaml:"relations"`
 		SubjectRelations  []string `yaml:"subjectRelations"`
+		Subject2          string   `yaml:"subject2"`
+		Coaches2          []string `yaml:"coaches2"`
+		SubjectRelations2 []string `yaml:"subjectRelations2"`
 		Attributes        []string `yaml:"attributes"`
 		RequestAttributes []string `yaml:"requestAttributes"`
 		Locale            string   `yaml:"locale"`

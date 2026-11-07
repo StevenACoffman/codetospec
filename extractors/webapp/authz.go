@@ -20,6 +20,9 @@ type resolverMethod struct {
 	method     string // Go method name, e.g. "AddAuthEmail"
 	start, end int    // method span, 1-based inclusive
 	guards     []guard
+	// answers are the checks whose result it returns as its value (see
+	// checks.answers).
+	answers []string
 	// private: an unexported method, which gqlgen never calls: a helper of
 	// the methods that call it (see privateOps).
 	private bool
@@ -197,6 +200,7 @@ func resolverMethods(
 			start:    fset.Position(fn.Pos()).Line,
 			end:      fset.Position(fn.End()).Line,
 			guards:   sc.rules(fn),
+			answers:  known.answers(fn),
 			private:  !fn.Name.IsExported(),
 			calls:    receiverCalls(fn),
 			params:   paramNames(fn),
@@ -918,6 +922,9 @@ const (
 	goString = "string"
 )
 
+// The package the services build their errors with.
+const errorsPkg = "errors"
+
 // singleCall returns the call s assigns, when its right side is one call.
 func singleCall(s *ast.AssignStmt) (*ast.CallExpr, bool) {
 	if len(s.Rhs) != 1 {
@@ -1322,7 +1329,7 @@ func (c checks) errorName(block *ast.BlockStmt) (string, bool) {
 				return false
 			}
 			if sel, isSel := x.Fun.(*ast.SelectorExpr); isSel {
-				if pkg, isIdent := sel.X.(*ast.Ident); isIdent && pkg.Name == "errors" {
+				if pkg, isIdent := sel.X.(*ast.Ident); isIdent && pkg.Name == errorsPkg {
 					first = cmp.Or(first, sel.Sel.Name)
 					if isAuthorizationError(sel.Sel.Name) {
 						denial = sel.Sel.Name
@@ -1412,7 +1419,7 @@ func isAuthorizationCall(e ast.Expr) bool {
 		return false
 	}
 	pkg, isIdent := sel.X.(*ast.Ident)
-	return isIdent && pkg.Name == "errors" && isAuthorizationError(sel.Sel.Name)
+	return isIdent && pkg.Name == errorsPkg && isAuthorizationError(sel.Sel.Name)
 }
 
 // httpDenial returns the status a net/http handler denies with

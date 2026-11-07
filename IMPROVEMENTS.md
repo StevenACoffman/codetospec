@@ -436,6 +436,13 @@ committed (GPL-3.0), and the result goes in a `docs/verification/` file.
 Run ZSL4REQ as the baseline only if the LLM result is ambiguous. This
 measures the classifier, not the map: none of the data comes from code.
 
+**Status (2026-11-06).** The harness is built for the attribute half:
+`internal/quality/eval_test.go` (opt-in `CODETOSPEC_EVAL=1`) downloads
+Dalpiaz's relabeled PROMISE set and scores attribute accuracy against the
+PROMISE class (`O` counts as portability or compatibility) and quality
+detection against the separate `IsQuality` label. It hasn't been run with
+a model yet. The nature check (`technical`/`business`/`open`) isn't built.
+
 ## 15. Check a condition's logic against its EARS text
 
 **Source.** `JulianFrattini/cira` (Apache-2.0, Python service): causal

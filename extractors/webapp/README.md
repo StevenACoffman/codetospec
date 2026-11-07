@@ -187,7 +187,18 @@ a model reproduces at high cost and approximately, or not at all:
   and no meaning, so a person can pin it. One **`access_check`** fact per
   check named says how it is known (`form`: marked, predicate, helper, acl,
   ratelimit, call), cited at its definition in the service or in `pkg/`
-  (root `pkg`) when parsed.
+  (root `pkg`) when parsed. A checker defined in the service also carries
+  the paths on which it allows (`paths`, JSON: each path's condition in
+  the notation, its lines and check calls), read from the final return's
+  `||` disjuncts, top-level allowing ifs under the negations of the
+  denials before them, and, for a checker ending in an error, `return
+  nil` and `return check(…)` (any `errors.X(…)` or `fmt.Errorf` denies);
+  or `not_analyzable: "true"` with `not_analyzable_reason` (a loop or
+  switch decides, an if with an else, a filter that decides per item).
+  `answers` on a resolver's rules names the known checks it returns as
+  its value (directly, or through a local bound to a single value or with
+  its error discarded): the field it serves, not a gate it misses below
+  its guards.
 - **Unguarded resolvers** (`unguarded`): a public resolver method with a
   schema field and no guard, marker or delegation, cited on the method:
   how "no check found" differs from "not a resolver" (none in the seven

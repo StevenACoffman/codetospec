@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
+	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/grounding"
 	"github.com/StevenACoffman/codetospec/internal/llm"
@@ -201,33 +203,54 @@ const grounded = string(grounding.StatusGrounded)
 // quantities its requirement states; any other rule, or one whose values
 // grounding did not find in the code, records none.
 func TestAnnotateThresholds(t *testing.T) {
+	const cited = "retry.go"
+	roots := extract.Roots{Src: fstest.MapFS{
+		cited: {Data: []byte("package retry\nfunc Do() { for i := 0; i < MaxAttempts; i++ {} }\n")},
+	}}
+	opts := grounding.Options{DecimalSeparator: '.'}
+	quantities := map[string]float64{"MaxAttempts": 3}
 	cases := map[string]struct {
 		nature, attribute, grounding, requirement string
-		want                                      string
+		sources                                   string // lines of retry.go cited, "" for none
+		threshold, quantity                       string
 	}{
 		"grounded NFR stating a number": {
-			technical, quality.PerformanceEfficiency, grounded,
-			"The system shall time out a request after 30 seconds.", "30 seconds",
+			technical,
+			quality.PerformanceEfficiency,
+			grounded,
+			"The system shall time out a request after 30 seconds.",
+			"",
+			"30 seconds",
+			graph.QuantityStated,
 		},
 		"several numbers": {
-			technical, quality.Reliability, grounded,
-			"The system shall retry 3 times, 2 seconds apart.", "3 times; 2 seconds",
+			technical,
+			quality.Reliability,
+			grounded,
+			"The system shall retry 3 times, 2 seconds apart.",
+			"",
+			"3 times; 2 seconds",
+			graph.QuantityStated,
 		},
 		"ungrounded": {
 			technical, quality.PerformanceEfficiency, "ungrounded",
-			"The system shall time out a request after 30 seconds.", "",
+			"The system shall time out a request after 30 seconds.", "", "", graph.QuantityStated,
 		},
-		"no number": {
+		"no number, a constant read": {
+			technical, quality.Reliability, "unchecked",
+			"The system shall retry a failed call.", "2-2", "MaxAttempts = 3", "",
+		},
+		"no number, no constant": {
 			technical, quality.Security, "unchecked",
-			"The system shall accept only signed webhooks.", "",
+			"The system shall accept only signed webhooks.", "", "", "",
 		},
 		"business rule": {
 			"business", quality.Security, grounded,
-			"The system shall lock an account after 5 failed logins.", "",
+			"The system shall lock an account after 5 failed logins.", "", "", "",
 		},
 		"plain functionality": {
 			technical, quality.FunctionalSuitability, grounded,
-			"The system shall round to 2 decimals.", "",
+			"The system shall round to 2 decimals.", "", "", "",
 		},
 	}
 	for name, tc := range cases {
@@ -235,10 +258,16 @@ func TestAnnotateThresholds(t *testing.T) {
 			n := rule("rule.api.x", tc.nature, tc.requirement)
 			n.Extra[graph.ExtraQualityAttribute] = tc.attribute
 			n.Extra["grounding"] = tc.grounding
+			if tc.sources != "" {
+				n.Sources = []extract.Ref{{Path: cited, Lines: tc.sources}}
+			}
 			in := []graph.Node{n}
-			got := quality.AnnotateThresholds(in, '.')
-			if v := got[0].Extra[graph.ExtraThreshold]; v != tc.want {
-				t.Errorf("threshold = %q, want %q", v, tc.want)
+			got := quality.AnnotateThresholds(roots, in, opts, quantities)
+			if v := got[0].Extra[graph.ExtraThreshold]; v != tc.threshold {
+				t.Errorf("threshold = %q, want %q", v, tc.threshold)
+			}
+			if v := got[0].Extra[graph.ExtraQuantity]; v != tc.quantity {
+				t.Errorf("quantity = %q, want %q", v, tc.quantity)
 			}
 			if _, set := in[0].Extra[graph.ExtraThreshold]; set {
 				t.Error("the input node was modified")

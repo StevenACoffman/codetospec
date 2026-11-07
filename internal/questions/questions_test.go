@@ -189,18 +189,20 @@ const (
 	business    = "business"
 )
 
-// TestListNFRTarget: a non-functional rule asks for its target until its
-// code states a threshold; a business rule serving a quality, and a
-// technical one of plain functionality, ask nothing.
+// TestListNFRTarget: a non-functional rule stating a quantity asks for
+// its target until its code states a threshold; one naming no quantity, a
+// business rule serving a quality, and a technical one of plain
+// functionality ask nothing.
 func TestListNFRTarget(t *testing.T) {
 	cases := map[string]struct {
-		nature, attribute, threshold string
-		want                         []string
+		nature, attribute, threshold, quantity string
+		want                                   []string
 	}{
-		"no stated threshold": {
-			nature: technical, attribute: performance,
+		"a quantity stated, no threshold": {
+			nature: technical, attribute: performance, quantity: graph.QuantityStated,
 			want: []string{"nfr_target performance_efficiency"},
 		},
+		"no quantity named": {nature: technical, attribute: performance},
 		"threshold stated in code": {
 			nature: technical, attribute: performance, threshold: "30 seconds",
 		},
@@ -219,6 +221,9 @@ func TestListNFRTarget(t *testing.T) {
 			}
 			if tc.threshold != "" {
 				extra[graph.ExtraThreshold] = tc.threshold
+			}
+			if tc.quantity != "" {
+				extra[graph.ExtraQuantity] = tc.quantity
 			}
 			var got []string
 			for _, q := range questions.List(
@@ -282,6 +287,7 @@ func TestListStaleTarget(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			extra := map[string]string{
 				nature: technical, graph.ExtraQualityAttribute: performance,
+				graph.ExtraQuantity: graph.QuantityStated,
 			}
 			maps.Copy(extra, tc.extra)
 			var got []string

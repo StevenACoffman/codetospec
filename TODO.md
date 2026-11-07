@@ -260,12 +260,15 @@ holds the rest.
     (`docs/verification/post-remap-measurements-2026-11-04.md`).
   - Decided (2026-11-04): config stays unread.
 
-- [ ] Ask `nfr_target` only for an NFR that states or names a quantity
+- [x] Ask `nfr_target` only for an NFR that states or names a quantity
       (a number, or a timeout, limit, TTL… the cited code names), not for
       every technical rule with a quality attribute. Let a threshold come
       from a named constant the cited code reads (the `constant` facts,
       as grounding maps `400` ↔ `http.StatusBadRequest`), beside the
       numbers stated in the requirement.
+  - Done (2026-11-06): 3,732 → 20 questions on the corpus; a constant
+    threshold excludes enum values
+    (`docs/verification/checker-definitions-2026-11-06.md`).
 
 - [x] Read a person's NFR target answer back into the export. Today an NFR
       without a stated threshold exports `codetospec_threshold: unknown` and
@@ -399,8 +402,10 @@ holds the rest.
   - Done in the working tree (2026-11-06): R1 (`source.Excluded`,
     `extract.WithoutExcluded`), R2 (webapp `-exclude-dirs`), R3
     (`extractors/go/vars.go`; 50 admin rules gain tests,
-    `docs/verification/testreach-package-vars-2026-11-06.md`). Open:
-    R4-R6, and the corpus re-record once the outputs are regenerated.
+    `docs/verification/testreach-package-vars-2026-11-06.md`). R4 done
+    (2026-11-06: the role sentence names the grant's scope; admin's
+    output needs a model re-run). Open: R5-R6, and the corpus re-record
+    once the outputs are regenerated.
 - [x] Enforce the `AGENTS.md` architecture rules that exist only as prose.
       Each failure should name the rule and the repair.
   - "`internal/atomicfs` is the only writer of output" (`AGENTS.md:239-241`):
@@ -446,7 +451,10 @@ holds the rest.
 
 ## Measurement Against Outside Data (`nlp4re-tools.md`)
 
-- [ ] Measure `--quality` on labeled requirement sets (IMPROVEMENTS #14):
+- [ ] Measure `--quality` on labeled requirement sets (IMPROVEMENTS #14).
+      Harness built (`internal/quality/eval_test.go`, PROMISE relabeled,
+      `O` → portability or compatibility, scoring pinned); run it with a
+      model and record the result:
       Dalpiaz's RE-2019 sets and NoRBERT's PROMISE splits, downloaded at
       evaluation time (GPL-3.0), through an eval harness modeled on
       `CODETOSPEC_EVAL`. Decide the PROMISE `O` (operational) mapping
@@ -478,21 +486,18 @@ Left open by `policy_inventory_plan.md` and the checker work
 over-permit stays the rule: an operation the export can't decide whole is
 left out.
 
-- [ ] Cross-service join of inventories (`policy_inventory_plan.md` Part
-      2, step 8). 22 of the reviewed checkers decide in another service
-      (a `cross_service.X` call); joining the graphs would let such a
-      call take the target resolver's exported policy instead of a
-      hand-made relation.
-- [ ] Two-subject operations: 13 reviewed checkers check two users, or a
-      user not bound to the request, and their operations are left out.
-      Let an operation carry several bound subjects, each a named
-      resource attribute; this touches every leaf's binding, the case
-      oracle and both renderers.
-- [ ] `checksBelow` can't tell a check returned as data (a resolver
-      answering "is this user coached by the caller") from a deeper guard,
-      so recognizing more checks withheld 6 coaches operations. Find a
-      structural signal (the check's result returned or assigned to a
-      response field, not branched on) before relaxing it.
+- [ ] Cross-service join of inventories: built (`--join`, `policy.Join`)
+      for a target check about no user. Left: a target check about a user
+      needs to know which of the call's arguments is that user; and the
+      join hasn't been run across the reviewed graphs yet.
+- [ ] Two-subject operations: two bound users built (`subject2`, self,
+      coach and subject relations about the caller). The reviewed
+      two-subject checkers check a relation held by a named user who is
+      not the caller: that needs a leaf for another user's relation.
+- [x] `checksBelow` can't tell a check returned as data from a deeper
+      guard. Done (2026-11-06): the webapp extractor's `answers` (a check
+      returned as the resolver's value, its error unable to reach the
+      caller); coaches regains one operation.
 - [ ] The 34 reviewed checkers still unrecorded, by why:
   - **16 have a pin but no guard of their own.** Most are helpers called
     only from inside checkers the extractor does record (a capability
@@ -508,13 +513,16 @@ left out.
   Recording a helper or a steering result as a guard would claim
   decisions the resolver doesn't make. Data-access authorization needs
   the inventory to read it first.
-- [ ] Pins keyed on argument values (`when_arg`): five districts
-      checkers are pinned at their strictest reading because a literal
-      argument changes the decision.
-- [ ] Content-kind scopes: 7 reviewed content-editing checkers (3
-      recorded, 4 unrecorded) check a capability on a locale and a content
-      kind. Their mixed scope keys need the grant model. (The 8 that check
-      only the request's locale can be pinned now: `scope: locale`.)
+- [x] Pins keyed on argument values: `cases` with `when_arg`. Three of the
+      five districts checkers take the value as a literal and were
+      re-pinned by two blind readers; the other two take a variable.
+  - [ ] A visibility filter pinned with `self`/`coach` doesn't translate
+        where a guard uses the filter's failure as a call-level check (3
+        districts operations); decide what that guard means.
+- [ ] Content-kind scopes: built (`scope: content`, `content_kind` or a
+      literal `content_kind_arg`; loader contract updated). Re-pin the 7
+      content-editing checkers (and the 8 request-locale ones with
+      `scope: locale`).
 - [ ] Re-pin the review's checkers files with the vocabulary added since
       (`docs/verification/checker-recognition-2026-11-06.md`) and
       re-measure the six exports:
@@ -529,11 +537,18 @@ left out.
 
   One entry alone took users from 112 to 118 operations. The files are
   private.
-- [ ] Permits scoped by principal type (planned in the export-gaps work, never
-      built nor recorded): each operation gets one allow over every
-      principal kind the loader sets (user, service, push, anonymous).
-      Scoping it, say a Pub/Sub handler allowing only `push`, would move
-      that knowledge from deny guards into the permit.
+  - Progress (2026-11-06): the 20 files converted to JSON (all pass the
+    schema; inventories byte-identical); three districts checkers
+    re-pinned with `cases` by two blind readers, compared with
+    `policies --compare`. `policies --checkers` now shows, per pin, its
+    coverage by the code's paths: 26 of 31 covered on users, coaches,
+    assignments and ai-guide, 6 of 14 on districts. Review the five
+    flagged there and districts' eight
+    (`docs/verification/checker-definitions-2026-11-06.md`). Re-run admin
+    with a model (its role sentences changed).
+- [x] Permits scoped by principal type. Done (2026-11-06):
+      `Operation.Principals`, from the denies; on the five re-measured
+      graphs, 423 of 846 permits are restricted.
 - [ ] Rate limits as obligations: today a rate-limit guard keeps its
       operation out (52 guards). Exporting it as an annotation would
       allow what the code throttles. That is a policy decision for the
@@ -585,10 +600,12 @@ examples) land before the remap. Decided 2026-11-02:
     19 useful, text side about 1 in 4)
     (`docs/verification/post-remap-measurements-2026-11-04.md`).
 
-- [ ] Narrow `condition_mismatch`. Count a value as present when it
+- [x] Narrow `condition_mismatch`. Count a value as present when it
       occurs in a condition variable's name or as a constant a variable
       names; drop the condition side (a condition's values are already
       grounded in the cited code, so it only says the text is vaguer).
+  - Done (2026-11-06): 2,525 → 802 questions on the corpus; re-annotation
+    now replaces a stale disagreement.
 - [x] Have the webapp extractor's conditions carry what its EARS text
       states: a permission check's scope and a rate limit's numbers.
   - Done (2026-11-06) beside the condition rather than in it: rule facts'

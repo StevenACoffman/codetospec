@@ -2,20 +2,18 @@ apiVersion: api.cerbos.dev/v1
 metadata:
     annotations:
         subject:Mutation.editBio: arg:kaid
+        subject:Mutation.transfer: arg:from
         subject:User.emails: parent:Kaid
+        subject2:Mutation.transfer: arg:to
 resourcePolicy:
     resource: users
     version: default
     rules:
         - name: allow-guarded
           actions:
-            - Mutation.editBio
-            - Mutation.notify
             - Query.cdi
             - Query.cdiAlias
             - Query.things
-            - Query.udi
-            - User.emails
           effect: EFFECT_ALLOW
           roles:
             - anonymous
@@ -30,6 +28,27 @@ resourcePolicy:
             - anonymous
             - push
             - service
+            - user
+        - name: allow-push
+          actions:
+            - Mutation.notify
+          effect: EFFECT_ALLOW
+          roles:
+            - push
+        - name: allow-service-user
+          actions:
+            - Query.udi
+          effect: EFFECT_ALLOW
+          roles:
+            - service
+            - user
+        - name: allow-user
+          actions:
+            - Mutation.editBio
+            - Mutation.transfer
+            - User.emails
+          effect: EFFECT_ALLOW
+          roles:
             - user
         - name: rule.user.authz-bio
           actions:
@@ -49,6 +68,24 @@ resourcePolicy:
           condition:
             match:
                 expr: '!("push" in P.roles)'
+        - name: rule.user.authz-transfer-from
+          actions:
+            - Mutation.transfer
+          effect: EFFECT_DENY
+          roles:
+            - '*'
+          condition:
+            match:
+                expr: '!(R.attr.subject == P.id)'
+        - name: rule.user.authz-transfer-to
+          actions:
+            - Mutation.transfer
+          effect: EFFECT_DENY
+          roles:
+            - '*'
+          condition:
+            match:
+                expr: (!(R.attr.subject2 == P.id) && !(P.id in R.attr.coaches2))
         - name: rule.class.authz-cdi
           actions:
             - Query.cdi
@@ -67,7 +104,7 @@ resourcePolicy:
             - '*'
           condition:
             match:
-                expr: '!(("service" in P.roles || P.attr.grants.exists(g, g.capability == "can_view_user_identity" && g.userKind == "all") || P.attr.grants.exists(g, g.capability == "can_view_user_identity" && g.userKind == "nwea-map")))'
+                expr: '!(("service" in P.roles || P.attr.grants.exists(g, g.capability == "can_view_user_identity" && g.locale == R.attr.locale && "Video" in g.contentKinds) || P.attr.grants.exists(g, g.capability == "can_view_user_identity" && g.userKind == "all") || P.attr.grants.exists(g, g.capability == "can_view_user_identity" && g.userKind == "nwea-map")))'
         - name: rule.user.authz-emails
           actions:
             - User.emails

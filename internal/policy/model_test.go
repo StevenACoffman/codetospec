@@ -69,7 +69,7 @@ func TestBuildModel(t *testing.T) {
 					Op: policy.OpCheck,
 					Check: &policy.Leaf{
 						Kind:        policy.LeafSelf,
-						Var:         "acl.IsCurrentUser",
+						Var:         isCurrentUser,
 						Subject:     "user.Kaid",
 						SubjectFrom: parentKaid,
 					},
@@ -136,7 +136,8 @@ func loginGuard(id, op, lines, check string) graph.Node {
 // TestModelChecksBelowGuard: a resolver whose body reaches a recognized
 // check its guards don't call is left out (the check may deny what the
 // blanket allow grants); a check reached only through a check the guard
-// calls is the guard's own, and changes nothing.
+// calls is the guard's own, and changes nothing; so is one the resolver
+// answers (returns as its value).
 func TestModelChecksBelowGuard(t *testing.T) {
 	const deep = "permissions.Deep"
 	facts := []extract.Fact{
@@ -180,6 +181,16 @@ func TestModelChecksBelowGuard(t *testing.T) {
 	want := []policy.Skip{{RuleID: "rule.a.deep", Reason: "checks below its guard: " + deep}}
 	if !reflect.DeepEqual(m.Skipped, want) {
 		t.Errorf("skipped = %+v, want %+v", m.Skipped, want)
+	}
+	// Query.deep returns the check's result as its value: the answer it
+	// serves, not a gate its guard misses.
+	answering := loginGuard("rule.a.deep", "Query.deep", "2-3", "acl.IsLoggedIn")
+	answering.Extra[graph.ExtraAnswers] = deep
+	m = policy.BuildModel(facts, []graph.Node{
+		answering, loginGuard("rule.a.own", "Query.own", "21-22", "auth.Login"),
+	}, nil)
+	if len(m.Operations) != 2 || len(m.Skipped) != 0 {
+		t.Errorf("answering: operations %+v, skipped %+v; want both, none", m.Operations, m.Skipped)
 	}
 }
 

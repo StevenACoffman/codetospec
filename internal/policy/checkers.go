@@ -1,12 +1,13 @@
 package policy
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"slices"
-
-	"gopkg.in/yaml.v3"
+	"strconv"
+	"strings"
 )
 
 // Checkers pins what checks the extractor doesn't know mean, by check
@@ -34,31 +35,90 @@ type Checkers map[string]Checker
 // person's reason: cross_service, data_predicate…), Note saying more: its
 // guards are skipped with that reason.
 type Checker struct {
-	Means      string `yaml:"means,omitempty"`
-	Scope      string `yaml:"scope,omitempty"`
-	Relation   string `yaml:"relation,omitempty"`
-	Capability string `yaml:"capability,omitempty"`
+	Means      string `json:"means,omitempty"      yaml:"means,omitempty"`
+	Scope      string `json:"scope,omitempty"      yaml:"scope,omitempty"`
+	Relation   string `json:"relation,omitempty"   yaml:"relation,omitempty"`
+	Capability string `json:"capability,omitempty" yaml:"capability,omitempty"`
 	// SubjectArg is which of the call's arguments (from 0, the context
 	// included) a self, coach or user-scope check is about. On a compound
 	// checker, it is every such part's that names none.
-	SubjectArg *int `yaml:"subject_arg,omitempty"`
+	SubjectArg *int `json:"subject_arg,omitempty" yaml:"subject_arg,omitempty"`
 	// CapabilityArg is which of the call's arguments names a capability
 	// check's capability, for a part: it has no call argument of its own.
-	CapabilityArg *int      `yaml:"capability_arg,omitempty"`
-	Item          string    `yaml:"item,omitempty"`
-	Any           []Checker `yaml:"any,omitempty"`
-	All           []Checker `yaml:"all,omitempty"`
-	Unpinnable    string    `yaml:"unpinnable,omitempty"`
-	Note          string    `yaml:"note,omitempty"`
+	CapabilityArg *int      `json:"capability_arg,omitempty" yaml:"capability_arg,omitempty"`
+	Item          string    `json:"item,omitempty"           yaml:"item,omitempty"`
+	Any           []Checker `json:"any,omitempty"            yaml:"any,omitempty"`
+	All           []Checker `json:"all,omitempty"            yaml:"all,omitempty"`
+	Unpinnable    string    `json:"unpinnable,omitempty"     yaml:"unpinnable,omitempty"`
+	Note          string    `json:"note,omitempty"           yaml:"note,omitempty"`
 	// Of and Attribute name an attribute check's holder (Holder*) and
 	// attribute; Not negates a checker.
-	Of        string   `yaml:"of,omitempty"`
-	Attribute string   `yaml:"attribute,omitempty"`
-	Not       *Checker `yaml:"not,omitempty"`
+	// ContentKind or ContentKindArg (which call argument, a string
+	// literal, names it) is a content-scope capability's content kind.
+	ContentKind    string   `json:"content_kind,omitempty"     yaml:"content_kind,omitempty"`
+	ContentKindArg *int     `json:"content_kind_arg,omitempty" yaml:"content_kind_arg,omitempty"`
+	Of             string   `json:"of,omitempty"               yaml:"of,omitempty"`
+	Attribute      string   `json:"attribute,omitempty"        yaml:"attribute,omitempty"`
+	Not            *Checker `json:"not,omitempty"              yaml:"not,omitempty"`
 	// Digest is the digest of the checker's definition (its access_check
 	// fact's source, as drift hashes a span) when the entry was written:
 	// a different current digest makes the pin stale (StalePins).
-	Digest string `yaml:"digest,omitempty"`
+	Digest string `json:"digest,omitempty" yaml:"digest,omitempty"`
+	// Cases, on an entry, pin a checker whose meaning depends on its call's
+	// arguments: the first case whose WhenArg the call's arguments match
+	// is the call's meaning (For); a call matching none has none.
+	Cases []ArgCase `json:"cases,omitempty" yaml:"cases,omitempty"`
+	// Approx, on an entry, says the pin is stricter than the code: it
+	// leaves out an allowing path the policy model can't state, so the
+	// export denies some requests the code allows, never the reverse.
+	Approx bool `json:"approx,omitempty" yaml:"approx,omitempty"`
+}
+
+// ArgCase is one case of a checker keyed on argument values: WhenArg maps
+// argument indexes (from 0, the context included, as SubjectArg) to the
+// argument's text as written (`"admin"`, models.RoleAdmin), and Checker is
+// the meaning when every one matches.
+type ArgCase struct {
+	WhenArg map[string]string `json:"when_arg" yaml:"when_arg"`
+	Checker
+}
+
+// For is what c pins for call: c itself, or for an entry with cases, the
+// first case whose WhenArg call's arguments match (with c's Item); false
+// when none matches.
+func (c *Checker) For(call *CheckCall) (Checker, bool) {
+	if c.Cases == nil {
+		return *c, true
+	}
+	for i := range c.Cases {
+		if c.Cases[i].matches(call) {
+			out := c.Cases[i].Checker
+			out.Item = c.Item
+			return out, true
+		}
+	}
+	return Checker{}, false
+}
+
+// matches reports whether call's arguments are k's WhenArg.
+func (k *ArgCase) matches(call *CheckCall) bool {
+	for index, text := range k.WhenArg {
+		i, err := strconv.Atoi(index)
+		if err != nil || i < 0 || i >= len(call.Args) || call.Args[i].Text != text {
+			return false
+		}
+	}
+	return true
+}
+
+// key is k's WhenArg as one canonical text, sorted by index:
+// "2=\"admin\"".
+func (k *ArgCase) key() string {
+	parts := make([]string, 0, len(k.WhenArg))
+	for _, index := range slices.Sorted(maps.Keys(k.WhenArg)) {
+		parts = append(parts, index+"="+k.WhenArg[index])
+	}
+	return strings.Join(parts, ", ")
 }
 
 // pinnable are the meanings a checker may state.
@@ -75,19 +135,37 @@ func pinnable() []string {
 // off the checker itself; c is not modified.
 func (c *Checker) withSubjectArg() Checker {
 	out := *c
-	if c.SubjectArg == nil || c.Any == nil && c.All == nil {
+	if c.Cases != nil {
+		out.Cases = make([]ArgCase, len(c.Cases))
+		for i, k := range c.Cases {
+			if k.SubjectArg == nil {
+				k.SubjectArg = c.SubjectArg
+			}
+			out.Cases[i] = ArgCase{WhenArg: k.WhenArg, Checker: k.withSubjectArg()}
+		}
+		out.SubjectArg = nil
 		return out
+	}
+	if c.SubjectArg == nil || c.Any == nil && c.All == nil && c.Not == nil {
+		return out
+	}
+	passOne := func(p Checker) Checker {
+		if p.SubjectArg == nil &&
+			(p.Any != nil || p.All != nil || p.Not != nil || p.needsSubject()) {
+			p.SubjectArg = c.SubjectArg
+		}
+		return p.withSubjectArg()
 	}
 	pass := func(parts []Checker) []Checker {
 		passed := make([]Checker, len(parts))
 		for i := range parts {
-			p := parts[i]
-			if p.SubjectArg == nil && (p.Any != nil || p.All != nil || p.needsSubject()) {
-				p.SubjectArg = c.SubjectArg
-			}
-			passed[i] = p.withSubjectArg()
+			passed[i] = passOne(parts[i])
 		}
 		return passed
+	}
+	if c.Not != nil {
+		not := passOne(*c.Not)
+		out.Not = &not
 	}
 	if c.Any != nil {
 		out.Any = pass(c.Any)
@@ -127,14 +205,18 @@ func (c *Checker) subjectIn(call *CheckCall, operand string) (string, string) {
 // without a pinned scope (or, in a part, without its name), a relation
 // without its name.
 func ParseCheckers(data []byte) (Checkers, error) {
+	normalized, err := validated(SchemaCheckers, data)
+	if err != nil {
+		return nil, fmt.Errorf("policy: checkers: %w", err)
+	}
 	var cs Checkers
-	if err := yaml.Unmarshal(data, &cs); err != nil {
+	if err = json.Unmarshal(normalized, &cs); err != nil {
 		return nil, fmt.Errorf("policy: checkers: %w", err)
 	}
 	for _, name := range slices.Sorted(maps.Keys(cs)) {
 		entry := cs[name]
 		c := entry.withSubjectArg()
-		if err := c.check(false, c.Item != ""); err != nil {
+		if err = c.check(false, c.Item != ""); err != nil {
 			return nil, fmt.Errorf("policy: checker %q: %w", name, err)
 		}
 		cs[name] = c
@@ -147,18 +229,22 @@ func ParseCheckers(data []byte) (Checkers, error) {
 // user (SubjectItem), so it names no subject_arg.
 func (c *Checker) check(part, item bool) error {
 	shapes := 0
-	for _, set := range []bool{c.Means != "", c.Any != nil, c.All != nil, c.Not != nil, c.Unpinnable != ""} {
+	for _, set := range []bool{
+		c.Means != "", c.Any != nil, c.All != nil, c.Not != nil, c.Unpinnable != "", c.Cases != nil,
+	} {
 		if set {
 			shapes++
 		}
 	}
 	switch {
-	case part && (c.Item != "" || c.Unpinnable != ""):
-		return errors.New("item and unpinnable name a whole entry, not a part")
+	case part && (c.Item != "" || c.Unpinnable != "" || c.Cases != nil):
+		return errors.New("item, unpinnable and cases name a whole entry, not a part")
 	case shapes != 1:
-		return errors.New("states one of means, any, all, not or unpinnable")
+		return errors.New("states one of means, any, all, not, cases or unpinnable")
 	case c.Unpinnable != "":
 		return nil
+	case c.Cases != nil:
+		return c.checkCases(item)
 	case c.Not != nil:
 		if err := c.Not.check(true, item); err != nil {
 			return fmt.Errorf("not: %w", err)
@@ -168,6 +254,26 @@ func (c *Checker) check(part, item bool) error {
 		return c.checkParts(item)
 	}
 	return c.checkLeaf(part, item)
+}
+
+// checkCases validates an entry's cases, naming the first bad one by its
+// position: each keyed on at least one argument index, a checker itself.
+func (c *Checker) checkCases(item bool) error {
+	for i := range c.Cases {
+		k := &c.Cases[i]
+		for index := range k.WhenArg {
+			if n, err := strconv.Atoi(index); err != nil || n < 0 {
+				return fmt.Errorf("case %d: when_arg index %q is not an argument index", i+1, index)
+			}
+		}
+		if len(k.WhenArg) == 0 {
+			return fmt.Errorf("case %d: needs when_arg", i+1)
+		}
+		if err := k.check(false, item); err != nil {
+			return fmt.Errorf("case %d: %w", i+1, err)
+		}
+	}
+	return nil
 }
 
 // checkParts validates a compound checker's parts, naming the first bad
@@ -187,15 +293,13 @@ func (c *Checker) checkParts(item bool) error {
 
 // checkLeaf validates a check-shaped checker (see check).
 func (c *Checker) checkLeaf(part, item bool) error {
-	switch {
-	case !slices.Contains(pinnable(), c.Means):
+	if !slices.Contains(pinnable(), c.Means) {
 		return fmt.Errorf("means %q is not one of %v", c.Means, pinnable())
-	case c.Means == MeansCapability && !slices.Contains(pinnedScopes(), c.Scope):
-		return fmt.Errorf("scope %q is not one of %v", c.Scope, pinnedScopes())
-	case c.Capability != "" && c.CapabilityArg != nil:
-		return errors.New("names its capability twice (capability, capability_arg)")
-	case c.Means == MeansCapability && part && c.Capability == "" && c.CapabilityArg == nil:
-		return errors.New("a capability part needs its capability or capability_arg")
+	}
+	if err := c.checkCapability(part); err != nil {
+		return err
+	}
+	switch {
 	case c.Means == MeansRelation && c.Relation == "":
 		return errors.New("a relation needs its name")
 	case c.Means == MeansAttribute &&
@@ -213,6 +317,25 @@ func (c *Checker) checkLeaf(part, item bool) error {
 		return errors.New(
 			"subject_arg names the user of a self, coach, user-scope or relation check only",
 		)
+	}
+	return nil
+}
+
+// checkCapability validates a capability check's operands: a pinned
+// scope, its capability named once (by name or argument, a part by one of
+// them), a content scope's kind named once and only there.
+func (c *Checker) checkCapability(part bool) error {
+	switch {
+	case c.Means == MeansCapability && !slices.Contains(pinnedScopes(), c.Scope):
+		return fmt.Errorf("scope %q is not one of %v", c.Scope, pinnedScopes())
+	case c.Capability != "" && c.CapabilityArg != nil:
+		return errors.New("names its capability twice (capability, capability_arg)")
+	case c.Scope == ScopeContent && (c.ContentKind == "") == (c.ContentKindArg == nil):
+		return errors.New("a content scope needs its content_kind or content_kind_arg, one of them")
+	case c.Scope != ScopeContent && (c.ContentKind != "" || c.ContentKindArg != nil):
+		return errors.New("content_kind and content_kind_arg name a content scope's kind only")
+	case c.Means == MeansCapability && part && c.Capability == "" && c.CapabilityArg == nil:
+		return errors.New("a capability part needs its capability or capability_arg")
 	}
 	return nil
 }
@@ -252,16 +375,21 @@ func MergeCheckers(files map[string]Checkers) (Checkers, error) {
 	return merged, nil
 }
 
-// Undeclared lists the relations cs names, in parts too, that no entry of
-// reg declares, sorted and unique: the loader contract would ask for what
-// the PIP can't serve.
+// Undeclared lists the relations and attributes cs names, in parts too,
+// that no entry of reg declares, sorted and unique: the loader contract
+// would ask for what the PIP can't serve, and a business statement would
+// have no phrase for them.
 func (cs Checkers) Undeclared(reg Registry) []string {
 	var out []string
 	var walk func(c *Checker)
 	walk = func(c *Checker) {
-		if c.Means == MeansRelation && !slices.Contains(reg.names(), c.Relation) &&
-			!slices.Contains(out, c.Relation) {
-			out = append(out, c.Relation)
+		term := c.Relation
+		if c.Means == MeansAttribute {
+			term = c.Attribute
+		}
+		if (c.Means == MeansRelation || c.Means == MeansAttribute) &&
+			!slices.Contains(reg.names(), term) && !slices.Contains(out, term) {
+			out = append(out, term)
 		}
 		for _, p := range append(slices.Clone(c.Any), c.All...) {
 			walk(&p)

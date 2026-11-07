@@ -251,8 +251,8 @@ bin/codetospec stats  --out <graph>                # phase counters; tokens of t
 bin/codetospec diff   --old <graph> --new <graph>  # rules added, removed, renamed or changed between two runs
 bin/codetospec export --out <graph> --to <dir>     # the rules as ISO 29148 FRs and NFRs in the Quire format (quoin)
 bin/codetospec export --out <graph> --to <dir> --format kiro  # the rules as Kiro specs
-bin/codetospec policies --out <graph> [--registry reg.yaml] [--format md|json]  # policy inventory on stdout
-bin/codetospec export --out <graph> --to <dir> --format cerbos [--checkers c.yaml] [--registry reg.yaml]  # access guards as Cerbos policies
+bin/codetospec policies --out <graph> [--registry reg.json] [--checkers c.json] [--compare c2.json] [--lang en|fr] [--format md|json]  # policy inventory, each check defined and verified
+bin/codetospec export --out <graph> --to <dir> --format cerbos [--checkers c.json] [--registry reg.json] [--join <graph>=<checkers>]  # access guards as Cerbos policies
 bin/codetospec export --out <graph> --to <dir> --format cedar-policy  # ... in the Cedar policy language
 ```
 
@@ -265,18 +265,28 @@ vocabulary (login, a capability on a pinned scope, self, coach,
 service-admin, task, Okta lifecycle, Pub/Sub push, a relation, an
 attribute of the caller, resource or request): the extractor's, or one
 a person pins in a checkers file (`--checkers`, repeatable, files
-merged; YAML: one check, or `any`/`all`/`not` of them, read from the
+merged; JSON, or the same document in YAML, validated against
+`internal/policy/schema/checkers.schema.json`: an unknown key is an
+error naming its JSON path. An entry is one check, `any`/`all`/`not` of
+them, or `cases` keyed on a literal argument (`when_arg`), read from the
 checker's code; `item: <Kind>` makes a visibility filter a `view` policy
 on that kind; `unpinnable: <reason>` records why a check can't be
-pinned; `digest` records the checker's code it was written for, so
-`export --src` reports a stale pin and `policies --src` prints each
-check's digest).
+pinned; `approx: true` that the pin is stricter than the code; `digest`
+the checker's code it was written for, so `export --src` reports a stale
+pin and `policies --src` prints each check's digest). A capability's
+scopes include `locale` and `content` (a grant for the request's locale
+and one content kind). `--join <graph>=<checkers>` lets a check that
+calls one operation of another service take the pin of the check that
+operation answers there (reported, never guessed, when it doesn't map).
 An operation is left out whole (logged at debug level), never exported
 as a bare allow, when a guard doesn't translate, a rule of it names no
-check, its resolver calls a recognized check its guards don't, or its
-checks are about a local or about two users; one that only delegates to
-an exported operation shares its policies. Each operation's user
-binding (`arg:kaid`, `parent:Kaid`) is an annotation on its policies.
+check, its resolver calls a recognized check its guards don't (one it
+returns as its value, `answers`, excepted), or its checks are about a
+local or about more than two users; one that only delegates to an
+exported operation shares its policies. Each operation's user bindings
+(`arg:kaid`, `parent:Kaid`; a second user's as `subject2`) are
+annotations on its policies. An operation whose guards pass only some
+principal kinds (a Pub/Sub handler: push) is allowed for those alone.
 `--registry` reports each relation a checker names that the registry
 doesn't declare. Cerbos gets a resource policy and
 a test suite whose expectations come from the rules' own conditions
@@ -298,8 +308,23 @@ relation to its sources: `teacher_of: {from:
 [models.ClassroomDistrictInfo.AllTeacherUDIsIDs], condition: …}`, `from:
 ["load UserMetaInfo"]` for a kind), each field and load input is marked
 with the entry declaring it, and the undeclared inputs and unread entries
-are listed. It reads the graph and `.codetospec/facts.json`, never writes
-them.
+are listed (a method the check calls, too: `from: ["models.Classroom.HasTeacher()"]`).
+The registry is also the glossary: each entry's `phrase` (per language)
+and `concept` word the business statements.
+
+With `--checkers`, each check gets its definition (JSON:
+`internal/policy/schema/inventory.schema.json`; every state a boolean):
+the code's allowing paths (read by the webapp extractor, or
+`not_analyzable` with the reason), the pin, its business statement in
+`--lang` ("Allowed when the caller is signed in, or the caller teaches
+the class."), and its verification: each leaf grounded or not in what
+the check reads and calls, the pin's alternatives matched with the
+code's paths both ways (`path_coverage`), a stale digest, and the
+relations the registry lacks. `--compare <file>` compares each pin with
+a second reader's by truth table and names a counterexample. "Who can
+do what" lists, per concept, each operation's guards as statements, or
+why one is undecided. It reads the graph and `.codetospec/facts.json`,
+never writes them.
 
 `export` writes each rule as a functional requirement in the Quire format
 of [quoin](https://github.com/agent-ix/quoin) (module spec-artifacts-iso
@@ -324,9 +349,12 @@ Method` row) and `## Verification`. The code rarely states a target: when
 the rule's requirement states a number that grounding found in the cited
 code, the run records it (`threshold: "30 seconds"` in the rule's
 frontmatter) and the NFR exports it, `codetospec_threshold: stated`;
-otherwise the row says the target is unknown, `codetospec_threshold:
-unknown`, and names the `nfr_target` question of `questions.json`
-(`codetospec_question`) a person answers. A business rule serving a
+a requirement stating no number takes the numeric constants its cited
+lines name (`MaxAttempts = 3`; enum values aside). Otherwise the row
+says the target is unknown, `codetospec_threshold: unknown`. Only an NFR
+whose requirement states a quantity it couldn't ground (`quantity:
+stated`) names an `nfr_target` question of `questions.json`
+(`codetospec_question`) a person answers; one naming none says so. A business rule serving a
 quality (authorization is `security`) stays an FR. Not exported:
 enumerations (another module's object types).
 
@@ -490,9 +518,9 @@ it is kept under `local.`. A condition that does not parse, or compares with
 a value its cited lines lack, gets the map's one repair exchange, and is
 dropped if still wrong (`condition_dropped`), never its rule. The reduce
 keeps the condition its merged candidates share, else the one it writes.
-A kept condition that states other values than the EARS text, or
-conditions a rule whose text states none, is a `condition_mismatch`
-question (`condition_disagreement` says which values, and whether the
+A kept condition with values the EARS text doesn't state (in a value,
+a variable's name, or the value of a constant a variable names) is a
+`condition_mismatch` question (`condition_disagreement` says which values, and whether the
 cited code holds each); neither side is changed.
 
 **Acceptance facts** (`--acceptance`). One LLM call per rule the map wrote

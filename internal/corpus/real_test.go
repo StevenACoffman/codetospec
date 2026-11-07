@@ -16,6 +16,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/grounding"
 	"github.com/StevenACoffman/codetospec/internal/locale"
+	"github.com/StevenACoffman/codetospec/internal/quality"
 	"github.com/StevenACoffman/codetospec/internal/render"
 	"github.com/StevenACoffman/codetospec/internal/verify"
 )
@@ -56,7 +57,7 @@ func TestCorpus(t *testing.T) {
 				entry.Commit, entry.Baseline = head, got
 				return
 			}
-			for _, worse := range corpus.Compare(entry.Baseline, got) {
+			for _, worse := range corpus.Compare(&entry.Baseline, &got) {
 				t.Error(worse)
 			}
 		})
@@ -87,6 +88,7 @@ func measure(t *testing.T, entry *corpus.Entry, src, out string) corpus.Measures
 		Constants:        grounding.Constants(facts),
 	}
 	nodes = grounding.Annotate(roots, nodes, opts)
+	nodes = quality.AnnotateThresholds(roots, nodes, opts, grounding.Quantities(facts))
 	return corpus.Measure(nodes, len(verify.Run(nodes, roots)), drift.Check(nodes, roots))
 }
 

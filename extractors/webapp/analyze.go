@@ -140,6 +140,12 @@ func knownChecks(sources, shared []source, in *Inputs) (checks, []string) {
 		}
 	}
 	maps.Copy(marked, wrappedCheckers(sources, marked))
+	helpers := capabilityHelpers(in, sources)
+	for key, h := range helpers {
+		if _, own := marked[key]; !own {
+			marked[key] = h.results
+		}
+	}
 	deriveDenials(sources, marked)
 	known := checks{
 		marked:      marked,
@@ -154,6 +160,7 @@ func knownChecks(sources, shared []source, in *Inputs) (checks, []string) {
 		predicates:  accessPredicates(sources, in.AccessPkgs),
 		errVars:     errorVars(sources),
 		credentials: credentials(sources),
+		capHelpers:  helpers,
 	}, warnings
 }
 

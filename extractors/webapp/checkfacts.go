@@ -47,8 +47,11 @@ const (
 	formMarked    = "marked"    // marked //ka:permission-check (see markedCheckers)
 	formPredicate = "predicate" // an access package's bool function (accessPredicates)
 	formHelper    = "helper"    // a resolver helper returning a check (helperPredicates)
-	formACL       = "acl"       // named like an acl predicate (isAccessCheck)
-	formRateLimit = "ratelimit" // a rate limiter (isRateLimit)
+	// formCapability is a capability helper: a function whose decision is
+	// admin's hasPermission field (see capHelper).
+	formCapability = "capability"
+	formACL        = "acl"       // named like an acl predicate (isAccessCheck)
+	formRateLimit  = "ratelimit" // a rate limiter (isRateLimit)
 	// formCall: a function a denying guard calls that is no known check
 	// (scanner.unknownCalls): named so a person can pin it, with no meaning.
 	formCall = "call"
@@ -232,6 +235,9 @@ func (col *callCollector) add(call *ast.CallExpr, fails bool) {
 	out := callOperands(col.fset, call, name)
 	if unknown {
 		out.Form = formCall
+	}
+	if h, isHelper := col.known.capHelpers[name]; isHelper {
+		out.withHelper(h, call)
 	}
 	if col.inCondition && col.withVars {
 		out.Var = col.cond.decisionVariable(call)
@@ -495,9 +501,12 @@ func (c checks) formOf(name string) string {
 	if method, isMethod := strings.CutPrefix(name, "method."); isMethod {
 		key = "." + method // markedCheckers' key for a method
 	}
+	_, isHelper := c.capHelpers[name]
 	switch {
 	case strings.HasPrefix(name, ratelimitPkg+"."):
 		return formRateLimit
+	case isHelper:
+		return formCapability
 	case c.isMarkedName(key):
 		return formMarked
 	case c.predicates[name]:

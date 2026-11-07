@@ -265,8 +265,9 @@ func TestDelegationNamesItsOperation(t *testing.T) {
 
 // TestBind: an operand from a resolver parameter is the request's
 // argument, from a field resolver's first parameter its parent object, a
-// local defined once from either the same; anything else (a loaded value,
-// a call) has no origin the request states.
+// local defined once from either the same, the kaid of the request user
+// (a local bound from RequestUser()) the caller; anything else (a loaded
+// value, a call) has no origin the request states.
 func TestBind(t *testing.T) {
 	field := resolverMethod{typeName: userType, params: []string{objParam, "first"}}
 	root := resolverMethod{typeName: gqlQuery, params: []string{kaidParam, "input"}}
@@ -277,6 +278,7 @@ func TestBind(t *testing.T) {
 		locals: map[string]string{
 			userKaidLocal: objKaid, "loaded": "record.Kaid",
 		},
+		callers: []string{"actor"},
 	}
 	for _, tc := range []struct {
 		m          *resolverMethod
@@ -293,6 +295,9 @@ func TestBind(t *testing.T) {
 		{&local, "userKaid.Suffix", "parent:Kaid.Suffix"},
 		{&local, "loaded", ""},
 		{&root, "ktx.RequestUser().Kaid", ""},
+		{&local, "actor.Kaid", fromCaller},
+		{&local, "*actor.Kaid", fromCaller},
+		{&local, "actor.Email", ""},
 	} {
 		if got := tc.m.bind(tc.text); got != tc.want {
 			t.Errorf("%s bind(%q) = %q, want %q", tc.m.typeName, tc.text, got, tc.want)

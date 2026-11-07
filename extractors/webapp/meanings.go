@@ -81,12 +81,16 @@ func scopeOf(matcher string) string {
 	return ""
 }
 
-// The meanings scopeOf gives the acl matchers.
+// The meanings scopeOf gives the acl matchers, and permissionScopes
+// admin's Scope enum: scopeLocale a grant for the request's locale,
+// scopeUserAll one of userKind "all" (policy.Scope*).
 const (
 	scopeAny     = "any"
 	scopeGlobal  = "global"
 	scopeUser    = "user"
 	scopeCountry = "country"
+	scopeLocale  = "locale"
+	scopeUserAll = "user_all"
 )
 
 // valueKinds are the declared types whose values are staff capabilities

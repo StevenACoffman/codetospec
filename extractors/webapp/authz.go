@@ -33,7 +33,17 @@ type resolverMethod struct {
 	// locals maps each local its body defines once, at its top level,
 	// to the source of its value (userKaid := *user.Kaid).
 	locals map[string]string
+	// callers are the locals bound once, at the top level, to the request
+	// user (actor, err := ktx.RequestUser()): their Kaid is the caller's.
+	callers []string
 }
+
+// fromCaller is the origin bind gives the request user's kaid: the call's
+// argument is the caller (policy.FromCaller).
+const fromCaller = "caller"
+
+// kaidField is the field of a user identity that holds its kaid.
+const kaidField = "Kaid"
 
 // hasParent reports whether m resolves a field of an object, its first
 // parameter that object: not a root operation's, nor a federation
@@ -44,11 +54,15 @@ func (m *resolverMethod) hasParent() bool {
 
 // bind says where an operand written as text comes from, when the
 // request supplies it: "arg:<param>[.field…]" for a parameter of m,
-// "parent[:field…]" for the parent object of a field resolver; "" for
-// anything else (a local, a call's result).
+// "parent[:field…]" for the parent object of a field resolver, "caller"
+// for the request user's kaid (see callers); "" for anything else (a
+// local, a call's result).
 func (m *resolverMethod) bind(text string) string {
 	t := strings.TrimLeft(text, "*&")
 	root, rest, _ := strings.Cut(t, ".")
+	if rest == kaidField && slices.Contains(m.callers, root) {
+		return fromCaller
+	}
 	if value, ok := m.locals[root]; ok && !slices.Contains(m.params, root) {
 		if rest != "" {
 			value += "." + rest
@@ -64,6 +78,33 @@ func (m *resolverMethod) bind(text string) string {
 		return "parent:" + rest
 	}
 	return "arg:" + t
+}
+
+// callerLocals lists the locals fn's body binds once, at its top level, as
+// the first result of a RequestUser() call: the request user.
+func callerLocals(fn *ast.FuncDecl) []string {
+	assigned := map[string]int{}
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		if as, ok := n.(*ast.AssignStmt); ok && len(as.Lhs) > 0 {
+			if id, isIdent := as.Lhs[0].(*ast.Ident); isIdent {
+				assigned[id.Name]++
+			}
+		}
+		return true
+	})
+	var out []string
+	for _, stmt := range fn.Body.List {
+		as, ok := stmt.(*ast.AssignStmt)
+		if !ok || as.Tok != token.DEFINE || len(as.Rhs) != 1 {
+			continue
+		}
+		call, isCall := as.Rhs[0].(*ast.CallExpr)
+		id, isIdent := as.Lhs[0].(*ast.Ident)
+		if isCall && isIdent && isRequestUserCall(call) && assigned[id.Name] == 1 {
+			out = append(out, id.Name)
+		}
+	}
+	return out
 }
 
 // definedOnce maps each local fn's body defines at its top level with a
@@ -205,6 +246,7 @@ func resolverMethods(
 			calls:    receiverCalls(fn),
 			params:   paramNames(fn),
 			locals:   definedOnce(fset, fn),
+			callers:  callerLocals(fn),
 		})
 	}
 	return methods
@@ -412,6 +454,9 @@ type checks struct {
 	// credentials are the package strings a request value is checked
 	// against (see credentials).
 	credentials map[string]bool
+	// capHelpers are the service's capability helpers, by "pkg.Func" (see
+	// capHelper); each is also a recognized checker in marked.
+	capHelpers map[string]capHelper
 }
 
 // has reports whether call is a known access check.
@@ -671,7 +716,9 @@ func (sc scanner) unknownCalls(cond ast.Expr, marks callMarks) []*ast.CallExpr {
 // call.
 func isBuiltin(name string) bool {
 	switch name {
-	case "len", "cap", "min", "max", "new", "make", "append", "complex", "real", "imag":
+	case "len", "cap", "min", "max", "new", "make", "append", "complex", "real", "imag",
+		// conversions, not calls: string(capabilities.X)
+		"string", "bool", "int", "int64", "float64", "byte", "rune":
 		return true
 	}
 	return false
@@ -1156,14 +1203,17 @@ func isSelfCheck(call *ast.CallExpr, locals map[string]binding) bool {
 // ktx.RequestUser().
 func isCallerKaid(sel *ast.SelectorExpr, locals map[string]binding) bool {
 	user, ok := sel.X.(*ast.Ident)
-	if !ok || sel.Sel.Name != "Kaid" {
+	if !ok || sel.Sel.Name != kaidField {
 		return false
 	}
 	b := locals[user.Name]
-	if b.call == nil || b.isErr {
-		return false
-	}
-	fn, isSel := b.call.Fun.(*ast.SelectorExpr)
+	return b.call != nil && !b.isErr && isRequestUserCall(b.call)
+}
+
+// isRequestUserCall reports whether call is ktx.RequestUser(), the request
+// user's identity.
+func isRequestUserCall(call *ast.CallExpr) bool {
+	fn, isSel := call.Fun.(*ast.SelectorExpr)
 	return isSel && fn.Sel.Name == "RequestUser"
 }
 

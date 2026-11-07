@@ -1930,12 +1930,14 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:111-115",
     "attrs": {
-      "condition": "{\"all\":[{\"exists\":\"user.Kaid\"},{\"var\":\"ktx.RequestUser.fails\",\"op\":\"equal\",\"value\":true}]}",
+      "check_args": "[{\"check\":\"method.RequestIsServiceAdminQuery\",\"var\":\"request.isServiceAdmin\",\"means\":\"service_admin\"}]",
+      "checks": "method.RequestIsServiceAdminQuery",
+      "condition": "{\"all\":[{\"exists\":\"user.Kaid\"},{\"var\":\"request.isServiceAdmin\",\"op\":\"equal\",\"value\":true}]}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
       "operation": "User.partner",
-      "requirement": "SI `user.Kaid != nil` est vrai ET `ktx.RequestUser()` échoue, ALORS le système doit rejeter User.partner avec l'erreur `Unauthorized`.",
+      "requirement": "SI `user.Kaid != nil` est vrai ET la requête est une requête service-admin, ALORS le système doit rejeter User.partner avec l'erreur `Unauthorized`.",
       "slug": "authz-user-partner",
       "title": "Contrôle d'accès : User.partner"
     },
@@ -2349,9 +2351,32 @@
   },
   {
     "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:313-316",
+    "attrs": {
+      "check_args": "[{\"check\":\"method.RequestIsServiceAdminQuery\",\"var\":\"request.isServiceAdmin\",\"means\":\"service_admin\"}]",
+      "checks": "method.RequestIsServiceAdminQuery",
+      "condition": "{\"var\":\"request.isServiceAdmin\",\"op\":\"equal\",\"value\":true}",
+      "domain": "user",
+      "ears": "unwanted",
+      "nature": "business",
+      "operation": "Query.tools",
+      "requirement": "SI la requête est une requête service-admin, ALORS le système doit rejeter Query.tools.",
+      "route": "route.graphql.query.tools",
+      "slug": "authz-query-tools",
+      "title": "Contrôle d'accès : Query.tools"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "313-316"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:320-323",
     "attrs": {
-      "check_args": "[{\"check\":\"method.RequestIsServiceAdminQuery\",\"var\":\"request.isServiceAdmin\",\"means\":\"service_admin\"},{\"check\":\"acl.IsCurrentUser\",\"var\":\"acl.IsCurrentUser\",\"means\":\"self\",\"subject\":\"kaid\"}]",
+      "check_args": "[{\"check\":\"method.RequestIsServiceAdminQuery\",\"var\":\"request.isServiceAdmin\",\"means\":\"service_admin\"},{\"check\":\"acl.IsCurrentUser\",\"var\":\"acl.IsCurrentUser\",\"means\":\"self\",\"subject\":\"kaid\",\"subject_from\":\"caller\"}]",
       "checks": "acl.IsCurrentUser,method.RequestIsServiceAdminQuery",
       "condition": "{\"not\":{\"any\":[{\"var\":\"request.isServiceAdmin\",\"op\":\"equal\",\"value\":true},{\"var\":\"acl.IsCurrentUser\",\"op\":\"equal\",\"value\":true}]}}",
       "domain": "user",
@@ -2360,8 +2385,8 @@
       "operation": "Query.tools",
       "requirement": "SI la requête n'est pas une requête service-admin ET l'appelant n'est pas l'utilisateur `kaid`, lui-même (jamais vrai), ALORS le système doit ne renvoyer aucune donnée pour Query.tools.",
       "route": "route.graphql.query.tools",
-      "slug": "authz-query-tools",
-      "title": "Contrôle d'accès : Query.tools"
+      "slug": "authz-query-tools-2",
+      "title": "Contrôle d'accès : Query.tools (2)"
     },
     "source": {
       "path": "resolvers/guards.go",

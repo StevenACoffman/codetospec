@@ -147,7 +147,7 @@ func TestAnalyzeFacts(t *testing.T) {
 		// (acl.TODO: unchecked)
 		// …and the entity finders of User (@key): one checks, its alias
 		// delegates to it
-		"user.graphql operations": {"user", 25},
+		"user.graphql operations": {"user", 26},
 		// Orphan, and _unused: a private method with no caller
 		"field-less resolver": {"resolvers", 2},
 		// AIProfile.summary (its resolver type is named by the factory), and

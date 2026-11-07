@@ -403,8 +403,10 @@ holds the rest.
     `extract.WithoutExcluded`), R2 (webapp `-exclude-dirs`), R3
     (`extractors/go/vars.go`; 50 admin rules gain tests,
     `docs/verification/testreach-package-vars-2026-11-06.md`). R4 done
-    (2026-11-06: the role sentence names the grant's scope; admin's
-    output needs a model re-run). Open: R5-R6, and the corpus re-record
+    (2026-11-06: the role sentence names the grant's scope; re-run on a
+    scratch copy: 46 role rules reworded, ids kept,
+    `docs/verification/quality-promise-and-admin-rerun-2026-11-06.md`;
+    `~/spec-graphs/admin` itself waits for the remap). Open: R5-R6, and the corpus re-record
     once the outputs are regenerated.
 - [x] Enforce the `AGENTS.md` architecture rules that exist only as prose.
       Each failure should name the rule and the repair.
@@ -452,9 +454,11 @@ holds the rest.
 ## Measurement Against Outside Data (`nlp4re-tools.md`)
 
 - [ ] Measure `--quality` on labeled requirement sets (IMPROVEMENTS #14).
-      Harness built (`internal/quality/eval_test.go`, PROMISE relabeled,
-      `O` → portability or compatibility, scoring pinned); run it with a
-      model and record the result:
+      Attribute half done (2026-11-06): 83.4 % accuracy, detection
+      precision 92.0 % and recall 96.3 % on the relabeled PROMISE set
+      (`docs/verification/quality-promise-and-admin-rerun-2026-11-06.md`);
+      left: confusions per class (the record keeps counts only), repeats
+      for flips, and the nature check. The original item:
       Dalpiaz's RE-2019 sets and NoRBERT's PROMISE splits, downloaded at
       evaluation time (GPL-3.0), through an eval harness modeled on
       `CODETOSPEC_EVAL`. Decide the PROMISE `O` (operational) mapping
@@ -583,8 +587,9 @@ left out.
     `policies --compare`. `policies --checkers` now shows, per pin, its
     coverage by the code's paths: 26 of 31 covered on users, coaches,
     assignments and ai-guide, 6 of 14 on districts
-    (`docs/verification/checker-definitions-2026-11-06.md`). Re-run admin
-    with a model (its role sentences changed).
+    (`docs/verification/checker-definitions-2026-11-06.md`). Admin,
+    re-run after its role sentences changed: export unchanged (37
+    operations, 96/96 `cerbos compile`).
   - Reviewed (2026-11-06): of the 13 flagged pins, none over-permits; 10
     are correct (the flags are the path-coverage limits above), and
     `governingMoa`, `UserAdministersAdminAggregate` (the MOA flag, now a

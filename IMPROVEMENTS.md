@@ -440,8 +440,11 @@ measures the classifier, not the map: none of the data comes from code.
 `internal/quality/eval_test.go` (opt-in `CODETOSPEC_EVAL=1`) downloads
 Dalpiaz's relabeled PROMISE set and scores attribute accuracy against the
 PROMISE class (`O` counts as portability or compatibility) and quality
-detection against the separate `IsQuality` label. It hasn't been run with
-a model yet. The nature check (`technical`/`business`/`open`) isn't built.
+detection against the separate `IsQuality` label. The nature check (`technical`/`business`/`open`) isn't built.
+First run (2026-11-06, `gemini-3.8-flash`): attribute accuracy 83.4 %,
+quality detection precision 92.0 % and recall 96.3 %; scalability,
+maintainability and look-and-feel are the weakest classes
+(`docs/verification/quality-promise-and-admin-rerun-2026-11-06.md`).
 
 ## 15. Check a condition's logic against its EARS text
 

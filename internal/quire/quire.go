@@ -267,6 +267,18 @@ func nfrMeasurement(rule *graph.Node, target *nfrtarget.Target) measurement {
 		}
 	}
 	q := questionOf(rule, questions.KindNFRTarget)
+	if q == "" {
+		// The requirement states no quantity and the cited code names none:
+		// nothing to ask about, but a person may still set a target.
+		unknown := "Unknown: neither the requirement nor the cited code names a quantity"
+		return measurement{
+			threshold: ThresholdUnknown,
+			target:    unknown, thresholdCell: unknown,
+			method: "To be decided with the target",
+			verification: "Not verifiable until a person sets a target and threshold " +
+				"in targets.yaml.",
+		}
+	}
 	unknown := "Unknown: the code states none (question " + q + ")"
 	return measurement{
 		threshold: ThresholdUnknown,

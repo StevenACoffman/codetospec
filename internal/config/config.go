@@ -110,10 +110,17 @@ type Config struct {
 	// policy export joins (--capabilities-from): admin's, for a service
 	// that names capabilities it doesn't register.
 	CapabilitiesFrom string
-	// Checkers are a policy export's checkers files (--checkers,
-	// repeatable): what the checks the extractor doesn't know mean, pinned
-	// by a person; shared and per-service files merge.
+	// Checkers are the checkers files of a policy export or of policies
+	// (--checkers, repeatable): what the checks the extractor doesn't know
+	// mean, pinned by a person; shared and per-service files merge.
 	Checkers []string
+	// Compare are a second reader's checkers files (policies --compare,
+	// repeatable), each pin compared with --checkers' by truth table.
+	Compare []string
+	// Joins are other services' graphs and their checkers files
+	// (--join <graph>=<checkers>, repeatable): a check calling one of their
+	// operations takes the pin of the check it answers there.
+	Joins []string
 	// DomainModels are human modelith models (*.modelith.yaml) the graph is
 	// compared with (--domain-model, then domain_models resolved against
 	// --src); DomainModelEntities maps a model entity to the code entity it
@@ -430,7 +437,13 @@ func ParseExport(args []string) (*Config, error) {
 	flags.Var(
 		(*stringList)(&cfg.Checkers),
 		"checkers",
-		"cerbos, cedar-policy: YAML file pinning what unknown checks mean (repeatable; files merge)",
+		"cerbos, cedar-policy: file (JSON or YAML) pinning what unknown checks mean (repeatable; files merge)",
+	)
+	flags.Var(
+		(*stringList)(&cfg.Joins),
+		"join",
+		"<graph>=<checkers>: another service's graph (named as its dependency facts name it) "+
+			"and its checkers file, for checks calling its operations (repeatable)",
 	)
 	flags.StringVar(&cfg.Registry, "registry", "",
 		"cerbos, cedar-policy: registry the checkers' relations must be declared in")
@@ -459,9 +472,35 @@ func ParsePolicies(args []string) (*Config, error) {
 	flags := flag.NewFlagSet("policies", flag.ContinueOnError)
 	cfg := &Config{}
 	flags.StringVar(&cfg.Out, "out", "", "graph directory (required)")
-	flags.StringVar(&cfg.Registry, "registry", "",
-		"YAML registry mapping each property and relation to its sources (optional)")
+	flags.StringVar(
+		&cfg.Registry,
+		"registry",
+		"",
+		"registry (JSON or YAML) mapping each property and relation to its sources and wording (optional)",
+	)
+	flags.Var(
+		(*stringList)(&cfg.Checkers),
+		"checkers",
+		"checkers file (JSON or YAML) whose pins to define and verify each check with (repeatable; files merge)",
+	)
+	flags.Var(
+		(*stringList)(&cfg.Joins),
+		"join",
+		"<graph>=<checkers>: another service's graph (named as its dependency facts name it) "+
+			"and its checkers file, for checks calling its operations (repeatable)",
+	)
+	flags.Var(
+		(*stringList)(&cfg.Compare),
+		"compare",
+		"a second reader's checkers file, each pin compared with --checkers' (repeatable; files merge)",
+	)
 	flags.StringVar(&cfg.Format, "format", FormatMarkdown, "output: md or json")
+	flags.StringVar(
+		&cfg.Lang,
+		"lang",
+		"en",
+		"language of the checks' business statements (en or fr)",
+	)
 	flags.StringVar(&cfg.Src, "src", "",
 		"repository the checks are cited in, to digest each check's definition (optional)")
 	registerRefRoots(flags, cfg)
@@ -474,6 +513,9 @@ func ParsePolicies(args []string) (*Config, error) {
 	}
 	if cfg.Format != FormatMarkdown && cfg.Format != FormatJSON {
 		return nil, fmt.Errorf("policies: --format %q must be md or json", cfg.Format)
+	}
+	if cfg.Lang != "fr" && cfg.Lang != "en" {
+		return nil, fmt.Errorf("policies: --lang %q must be fr or en", cfg.Lang)
 	}
 	return cfg, nil
 }

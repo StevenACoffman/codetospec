@@ -1,6 +1,7 @@
 package condition_test
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -189,6 +190,26 @@ func TestVariablesAndLiterals(t *testing.T) {
 				t.Errorf("Literals = %q, want %q", got, tc.literals)
 			}
 		})
+	}
+}
+
+// TestRequired: only the booleans every match needs, a not flipping
+// them; a variable under any or against a number is left out.
+func TestRequired(t *testing.T) {
+	c := mustParse(t, `{"all": [`+loggedOut+`,
+		{"not": {"var": "a", "op": "equal", "value": true}},
+		{"all": [{"var": "b", "op": "equal", "value": true}]},
+		{"any": [{"var": "c", "op": "equal", "value": true}, {"var": "d", "op": "equal", "value": true}]},
+		{"not": {"all": [{"var": "e", "op": "equal", "value": true}]}},
+		{"var": "shipment.weight", "op": "equal", "value": 3}
+	]}`)
+	got := c.Required()
+	want := map[string]bool{"caller.loggedIn": false, "a": false, "b": true}
+	if !maps.Equal(got, want) {
+		t.Errorf("Required = %v, want %v", got, want)
+	}
+	if zero := (condition.Condition{}); len(zero.Required()) != 0 {
+		t.Error("the zero Condition requires something")
 	}
 }
 

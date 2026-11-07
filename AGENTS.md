@@ -42,6 +42,12 @@ scripts/remap.sh                               # remap every ~/spec-graphs outpu
   numerous, no more cases that flip; a failed call counts as an error.
   `TestScoreEval` pins this computation. `TestPlantedFaults` (grounding) is
   the mechanical equivalent, always on, blind spots listed explicitly.
+- Measuring `--quality` on Dalpiaz's relabeled PROMISE set (opt-in,
+  calls the model and downloads the GPL-3.0 data at run time, never
+  committed): `CODETOSPEC_EVAL=1 go test ./internal/quality -run
+  EvalPromise -v`, `CODETOSPEC_EVAL_RECORD=f` to keep the score.
+  `TestScoreQuality` pins the scoring (PROMISE O counts as portability
+  or compatibility).
 - `go test ./...` runs without network or PHP. Tests tagged `phplocal` for
   the PHP extractor (skipped if `php` is missing).
 
@@ -164,7 +170,10 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   EARS conditions (`condition_disagreement`, values marked cited or not;
   0 and "" are implicit in prose; a value an extractor carries in
   `check_args`, such as a check's scope matcher or a rate limit's numbers,
-  counts as stated: `docs/verification/check-args-disagreement-2026-11-06.md`)
+  counts as stated: `docs/verification/check-args-disagreement-2026-11-06.md`;
+  so does a value in a variable's name or the value of a constant a
+  variable names; only the text side is checked, and re-annotation
+  replaces a stale disagreement)
   → `condition_mismatch` question.
 - `internal/vocabulary` — the condition variables offered to each map
   chunk, no LLM: extractor rule-condition variables (scoped to their
@@ -214,8 +223,11 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   set (`internal/nfrtarget`, `codetospec_threshold: set`, mapped by kind),
   else the run's `threshold` frontmatter (`quality.AnnotateThresholds`:
   the numbers of a grounded requirement, `grounding.StatedNumbers`, read
-  with `--lang`'s decimal separator), else unknown + the `nfr_target`
-  question id (`questions.KindNFRTarget`). NFR shape verified with the downloaded
+  with `--lang`'s decimal separator; with no number stated, the numeric
+  constants the cited lines name, `grounding.Quantities` minus enum
+  values), else unknown, and the `nfr_target` question id
+  (`questions.KindNFRTarget`) only when the requirement states a
+  quantity (`quantity: stated`). NFR shape verified with the downloaded
   `nfr-frontmatter.schema.json` and the skeleton's section rules
   (`docs/verification/quire-nfr-export-2026-11-01.md`). Pure (`Export` returns the files); the CLI
   refuses a non-empty `--to` (one-time bootstrap, the team then edits in
@@ -235,8 +247,28 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   call means (`check_args`: `var` the condition variable it became,
   `fails`, `means`, `scope`, `subject_from`; webapp's table is
   `extractors/webapp/meanings.go`).
-  A registry (`ParseRegistry`, a person's YAML, never written) declares
-  fields and loads; methods aren't supported yet.
+  A registry (`ParseRegistry`, a person's JSON or YAML, never written,
+  `schema/registry.schema.json`) declares fields, loads and methods
+  (`Type.Method()`, joined to the Go extractor's `calls_method` facts),
+  and is the glossary: each entry's `phrase` (per language) and
+  `concept`.
+  Definitions (`define.go`, `inv.Define(checkers, registry, text)`): each
+  `Check.Definition` carries the webapp extractor's allowing paths
+  (`access_check` `paths`, or `not_analyzable` + reason), the pin, its
+  `Statement` (`statement.go`, `locale.Policy`), leaf grounding
+  (grounded / ungrounded / unknown, from the inputs and the paths), and
+  `path_coverage`: the pin's DNF against each path's required checks
+  (`condition.Required`), both ways. In a path, a scope matcher is an
+  operand, a call's failure whose decision has its own variable is its
+  error, a call nothing states is data; a stated check under an `any`
+  leaves its path unmatched (never a false match); negations and scopes
+  aren't compared. `inv.Compare(first, second)` (`equivalent.go`): truth
+  table over canonical leaves, a counterexample. `Inventory.Access`
+  (`access.go`): per concept, each guard stated from its own condition
+  (the negated deny, De Morgan to the leaves), or undecided with the
+  reasons. Everything a state: booleans; the JSON matches
+  `schema/inventory.schema.json` (tested). Schemas are embedded and
+  compiled together (`compiled`), so one may `$ref` another.
 - `internal/cerbos`, `internal/cedarpolicy` — `export --format cerbos |
   cedar-policy` (`policy_inventory_plan.md` Part 3). Both render
   `policy.BuildModel`: each extractor guard whose condition's variables
@@ -246,8 +278,16 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   over-permit: an operation is left out whole when a guard doesn't
   translate, a rule of it names no check (`guard names no check`), its
   resolver reaches a recognized check its guards don't call
-  (`checksBelow`, call facts, `MaxDepth`), or its checks are about a
-  local or about two users (`subjectOf`: one `resource.subject`). An
+  (`checksBelow`, call facts, `MaxDepth`; a check the resolver answers,
+  the webapp extractor's `answers`, excepted: returned as its value, its
+  error unable to reach the caller), or its checks are about a local or
+  about more than two users (`subjectOf`: `resource.subject`, and
+  `subject2` for a second user, whose checks are `Leaf.Second`, their
+  variables suffixed `@subject2` in the leaf, `Defined` and the condition
+  so the oracle tells them apart; a user-scope grant on the second is
+  skipped). `Operation.Principals`: the principal kinds some passing
+  assignment can come from (`kindsOf`), set when not all: Cerbos
+  `allow-<roles>`, the Cedar policy language `when { principal is … }`. An
   operation whose rules all delegate (`delegates_to_operation`) to an
   exported operation is its alias. `export --checkers` (`ParseCheckers`,
   a person's YAML, never written) pins what checks the extractor doesn't
@@ -256,14 +296,21 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   variable from them), `subject_arg` for a user check (on a compound
   checker, passed to its parts) or a relation to an argument's user
   (`R.attr.subjectRelations`), `capability_arg` for a part's capability,
-  an `attribute` of the caller, resource or request, the `locale` and
-  `explicit` scopes, `item: <Kind>` for a visibility filter
+  an `attribute` of the caller, resource or request, the `locale`,
+  `explicit` and `content` (`content_kind` or a literal
+  `content_kind_arg`) scopes, `cases` keyed on literal arguments
+  (`ArgCase`, `Checker.For` the one resolver: a call matching no case is
+  skipped), `approx`, `item: <Kind>` for a visibility filter
   (`Model.Items`: a `view` policy per kind, where self and coach are
   about the item's user, `SubjectItem`), `unpinnable: <reason>` (the
   skip reason), `digest` (`policy.StalePins`: `export --src` warns about
   a pin whose checker changed; `policies --src` prints each check's).
   `--checkers` repeats; files merge (`MergeCheckers`, a name in two is
-  an error).
+  an error). JSON or YAML, `schema/checkers.schema.json` (an unknown key
+  is an error; `TestCheckersSchemaEnums` pins the enums to the Go
+  vocabulary). `--join <graph>=<checkers>` (`join.go`): an unpinned
+  check calling one other-service operation (`dependency` facts) whose
+  guards answer one pinned check takes that pin; anything else reported.
   Formats pinned in each package doc, with the loader contract; the
   subject binding is an annotation (Cerbos `subject:<action>`, the Cedar
   policy language `@subject`). Verified against the oracle, not the
@@ -554,7 +601,8 @@ scripts). The Go extractor also emits the `constant` facts (webapp no
 longer emits them) and `call`, and, for the policy inventory, what each
 function reads: `reads` (struct fields), `uses_value` (package-level
 constants and basic-typed variables, with type and value: capabilities,
-flags), `loads` (datastore kinds and filtered properties), plus `tags`
+flags), `loads` (datastore kinds and filtered properties),
+`calls_method` (module methods called, `called_method`), plus `tags`
 on struct facts (`docs/verification/check-inputs-2026-11-06.md`).
 
 `api_type` (webapp: federated `@key` types, `owned` or extended,

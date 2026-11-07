@@ -121,6 +121,9 @@ const (
 	ExtraCheckArgs   = "check_args"
 	ExtraDelegatesTo = "delegates_to"
 	ExtraCheckScope  = "scope_of_check"
+	// ExtraAnswers names the checks whose result the guarded handler
+	// returns as its value (extract.AttrAnswers).
+	ExtraAnswers = "answers"
 	// ExtraDelegatesToOperation is the operation an alias rule's handler
 	// serves (extract.AttrDelegatesToOperation).
 	ExtraDelegatesToOperation = "delegates_to_operation"
@@ -165,6 +168,14 @@ const (
 // each found in the cited code (see quality.AnnotateThresholds); or the
 // target a person set (see package nfrtarget).
 const ExtraThreshold = "threshold"
+
+// ExtraQuantity is the frontmatter key saying a non-functional rule's
+// requirement states a quantity (QuantityStated): only such a rule without
+// a threshold asks for its target (see quality.AnnotateThresholds).
+const ExtraQuantity = "quantity"
+
+// QuantityStated is ExtraQuantity's value.
+const QuantityStated = "stated"
 
 // ExtraTarget is the frontmatter key of the kind of target a person set
 // for a non-functional rule (measure, policy or example), and
@@ -411,6 +422,7 @@ func ruleFactExtra(f *extract.Fact) map[string]string {
 		{extract.AttrChecks, ExtraChecks},
 		{extract.AttrCheckArgs, ExtraCheckArgs},
 		{extract.AttrDelegatesTo, ExtraDelegatesTo},
+		{extract.AttrAnswers, ExtraAnswers},
 		{extract.AttrCheckScope, ExtraCheckScope},
 		{extract.AttrDelegatesToOperation, ExtraDelegatesToOperation},
 		{extract.AttrOperation, ExtraOperation},

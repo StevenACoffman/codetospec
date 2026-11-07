@@ -250,7 +250,8 @@ func TestExportCheckers(t *testing.T) {
 
 // TestExportStalePins: `policies --src` prints each cited check's digest;
 // a pin recording it is current, one recording another digest is stale
-// (warned and counted, still applied).
+// (warned and counted, still applied; `policies --checkers` flags it in
+// the check's definition).
 func TestExportStalePins(t *testing.T) {
 	outDir := guardedGraph(t, `{"schema":"codetospec/facts/v1","facts":[
 {"kind":"rule","id":"rule.webapp.authz.cdi","origin":"webapp","certainty":"static",
@@ -300,5 +301,35 @@ func TestExportStalePins(t *testing.T) {
 				!strings.Contains(got, tc.want) || !strings.Contains(got, "1 deny rule(s)") {
 			t.Errorf("digest %s: %q, want %q and the pin applied", tc.digest, got, tc.want)
 		}
+		pinned, stale := policiesDefinition(t, outDir, pins, src, "permissions.CanViewCDI")
+		if !pinned || stale != (tc.want != "") {
+			t.Errorf("digest %s: policies definition pinned %t, stale %t", tc.digest, pinned, stale)
+		}
 	}
+}
+
+// policiesDefinition runs policies on outDir with the checkers file pins
+// and returns whether check name's definition is pinned and stale.
+func policiesDefinition(t *testing.T, outDir, pins, src, name string) (bool, bool) {
+	t.Helper()
+	var inv struct {
+		Checks []struct {
+			Name       string `json:"name"`
+			Definition struct {
+				Pinned bool `json:"pinned"`
+				Stale  bool `json:"stale"`
+			} `json:"definition"`
+		} `json:"checks"`
+	}
+	if err := json.Unmarshal([]byte(command(t, "policies", outFlag, outDir, formatFlag, "json",
+		checkersFlag, pins, "--src", src)), &inv); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range inv.Checks {
+		if c.Name == name {
+			return c.Definition.Pinned, c.Definition.Stale
+		}
+	}
+	t.Fatalf("no check %s in the inventory", name)
+	return false, false
 }

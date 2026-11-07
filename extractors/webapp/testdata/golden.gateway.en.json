@@ -61,7 +61,8 @@
     "id": "access_check.webapp._ensureLoggedIn",
     "attrs": {
       "form": "marked",
-      "name": "_ensureLoggedIn"
+      "name": "_ensureLoggedIn",
+      "paths": "[{\"condition\":\"{\\\"var\\\":\\\"caller.loggedIn\\\",\\\"op\\\":\\\"equal\\\",\\\"value\\\":true}\",\"lines\":\"43-43\",\"checks\":[{\"check\":\"acl.IsLoggedIn\",\"var\":\"caller.loggedIn\",\"means\":\"login\"}]}]"
     },
     "source": {
       "path": "routes/settings.go",

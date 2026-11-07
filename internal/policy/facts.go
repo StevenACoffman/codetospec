@@ -12,7 +12,7 @@ import (
 type factIndex struct {
 	checks    []extract.Fact // access_check facts
 	calls     []call         // direct calls, interface dispatch left out
-	inputs    []extract.Fact // reads, uses_value and loads facts
+	inputs    []extract.Fact // reads, uses_value, loads and calls_method facts
 	unguarded []Unguarded
 	// valueKinds is each declared type's kind (value_kind facts):
 	// KindStaff, KindFlag.
@@ -41,7 +41,7 @@ func indexFacts(facts []extract.Fact) *factIndex {
 					},
 				})
 			}
-		case extract.KindReads, extract.KindUsesValue, extract.KindLoads:
+		case extract.KindReads, extract.KindUsesValue, extract.KindLoads, extract.KindCallsMethod:
 			idx.inputs = append(idx.inputs, f)
 		case extract.KindValueKind:
 			idx.valueKinds[f.Attrs[extract.AttrType]] = f.Attrs[extract.AttrValueKind]

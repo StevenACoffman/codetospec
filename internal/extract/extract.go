@@ -147,6 +147,10 @@ const (
 	KindReads     = "reads"
 	KindUsesValue = "uses_value"
 	KindLoads     = "loads"
+	// KindCallsMethod fact names a method of the module's named types a
+	// definition calls (AttrCalledMethod, "pkg.Type.Method", by the type
+	// declaring it): a registry entry may be built from one.
+	KindCallsMethod = "calls_method"
 	// KindCapability is a capability the code registers, at its
 	// declaration: AttrName its name in code (what checks and role
 	// definitions name), AttrValue its stored name (what a grant holds),
@@ -219,6 +223,19 @@ const (
 	AttrCheckArgs  = "check_args"
 	AttrCheckScope = "scope_of_check"
 	AttrForm       = "form"
+	// AttrPaths, on a KindAccessCheck fact, lists as JSON the paths on
+	// which the checker allows (each: condition in the notation, lines,
+	// check calls), read from its body; AttrNotAnalyzable is "true" when
+	// the body could not be read whole, AttrNotAnalyzableReason why. A
+	// checker with neither was not analyzed (its definition is unknown).
+	AttrPaths               = "paths"
+	AttrNotAnalyzable       = "not_analyzable"
+	AttrNotAnalyzableReason = "not_analyzable_reason"
+	// AttrAnswers, on a rule fact, names the checks (comma-separated,
+	// sorted) whose result the guarded handler returns as its value: the
+	// answer it serves, not a gate, so a check below the guard that it
+	// answers is not one the guard misses.
+	AttrAnswers = "answers"
 	// AttrDelegatesTo, on a rule fact, is the handler ("recv.Method") an
 	// alias handler is checked as: its checks are that handler's.
 	AttrDelegatesTo = "delegates_to"
@@ -229,6 +246,7 @@ const (
 	// and, AttrTags, of a struct fact: each stored field's datastore name,
 	// "Field:name" comma-separated.
 	AttrField         = "field"
+	AttrCalledMethod  = "called_method"
 	AttrType          = "type"
 	AttrDatastoreKind = "datastore_kind"
 	AttrProperties    = "properties"

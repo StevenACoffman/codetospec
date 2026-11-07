@@ -23,6 +23,13 @@ func TestMeasure(t *testing.T) {
 	}
 	malformed := rule("unchecked", "unchecked")
 	malformed.Body = "**Requirement (EARS)**: The system does not check access yet."
+	// An NFR with no threshold asks for its target; a rule whose condition
+	// and text disagree asks which is right.
+	nfr := rule("grounded", "unchecked")
+	nfr.Extra["nature"], nfr.Extra[graph.ExtraQualityAttribute] = "technical", "performance_efficiency"
+	nfr.Extra["quantity"] = "stated"
+	mismatch := rule("grounded", "unchecked")
+	mismatch.Extra[graph.ExtraConditionDisagreement] = "text 30 (not cited)"
 	nodes := []graph.Node{
 		rule("grounded", "supported"),
 		rule("grounded", "mechanical"),
@@ -30,6 +37,8 @@ func TestMeasure(t *testing.T) {
 		rule("ungrounded", "supported"),
 		rule("unchecked", "repaired"),
 		malformed,
+		nfr,
+		mismatch,
 		{
 			Type:  graph.TypeDomain,
 			Extra: map[string]string{graph.ExtraCoverage: graph.CoveragePartial},
@@ -43,8 +52,9 @@ func TestMeasure(t *testing.T) {
 	got := corpus.Measure(nodes, 2, drift.Report{Stale: 1, Broken: 1, Affected: 4})
 
 	want := corpus.Measures{
-		Rules: 6, Grounded: 3, Ungrounded: 1, Proven: 2,
+		Rules: 8, Grounded: 5, Ungrounded: 1, Proven: 2,
 		PartialDomains: 1, Violations: 2, Drifted: 2, EARSIssues: 1,
+		NFRTargets: 1, ConditionMismatches: 1,
 	}
 	if got != want {
 		t.Errorf("Measure = %+v, want %+v", got, want)
@@ -76,6 +86,11 @@ func TestCompare(t *testing.T) {
 			},
 		},
 		{
+			"more questions",
+			corpus.Measures{Rules: 10, Grounded: 8, Ungrounded: 2, Proven: 6, NFRTargets: 3},
+			[]string{"nfr_target questions: 3, baseline 0"},
+		},
+		{
 			"another graph",
 			corpus.Measures{Rules: 11, Grounded: 8, Ungrounded: 2, Proven: 6},
 			[]string{
@@ -85,7 +100,7 @@ func TestCompare(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := corpus.Compare(baseline, tc.got); !slices.Equal(got, tc.want) {
+			if got := corpus.Compare(&baseline, &tc.got); !slices.Equal(got, tc.want) {
 				t.Errorf("Compare = %q, want %q", got, tc.want)
 			}
 		})

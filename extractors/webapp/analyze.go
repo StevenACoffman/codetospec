@@ -823,6 +823,9 @@ func ruleFacts(
 		if to := g.delegatesTo(m.recv); to != "" {
 			attrs[attrDelegatesTo] = to
 		}
+		if len(m.answers) > 0 {
+			attrs[attrAnswers] = strings.Join(m.answers, ",")
+		}
 		facts = append(facts, Fact{
 			Kind:      kindRule,
 			ID:        fmt.Sprintf("rule.webapp.%s.%s:%d-%d", k.id, file, g.start, g.end),

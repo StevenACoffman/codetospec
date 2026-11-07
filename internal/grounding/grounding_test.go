@@ -282,3 +282,31 @@ func TestStatedNumbers(t *testing.T) {
 		})
 	}
 }
+
+// TestQuantities: a numeric constant is a quantity unless it is an enum's
+// value (a label, not an amount); a non-numeric constant is neither.
+func TestQuantities(t *testing.T) {
+	constant := func(name, value string) extract.Fact {
+		return extract.Fact{
+			Kind: extract.KindConstant, ID: "constant." + name,
+			Attrs: map[string]string{extract.AttrName: name, extract.AttrValue: value},
+		}
+	}
+	facts := []extract.Fact{
+		constant("MaxAttempts", "3"),
+		constant("PersistAcrossPublish", "2"),
+		constant("Greeting", "hello"),
+		{
+			Kind: extract.KindEnumValue,
+			ID:   "enum_value.x#PersistAcrossPublish",
+			Attrs: map[string]string{
+				extract.AttrName:  "PersistAcrossPublish",
+				extract.AttrValue: "2",
+			},
+		},
+	}
+	got := grounding.Quantities(facts)
+	if len(got) != 1 || got["MaxAttempts"] != 3 {
+		t.Errorf("quantities = %v, want only MaxAttempts", got)
+	}
+}

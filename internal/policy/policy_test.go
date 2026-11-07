@@ -20,6 +20,11 @@ const (
 	extractor  = "webapp"
 	teacherOf  = "teacher_of"
 	goldenFile = "testdata/inventory.md"
+	formMarked = "marked"
+	// isCurrentUser, endpointCDI and classroom are names the tests share.
+	isCurrentUser = "acl.IsCurrentUser"
+	endpointCDI   = "endpoint.query-cdi"
+	classroom     = "Classroom"
 )
 
 func at(path, lines string) extract.Ref { return extract.Ref{Path: path, Lines: lines} }
@@ -37,9 +42,9 @@ func districtFacts() []extract.Fact {
 	def := at(checkFile, "10-20")
 	return []extract.Fact{
 		fact(extract.KindAccessCheck, "access_check.webapp."+canView, def,
-			map[string]string{extract.AttrName: canView, extract.AttrForm: "marked"}),
+			map[string]string{extract.AttrName: canView, extract.AttrForm: formMarked}),
 		fact(extract.KindAccessCheck, "access_check.webapp.acl.IsCurrentUser", extract.Ref{},
-			map[string]string{extract.AttrName: "acl.IsCurrentUser", extract.AttrForm: "marked"}),
+			map[string]string{extract.AttrName: isCurrentUser, extract.AttrForm: formMarked}),
 		fact(extract.KindCall, "call.1", def,
 			map[string]string{extract.AttrCalleePath: modelFile, extract.AttrCalleeLines: "5-7"}),
 		fact(extract.KindReads, "reads.1", def,
@@ -84,7 +89,7 @@ func districtRules() []graph.Node {
 			Type:    graph.TypeRule,
 			Title:   "Access control: Query.cdi",
 			Sources: []extract.Ref{at("resolvers/cdi.go", "12-14")},
-			Edges:   []graph.Edge{{Type: graph.EdgeExposedBy, To: "endpoint.query-cdi"}},
+			Edges:   []graph.Edge{{Type: graph.EdgeExposedBy, To: endpointCDI}},
 			Extra: map[string]string{
 				graph.ExtraExtractedBy: extractor,
 				graph.ExtraChecks:      "acl.IsCurrentUser," + canView,
@@ -176,7 +181,7 @@ func TestBuildCheckInputs(t *testing.T) {
 // field inputs are summed and registry entries no check reads are listed.
 func TestBuildEnforcementPoints(t *testing.T) {
 	inv := policy.Build(districtFacts(), districtRules(), districtRegistry(t))
-	if len(inv.Endpoints) != 1 || inv.Endpoints[0].Endpoint != "endpoint.query-cdi" {
+	if len(inv.Endpoints) != 1 || inv.Endpoints[0].Endpoint != endpointCDI {
 		t.Fatalf(
 			"endpoints = %+v, want only endpoint.query-cdi (the open one is listed apart)",
 			inv.Endpoints,
@@ -214,18 +219,7 @@ func TestMarkdownGolden(t *testing.T) {
 	if again := inv.Markdown(); !bytes.Equal(got, again) {
 		t.Fatal("two renders differ")
 	}
-	if os.Getenv("UPDATE_GOLDEN") != "" {
-		if err := os.WriteFile(goldenFile, got, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	want, err := os.ReadFile(goldenFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(got, want) {
-		t.Errorf("Markdown differs from %s:\n%s", goldenFile, got)
-	}
+	checkGolden(t, goldenFile, got)
 }
 
 // TestFieldResolverIsAnEnforcementPoint: a guard with no endpoint (a field
@@ -246,5 +240,23 @@ func TestFieldResolverIsAnEnforcementPoint(t *testing.T) {
 	inv := policy.Build(nil, []graph.Node{rule}, policy.Registry{})
 	if len(inv.Endpoints) != 1 || inv.Endpoints[0].Endpoint != userEmails {
 		t.Fatalf("endpoints = %+v, want "+userEmails, inv.Endpoints)
+	}
+}
+
+// checkGolden compares got with the golden file at path, rewriting it
+// first under UPDATE_GOLDEN.
+func checkGolden(t *testing.T, path string, got []byte) {
+	t.Helper()
+	if os.Getenv("UPDATE_GOLDEN") != "" {
+		if err := os.WriteFile(path, got, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(path) //nolint:gosec // a golden file the test names
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("differs from %s:\n%s", path, got)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/condition"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 )
@@ -39,10 +40,18 @@ type Operation struct {
 	// request (Leaf.SubjectFrom): what the PEP sets resource.subject from.
 	// Unset when no check is about a user.
 	Subject string `json:"subject,omitempty"`
+	// Subject2 is where the second user comes from, for checks about two
+	// (the checks about it marked Leaf.Second): what the PEP sets
+	// resource.subject2 from. Unset for checks about one user or none.
+	Subject2 string `json:"subject2,omitempty"`
 	// Open says the handler is marked open, Unchecked marked todo:
 	// both are the blanket allow alone.
 	Open      bool `json:"open,omitempty"`
 	Unchecked bool `json:"unchecked,omitempty"`
+	// Principals are the principal kinds (Principal*) some request it
+	// allows can come from, when not every kind: an export allows those
+	// alone. Unset for every kind.
+	Principals []string `json:"principals,omitempty"`
 }
 
 // ViewAction is an item policy's one action: seeing one item.
@@ -149,6 +158,12 @@ type Leaf struct {
 	// the name of the boolean attribute the PIP serves.
 	Holder    string `json:"holder,omitempty"`
 	Attribute string `json:"attribute,omitempty"`
+	// Second says the check is about the operation's second user
+	// (Operation.Subject2), not its first.
+	Second bool `json:"second,omitempty"`
+	// ContentKind is a content-scope capability's content kind, the
+	// value the grant must name ("Video").
+	ContentKind string `json:"content_kind,omitempty"`
 	// Fails says Var holds when the check fails (a bound error): the
 	// condition reads the check's negation.
 	Fails bool `json:"fails,omitempty"`
@@ -194,12 +209,20 @@ const (
 	// grant but those a role (admin's) holds implicitly.
 	ScopeLocale   = "locale"
 	ScopeExplicit = "explicit"
+	// ScopeContent is a grant for the request's locale and one content
+	// kind (Leaf.ContentKind): a content editor's.
+	ScopeContent = "content"
 )
+
+// EveryValue is the locale or content kind of a grant on every one (a
+// global locale grant): a locale or content scope accepts it, as webapp's
+// admin service does for the current-locale and content checks.
+const EveryValue = "*"
 
 func pinnedScopes() []string {
 	return []string{
 		ScopeAny, ScopeGlobal, ScopeUser, ScopeCountry,
-		ScopeUserAll, ScopeUserNwea, ScopeLocale, ScopeExplicit,
+		ScopeUserAll, ScopeUserNwea, ScopeLocale, ScopeExplicit, ScopeContent,
 	}
 }
 
@@ -291,12 +314,44 @@ func BuildModel(facts []extract.Fact, rules []graph.Node, checkers Checkers) Mod
 	return m
 }
 
-// subjectOf is where the one user op's checks are about comes from in the
-// request ("" when none is about a user), or why it can't be bound: a
-// check about a local, checks about different users (one
-// resource.subject can't stand for two).
-func subjectOf(op *Operation) (string, string) {
+// maxSubjects is how many users an operation's checks may be about: the
+// exports have a fixed slot each (subject, subject2).
+const maxSubjects = 2
+
+// subjectOf is where the users op's checks are about come from in the
+// request: the first (Subject) and, for checks about two, the second
+// (Subject2), sorted by binding; its checks about the second are marked
+// Second. "" when none is about a user. Or why they can't be bound: a
+// check about a local, checks about more than two users, a user-scope
+// grant about the second (its data attributes are the first's).
+func subjectOf(op *Operation) (string, string, string) {
+	froms, leaves, unbound := usersOf(op)
+	switch {
+	case unbound != "":
+		return "", "", "a check is about " + unbound + ", not a request value"
+	case len(froms) > maxSubjects:
+		return "", "", "checks about more than two users: " + strings.Join(froms, ", ")
+	case len(froms) < maxSubjects:
+		return strings.Join(froms, ""), "", ""
+	}
+	for _, l := range leaves {
+		if l.SubjectFrom == froms[1] && l.Kind == LeafCapability {
+			return "", "", "a user-scope grant about a second user: " + froms[1]
+		}
+	}
+	for i := range op.Denies {
+		if err := op.Denies[i].separateSecond(froms[1]); err != nil {
+			return "", "", "the second user's checks can't be told apart: " + err.Error()
+		}
+	}
+	return froms[0], froms[1], ""
+}
+
+// usersOf lists where the users op's checks are about come from, sorted,
+// those checks, and the first user that comes from no request value.
+func usersOf(op *Operation) ([]string, []*Leaf, string) {
 	var froms []string
+	var leaves []*Leaf
 	unbound := ""
 	var walk func(e *Expr)
 	walk = func(e *Expr) {
@@ -307,6 +362,7 @@ func subjectOf(op *Operation) (string, string) {
 			if l.SubjectFrom != "" && !slices.Contains(froms, l.SubjectFrom) {
 				froms = append(froms, l.SubjectFrom)
 			}
+			leaves = append(leaves, l)
 		}
 		for i := range e.Args {
 			walk(&e.Args[i])
@@ -316,13 +372,84 @@ func subjectOf(op *Operation) (string, string) {
 		walk(&op.Denies[i].When)
 	}
 	slices.Sort(froms)
-	switch {
-	case unbound != "":
-		return "", "a check is about " + unbound + ", not a request value"
-	case len(froms) > 1:
-		return "", "checks about different users: " + strings.Join(froms, ", ")
+	return froms, leaves, unbound
+}
+
+// secondSuffix marks the variables of checks about an operation's second
+// user, so the oracle tells them from the same check about the first.
+const secondSuffix = "@subject2"
+
+// separateSecond marks d's checks about the user from (Leaf.Second) and
+// renames their variables, in its expression, Defined and Condition
+// alike: two guards may name the same variable (acl.IsCurrentUser) for
+// checks about different users, and the oracle keys truth by variable.
+func (d *Deny) separateSecond(from string) error {
+	renamed := map[string]bool{} // condition variables
+	for variable, e := range d.Defined {
+		if markSecond(&e, from) {
+			renamed[variable] = true
+		}
 	}
-	return strings.Join(froms, ""), ""
+	markSecond(&d.When, from)
+	for _, l := range d.When.checks() {
+		if l.Second {
+			renamed[strings.TrimSuffix(l.Var, secondSuffix)] = true
+		}
+	}
+	if len(renamed) == 0 {
+		return nil
+	}
+	if d.Defined != nil {
+		defined := make(map[string]Expr, len(d.Defined))
+		for variable, e := range d.Defined {
+			if renamed[variable] {
+				variable += secondSuffix
+			}
+			defined[variable] = e
+		}
+		d.Defined = defined
+	}
+	c, err := condition.Parse([]byte(d.Condition))
+	if err == nil {
+		c, err = c.Renamed(func(v string) string {
+			if renamed[v] {
+				return v + secondSuffix
+			}
+			return v
+		})
+	}
+	if err != nil {
+		return err
+	}
+	d.Condition = c.Canonical()
+	return nil
+}
+
+// markSecond marks e's checks about the user from as Second, their
+// variables suffixed (once: a leaf Defined shares with When is marked
+// by the first walk); it reports whether e holds a second-user check.
+func markSecond(e *Expr, from string) bool {
+	found := false
+	for _, l := range e.checks() {
+		if !l.Second && l.aboutUser() && l.SubjectFrom == from {
+			l.Second = true
+			l.Var += secondSuffix
+		}
+		found = found || l.Second
+	}
+	return found
+}
+
+// checks lists e's checks, depth first.
+func (e *Expr) checks() []*Leaf {
+	var out []*Leaf
+	if e.Check != nil {
+		out = append(out, e.Check)
+	}
+	for i := range e.Args {
+		out = append(out, e.Args[i].checks()...)
+	}
+	return out
 }
 
 // aboutUser reports whether l's template reads the resource's user: a
@@ -483,6 +610,9 @@ func (o *opGuards) add(n *graph.Node, g *Guard, t translator) {
 	for _, c := range g.Calls {
 		o.checked = append(o.checked, c.Check)
 	}
+	// A check the handler answers (returns as its value) is no gate it
+	// misses below its guards.
+	o.checked = append(o.checked, g.answers...)
 	switch g.marker {
 	case markerOpen:
 		o.op.Open = true
@@ -531,7 +661,7 @@ func (o *opGuards) settle(idx *factIndex) (*Operation, []Skip) {
 	if below := idx.checksBelow(o.spans, o.checked); len(below) > 0 {
 		reason = "checks below its guard: " + strings.Join(below, ", ")
 	} else {
-		o.op.Subject, reason = subjectOf(&o.op)
+		o.op.Subject, o.op.Subject2, reason = subjectOf(&o.op)
 	}
 	if reason != "" {
 		skips := make([]Skip, 0, len(o.guards))
@@ -541,6 +671,7 @@ func (o *opGuards) settle(idx *factIndex) (*Operation, []Skip) {
 		return nil, skips
 	}
 	slices.SortFunc(o.op.Denies, func(a, b Deny) int { return cmp.Compare(a.RuleID, b.RuleID) })
+	o.op.Principals = o.op.principalsOf()
 	return &o.op, nil
 }
 
@@ -631,9 +762,13 @@ func (t *translator) fail(reason string) {
 func (t *translator) item(n *graph.Node, g *Guard) (itemGuard, bool) {
 	for i := range g.Calls {
 		call := &g.Calls[i]
-		c, pinned := t.checkers[call.Check]
-		if !pinned || c.Item == "" {
+		entry, pinned := t.checkers[call.Check]
+		if !pinned || entry.Item == "" {
 			continue
+		}
+		c, matched := entry.For(call)
+		if !matched {
+			return itemGuard{}, false
 		}
 		t.inItem = true
 		visible, ok := t.part(&c, call, call.Check)
@@ -659,7 +794,11 @@ func (t *translator) check(variable string) (Expr, bool) {
 	}
 	pinned := Checker{Means: call.Means, Scope: call.Scope}
 	if call.Means == "" {
-		pinned = t.checkers[call.Check]
+		entry := t.checkers[call.Check]
+		if pinned, ok = entry.For(&call); !ok {
+			t.fail("no case of " + call.Check + " matches its arguments")
+			return Expr{}, false
+		}
 	}
 	if pinned.Unpinnable != "" {
 		t.fail(fmt.Sprintf("not pinnable (%s): %s", pinned.Unpinnable, call.Check))
@@ -746,6 +885,12 @@ func (t *translator) leafOf(c *Checker, call *CheckCall) (Leaf, bool) {
 		if leaf.Scope == ScopeUser {
 			leaf.Subject, leaf.SubjectFrom = t.subject(c, call, call.MatcherArg)
 		}
+		if leaf.Scope == ScopeContent {
+			if leaf.ContentKind = contentKindOf(c, call); leaf.ContentKind == "" {
+				t.fail("content kind from no literal: " + call.Check)
+				return Leaf{}, false
+			}
+		}
 		return leaf, leaf.Capability != "" && slices.Contains(pinnedScopes(), leaf.Scope)
 	}
 	return Leaf{}, false
@@ -758,6 +903,24 @@ func (t *translator) subject(c *Checker, call *CheckCall, operand string) (strin
 		return "the item's user", SubjectItem
 	}
 	return c.subjectIn(call, operand)
+}
+
+// contentKindOf is a content-scope check's content kind: c's own, else
+// the string literal of the call argument ContentKindArg names; "" when
+// that argument is no string literal (its value isn't in the call).
+func contentKindOf(c *Checker, call *CheckCall) string {
+	if c.ContentKind != "" || c.ContentKindArg == nil {
+		return c.ContentKind
+	}
+	i := *c.ContentKindArg
+	if i < 0 || i >= len(call.Args) {
+		return ""
+	}
+	kind, err := strconv.Unquote(call.Args[i].Text)
+	if err != nil {
+		return ""
+	}
+	return kind
 }
 
 // argCapability is the Go name of the capability c takes from a call

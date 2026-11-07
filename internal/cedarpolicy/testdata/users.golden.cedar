@@ -1,15 +1,17 @@
 @id("allow:Mutation.editBio")
 @subject("arg:kaid")
-permit (principal, action == Users::Action::"Mutation.editBio", resource);
+permit (principal, action == Users::Action::"Mutation.editBio", resource)
+when { principal is Users::User };
 
 @id("rule.user.authz-bio")
 @source("resolvers/u.go:1-3")
 @subject("arg:kaid")
 forbid (principal, action == Users::Action::"Mutation.editBio", resource)
-when { !(((principal is Users::User && principal.attributes.contains("internal_user")) && !(resource.attributes.contains("deleted")) && context.attributes.contains("bio_flag") && (principal is Users::User && principal.localeGrants.contains({capability: "can_view_user_identity", locale: context.locale})) && principal in Users::CapExplicit::"can_view_user_identity" && resource.subjectRelations.contains("managing_coach_of"))) };
+when { !(((principal is Users::User && principal.attributes.contains("internal_user")) && !(resource.attributes.contains("deleted")) && context.attributes.contains("bio_flag") && (principal is Users::User && (principal.localeGrants.contains({capability: "can_view_user_identity", locale: context.locale}) || principal.localeGrants.contains({capability: "can_view_user_identity", locale: "*"}))) && principal in Users::CapExplicit::"can_view_user_identity" && resource.subjectRelations.contains("managing_coach_of"))) };
 
 @id("allow:Mutation.login")
-permit (principal, action == Users::Action::"Mutation.login", resource);
+permit (principal, action == Users::Action::"Mutation.login", resource)
+when { principal is Users::Service || principal is Users::User };
 
 @id("rule.auth.authz-login")
 @source("resolvers/u.go:1-3")
@@ -17,12 +19,33 @@ forbid (principal, action == Users::Action::"Mutation.login", resource)
 when { (!((principal is Users::User && principal.loggedIn && !principal.phantom)) && !(principal is Users::Service)) };
 
 @id("allow:Mutation.notify")
-permit (principal, action == Users::Action::"Mutation.notify", resource);
+permit (principal, action == Users::Action::"Mutation.notify", resource)
+when { principal is Users::Push };
 
 @id("rule.hook.authz-notify")
 @source("resolvers/u.go:1-3")
 forbid (principal, action == Users::Action::"Mutation.notify", resource)
 when { !(principal is Users::Push) };
+
+@id("allow:Mutation.transfer")
+@subject("arg:from")
+@subject2("arg:to")
+permit (principal, action == Users::Action::"Mutation.transfer", resource)
+when { principal is Users::User };
+
+@id("rule.user.authz-transfer-from")
+@source("resolvers/u.go:1-3")
+@subject("arg:from")
+@subject2("arg:to")
+forbid (principal, action == Users::Action::"Mutation.transfer", resource)
+when { !((principal is Users::User && resource.subject == principal)) };
+
+@id("rule.user.authz-transfer-to")
+@source("resolvers/u.go:1-3")
+@subject("arg:from")
+@subject2("arg:to")
+forbid (principal, action == Users::Action::"Mutation.transfer", resource)
+when { (!((principal is Users::User && resource.subject2 == principal)) && !((principal is Users::User && resource.coaches2.contains(principal)))) };
 
 @id("allow:Query.cdi")
 permit (principal, action in [Users::Action::"Query.cdi", Users::Action::"Query.cdiAlias"], resource);
@@ -39,16 +62,18 @@ permit (principal, action == Users::Action::"Query.things", resource);
 permit (principal, action == Users::Action::"Query.time", resource);
 
 @id("allow:Query.udi")
-permit (principal, action == Users::Action::"Query.udi", resource);
+permit (principal, action == Users::Action::"Query.udi", resource)
+when { principal is Users::Service || principal is Users::User };
 
 @id("rule.district.authz-udi")
 @source("resolvers/u.go:1-3")
 forbid (principal, action == Users::Action::"Query.udi", resource)
-when { !((principal is Users::Service || principal in Users::CapUserAll::"can_view_user_identity" || principal in Users::CapNwea::"can_view_user_identity")) };
+when { !((principal is Users::Service || (principal is Users::User && (principal.contentGrants.contains({capability: "can_view_user_identity", locale: context.locale, contentKind: "Video"}) || principal.contentGrants.contains({capability: "can_view_user_identity", locale: context.locale, contentKind: "*"}) || principal.contentGrants.contains({capability: "can_view_user_identity", locale: "*", contentKind: "Video"}) || principal.contentGrants.contains({capability: "can_view_user_identity", locale: "*", contentKind: "*"}))) || principal in Users::CapUserAll::"can_view_user_identity" || principal in Users::CapNwea::"can_view_user_identity")) };
 
 @id("allow:User.emails")
 @subject("parent:Kaid")
-permit (principal, action == Users::Action::"User.emails", resource);
+permit (principal, action == Users::Action::"User.emails", resource)
+when { principal is Users::User };
 
 @id("rule.user.authz-emails")
 @source("resolvers/u.go:1-3")

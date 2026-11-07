@@ -18,15 +18,17 @@ import (
 // to the access checks the webapp extractor names, and sorts each check's
 // inputs into kinds (a stored field, a capability, a flag, a query).
 const (
-	kindReads     = "reads"      // codetospec's extract.KindReads
-	kindUsesValue = "uses_value" // codetospec's extract.KindUsesValue
-	kindLoads     = "loads"      // codetospec's extract.KindLoads
+	kindReads       = "reads"        // codetospec's extract.KindReads
+	kindUsesValue   = "uses_value"   // codetospec's extract.KindUsesValue
+	kindLoads       = "loads"        // codetospec's extract.KindLoads
+	kindCallsMethod = "calls_method" // codetospec's extract.KindCallsMethod
 
 	attrField         = "field"          // a read field, "pkg.Type.Field"
 	attrType          = "type"           // a value's declared type, "pkg.Type"
 	attrValue         = "value"          // a value's literal value, when it has one
 	attrDatastoreKind = "datastore_kind" // a loaded datastore kind
 	attrProperties    = "properties"     // the properties a load filters by, comma-separated
+	attrCalledMethod  = "called_method"  // a called method, "pkg.Type.Method"
 )
 
 // inputCaller is a definition whose code reads inputs: a function or method
@@ -95,6 +97,57 @@ func ReadFacts(pkgs []*packages.Package, fset *token.FileSet, root string) []Fac
 	}
 	sortFacts(facts)
 	return facts
+}
+
+// MethodFacts lists, per function, the methods of the module's named
+// types it calls (`cdi.HasTeacher(kaid)` → models.Classroom.HasTeacher),
+// each named by the type declaring it, as ReadFacts names fields: a
+// registry entry may be built from a method, not only from fields.
+//
+// Requires: pkgs carry syntax and type information.
+// Ensures:  one fact per function and method, sorted by id.
+func MethodFacts(pkgs []*packages.Package, fset *token.FileSet, root string) []Fact {
+	module := modulePackages(pkgs)
+	var facts []Fact
+	for _, c := range inputCallers(pkgs, fset, root) {
+		methods := map[string]bool{}
+		ast.Inspect(c.body, func(n ast.Node) bool {
+			if sel, isSel := n.(*ast.SelectorExpr); isSel {
+				if name, ok := calledMethod(c.decl.info.Selections[sel], module); ok {
+					methods[name] = true
+				}
+			}
+			return true
+		})
+		for _, name := range slices.Sorted(maps.Keys(methods)) {
+			facts = append(facts, inputFact(kindCallsMethod, &c.decl, fset, name,
+				map[string]string{attrCalledMethod: name}))
+		}
+	}
+	sortFacts(facts)
+	return facts
+}
+
+// calledMethod names the method a selection calls, "pkg.Type.Method",
+// when it is a method of a named type the module declares (an interface's
+// left out: its implementations are dispatch).
+func calledMethod(sel *types.Selection, module map[string]bool) (string, bool) {
+	if sel == nil || sel.Kind() != types.MethodVal {
+		return "", false
+	}
+	fn, isFunc := sel.Obj().(*types.Func)
+	if !isFunc || fn.Pkg() == nil || !module[fn.Pkg().Path()] {
+		return "", false
+	}
+	recv := fn.Signature().Recv()
+	if recv == nil {
+		return "", false
+	}
+	named := namedOf(recv.Type())
+	if named == nil || types.IsInterface(named) {
+		return "", false
+	}
+	return fn.Pkg().Name() + "." + named.Obj().Name() + "." + fn.Name(), true
 }
 
 // readField names the field a selection reads, "pkg.Type.Field", when it is

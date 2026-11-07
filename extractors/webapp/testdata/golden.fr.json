@@ -144,7 +144,8 @@
     "id": "access_check.webapp.permissions.UserCanViewEmails",
     "attrs": {
       "form": "predicate",
-      "name": "permissions.UserCanViewEmails"
+      "name": "permissions.UserCanViewEmails",
+      "paths": "[{\"condition\":\"{\\\"var\\\":\\\"acl.IsCurrentUser\\\",\\\"op\\\":\\\"equal\\\",\\\"value\\\":true}\",\"lines\":\"5-5\",\"checks\":[{\"check\":\"acl.IsCurrentUser\",\"var\":\"acl.IsCurrentUser\",\"means\":\"self\",\"subject\":\"kaid\"}]}]"
     },
     "source": {
       "path": "permissions/permissions.go",
@@ -158,7 +159,8 @@
     "id": "access_check.webapp.permissions.RequireEditor",
     "attrs": {
       "form": "marked",
-      "name": "permissions.RequireEditor"
+      "name": "permissions.RequireEditor",
+      "paths": "[{\"condition\":\"{\\\"var\\\":\\\"caller.loggedIn\\\",\\\"op\\\":\\\"equal\\\",\\\"value\\\":true}\",\"lines\":\"25-25\",\"checks\":[{\"check\":\"acl.IsLoggedIn\",\"var\":\"caller.loggedIn\",\"means\":\"login\"}]}]"
     },
     "source": {
       "path": "permissions/permissions.go",
@@ -172,7 +174,9 @@
     "id": "access_check.webapp.permissions.VisibleNotes",
     "attrs": {
       "form": "marked",
-      "name": "permissions.VisibleNotes"
+      "name": "permissions.VisibleNotes",
+      "not_analyzable": "true",
+      "not_analyzable_reason": "a filter: decides per item"
     },
     "source": {
       "path": "permissions/permissions.go",
@@ -186,7 +190,8 @@
     "id": "access_check.webapp.permissions.LoginWithRateLimit",
     "attrs": {
       "form": "marked",
-      "name": "permissions.LoginWithRateLimit"
+      "name": "permissions.LoginWithRateLimit",
+      "paths": "[{\"lines\":\"41-41\"}]"
     },
     "source": {
       "path": "permissions/permissions.go",
@@ -200,7 +205,8 @@
     "id": "access_check.webapp._canEditDrafts",
     "attrs": {
       "form": "marked",
-      "name": "_canEditDrafts"
+      "name": "_canEditDrafts",
+      "paths": "[{\"condition\":\"{\\\"all\\\":[{\\\"var\\\":\\\"caller.loggedIn\\\",\\\"op\\\":\\\"equal\\\",\\\"value\\\":true},{\\\"var\\\":\\\"caller.hasPermission.CanEditDrafts\\\",\\\"op\\\":\\\"equal\\\",\\\"value\\\":true}]}\",\"lines\":\"153-153\",\"checks\":[{\"check\":\"acl.IsLoggedIn\",\"var\":\"caller.loggedIn\",\"means\":\"login\"},{\"check\":\"acl.ActorHasPermission\",\"var\":\"caller.hasPermission.CanEditDrafts\",\"means\":\"capability\",\"scope\":\"any\",\"capability\":\"CanEditDrafts\",\"matcher\":\"acl.AnyScope\"}]}]"
     },
     "source": {
       "path": "resolvers/guards.go",
@@ -214,7 +220,8 @@
     "id": "access_check.webapp.validateRename",
     "attrs": {
       "form": "marked",
-      "name": "validateRename"
+      "name": "validateRename",
+      "paths": "[{\"condition\":\"{\\\"all\\\":[{\\\"not\\\":{\\\"var\\\":\\\"name\\\",\\\"op\\\":\\\"equal\\\",\\\"value\\\":\\\"\\\"}},{\\\"var\\\":\\\"permissions.RequireEditor.fails\\\",\\\"op\\\":\\\"equal\\\",\\\"value\\\":false}]}\",\"lines\":\"299-299\",\"checks\":[{\"check\":\"permissions.RequireEditor\",\"var\":\"permissions.RequireEditor.fails\",\"fails\":true,\"args\":[{\"text\":\"ctx\"}]}]}]"
     },
     "source": {
       "path": "resolvers/guards.go",
@@ -228,7 +235,8 @@
     "id": "access_check.webapp._isActor",
     "attrs": {
       "form": "helper",
-      "name": "_isActor"
+      "name": "_isActor",
+      "paths": "[{\"condition\":\"{\\\"var\\\":\\\"acl.IsCurrentUser\\\",\\\"op\\\":\\\"equal\\\",\\\"value\\\":true}\",\"lines\":\"364-364\",\"checks\":[{\"check\":\"acl.IsCurrentUser\",\"var\":\"acl.IsCurrentUser\",\"means\":\"self\",\"subject\":\"kaid\"}]}]"
     },
     "source": {
       "path": "resolvers/guards.go",
@@ -1469,7 +1477,7 @@
       "domain": "roles",
       "ears": "ubiquitous",
       "nature": "business",
-      "requirement": "Le système doit accorder au rôle `supporter` (Can view and edit users and access Devadmin support functions.) les capacités `CanViewUserIdentity`, `CanChangeUserData`.",
+      "requirement": "Le système doit accorder au rôle `supporter` (Can view and edit users and access Devadmin support functions.) les capacités `CanViewUserIdentity`, `CanChangeUserData`, sur la portée de chaque attribution du rôle.",
       "role": "supporter",
       "slug": "role-supporter",
       "title": "Rôle : supporter"
@@ -2366,6 +2374,7 @@
     "kind": "rule",
     "id": "rule.webapp.visibility.resolvers/guards.go:329-329",
     "attrs": {
+      "answers": "acl.ManyCoachedByActor",
       "check_args": "[{\"check\":\"acl.ManyCoachedByActor\",\"args\":[{\"text\":\"ctx\"},{\"text\":\"kaids\",\"from\":\"arg:kaids\"}]}]",
       "checks": "acl.ManyCoachedByActor",
       "domain": "user",

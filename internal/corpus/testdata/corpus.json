@@ -14,7 +14,9 @@
         "partial_domains": 0,
         "violations": 0,
         "drifted": 0,
-        "ears_issues": 0
+        "ears_issues": 0,
+        "nfr_targets": 0,
+        "condition_mismatches": 8
       }
     },
     {
@@ -34,7 +36,9 @@
         "partial_domains": 0,
         "violations": 0,
         "drifted": 0,
-        "ears_issues": 0
+        "ears_issues": 0,
+        "nfr_targets": 3,
+        "condition_mismatches": 37
       }
     },
     {
@@ -54,7 +58,9 @@
         "partial_domains": 2,
         "violations": 0,
         "drifted": 0,
-        "ears_issues": 0
+        "ears_issues": 0,
+        "nfr_targets": 1,
+        "condition_mismatches": 163
       }
     },
     {
@@ -74,7 +80,9 @@
         "partial_domains": 0,
         "violations": 0,
         "drifted": 0,
-        "ears_issues": 0
+        "ears_issues": 0,
+        "nfr_targets": 1,
+        "condition_mismatches": 120
       }
     },
     {
@@ -94,7 +102,9 @@
         "partial_domains": 0,
         "violations": 0,
         "drifted": 0,
-        "ears_issues": 0
+        "ears_issues": 0,
+        "nfr_targets": 1,
+        "condition_mismatches": 157
       }
     },
     {
@@ -114,7 +124,9 @@
         "partial_domains": 0,
         "violations": 0,
         "drifted": 0,
-        "ears_issues": 0
+        "ears_issues": 0,
+        "nfr_targets": 1,
+        "condition_mismatches": 118
       }
     },
     {
@@ -134,7 +146,9 @@
         "partial_domains": 0,
         "violations": 0,
         "drifted": 0,
-        "ears_issues": 0
+        "ears_issues": 0,
+        "nfr_targets": 6,
+        "condition_mismatches": 18
       }
     },
     {
@@ -154,7 +168,9 @@
         "partial_domains": 0,
         "violations": 0,
         "drifted": 0,
-        "ears_issues": 0
+        "ears_issues": 0,
+        "nfr_targets": 7,
+        "condition_mismatches": 181
       }
     }
   ]

@@ -2,6 +2,7 @@ package main
 
 import (
 	"go/ast"
+	"reflect"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -308,6 +309,7 @@ func TestEmbeddedResolverDirs(t *testing.T) {
 		"resolvers/resolver.go": `package resolvers
 
 import (
+	"reflect"
 	"` + module + `/resolvers/reporting"
 	"` + module + `/helpers"
 	modResolvers "` + module + `/moderation/resolvers"
@@ -509,5 +511,200 @@ func Resolve(ctx context.Context, kaid string) (*T, error) {
 				t.Errorf("condition %s and check calls %+v name different variables", cond, calls)
 			}
 		}
+	}
+}
+
+// TestAllowingPaths: a checker's allowing paths, read from its body: each
+// disjunct of a final returned expression; each "if C { return true }"
+// under the negation of the denials before it; an error-only checker's
+// "return nil". A body the scan can't read whole is not analyzable, with
+// the reason.
+// allowingPathsSrc holds a checker of each shape TestAllowingPaths reads.
+const allowingPathsSrc = `package r
+
+func returned(ctx context.Context, kaid string) bool {
+	scope := acl.UserScope(kaid)
+	return acl.IsCurrentUser(ctx, kaid) || acl.ActorHasPermission(ctx, capabilities.CanView, scope)
+}
+
+func sequence(ctx context.Context, kaid string) bool {
+	if ctx.RequestIsServiceAdminQuery() {
+		return true
+	}
+	if kaid == "" {
+		return false
+	}
+	if acl.IsCurrentUser(ctx, kaid) {
+		return true
+	}
+	return false
+}
+
+func errOnly(ctx context.Context) error {
+	if acl.IsLoggedIn(ctx, acl.PhantomProhibited) {
+		return nil
+	}
+	return errors.Unauthorized("no")
+}
+
+func delegating(ctx context.Context) error {
+	if ctx.RequestIsServiceAdminQuery() {
+		return nil
+	}
+	return validate(ctx)
+}
+
+func invalid(ctx context.Context, name string) error {
+	if name == "" {
+		return errors.InvalidInput("empty")
+	}
+	return fmt.Errorf("never")
+}
+
+func valued(ctx context.Context) (string, error) {
+	if !acl.IsLoggedIn(ctx) {
+		return "", errors.Unauthorized()
+	}
+	return "ok", nil
+}
+
+func filter(ctx context.Context) ([]string, error) {
+	return nil, nil
+}
+
+func looping(ctx context.Context, kaids []string) bool {
+	for _, k := range kaids {
+		if acl.IsCurrentUser(ctx, k) {
+			return true
+		}
+	}
+	return false
+}
+`
+
+func TestAllowingPaths(t *testing.T) {
+	sources := sourcesOf(t, map[string]string{resolverFile: allowingPathsSrc})
+	known, _ := knownChecks(sources, nil, &Inputs{})
+	sc := fileScanner(&sources[0], known)
+	got := map[string][]string{}
+	reasons := map[string]string{}
+	for _, fn := range funcDecls(sources[0].file) {
+		paths, reason := sc.allowingPaths(fn)
+		reasons[fn.Name.Name] = reason
+		for _, p := range paths {
+			got[fn.Name.Name] = append(got[fn.Name.Name], p.Condition)
+		}
+	}
+	want := map[string][]string{
+		"returned": {
+			`{"var":"acl.IsCurrentUser","op":"equal","value":true}`,
+			`{"var":"caller.hasPermission.CanView","op":"equal","value":true}`,
+		},
+		"sequence": {
+			`{"var":"request.isServiceAdmin","op":"equal","value":true}`,
+			`{"all":[{"not":{"var":"request.isServiceAdmin","op":"equal","value":true}},` +
+				`{"not":{"var":"kaid","op":"equal","value":""}},` +
+				`{"var":"acl.IsCurrentUser","op":"equal","value":true}]}`,
+		},
+		"errOnly": {`{"var":"caller.loggedInNonPhantom","op":"equal","value":true}`},
+		"valued":  {`{"var":"caller.loggedIn","op":"equal","value":true}`},
+		"delegating": {
+			`{"var":"request.isServiceAdmin","op":"equal","value":true}`,
+			`{"all":[{"not":{"var":"request.isServiceAdmin","op":"equal","value":true}},` +
+				`{"var":"validate.fails","op":"equal","value":false}]}`,
+		},
+	}
+	for name, paths := range want {
+		if strings.Join(got[name], "\n") != strings.Join(paths, "\n") || reasons[name] != "" {
+			t.Errorf("%s: paths\n%s\nreason %q; want\n%s", name,
+				strings.Join(got[name], "\n"), reasons[name], strings.Join(paths, "\n"))
+		}
+	}
+	if len(got["invalid"]) != 0 || reasons["invalid"] != "" {
+		t.Errorf("invalid: paths %v, reason %q; want none: every return builds an error",
+			got["invalid"], reasons["invalid"])
+	}
+	for name, reason := range map[string]string{"looping": "loop", "filter": "filter"} {
+		if len(got[name]) != 0 || !strings.Contains(reasons[name], reason) {
+			t.Errorf(
+				"%s: paths %v, reason %q; want none, %q",
+				name,
+				got[name],
+				reasons[name],
+				reason,
+			)
+		}
+	}
+}
+
+// answersSrc holds a resolver of each shape TestAnswers reads.
+const answersSrc = `package r
+
+func direct(ctx context.Context, kaid string) (bool, error) {
+	return acl.IsCurrentUser(ctx, kaid), nil
+}
+
+func bound(ctx context.Context, kaid string) (*bool, error) {
+	ok := acl.IsCurrentUser(ctx, kaid)
+	return &ok, nil
+}
+
+func gate(ctx context.Context, kaid string) (string, error) {
+	if !acl.IsCurrentUser(ctx, kaid) {
+		return "", nil
+	}
+	return kaid, nil
+}
+
+func errorOnly(ctx context.Context) error {
+	return acl.IsLoggedInErr(ctx)
+}
+
+//ka:permission-check
+func login(ctx context.Context, token string) (string, error) {
+	return token, nil
+}
+
+func whole(ctx context.Context, token string) (string, error) {
+	return login(ctx, token)
+}
+
+func boundErr(ctx context.Context, token string) (*string, error) {
+	kaid, err := login(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	return &kaid, nil
+}
+
+func ignoredErr(ctx context.Context, token string) (*string, error) {
+	kaid, _ := login(ctx, token)
+	return &kaid, nil
+}
+
+func literal(ctx context.Context, kaid string) (func() bool, error) {
+	return func() bool { return acl.IsCurrentUser(ctx, kaid) }, nil
+}
+`
+
+// TestAnswers: a check whose result a resolver returns as its value,
+// directly or through a top-level local, is an answer; one in a
+// condition, the trailing error or a function literal is not, nor one
+// whose error reaches the caller (returned whole, or bound and branched
+// on): that error gates.
+func TestAnswers(t *testing.T) {
+	sources := sourcesOf(t, map[string]string{resolverFile: answersSrc})
+	known, _ := knownChecks(sources, nil, &Inputs{})
+	got := map[string][]string{}
+	for _, fn := range funcDecls(sources[0].file) {
+		got[fn.Name.Name] = known.answers(fn)
+	}
+	want := map[string][]string{
+		"direct": {"acl.IsCurrentUser"}, "bound": {"acl.IsCurrentUser"},
+		"gate": nil, "errorOnly": nil, "literal": nil,
+		"whole": nil, "boundErr": nil, "ignoredErr": {"login"}, "login": nil,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("answers = %v, want %v", got, want)
 	}
 }

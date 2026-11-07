@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/StevenACoffman/codetospec/internal/policy/schema/registry.schema.json",
+  "title": "codetospec registry",
+  "description": "The PIP's registry, a person's (policy.ParseRegistry): each property, relation and attribute a policy reads, what it is built from, and how a person reads it. Also the glossary the business statements are written with. JSON, or the same document in YAML.",
+  "type": "object",
+  "additionalProperties": { "$ref": "#/$defs/entry" },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "required": ["from"],
+      "properties": {
+        "from": {
+          "description": "What it is built from: struct fields (models.Classroom.AllTeacherKaids), datastore kinds (\"load UserMetaInfo\"), methods (\"models.Classroom.HasTeacher()\").",
+          "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }
+        },
+        "condition": { "description": "Free text the inventory shows but never evaluates.", "type": "string" },
+        "phrase": {
+          "description": "The plain wording a business statement uses for it, by language (en, fr): \"teaches the class\".",
+          "type": "object",
+          "properties": {
+            "en": { "type": "string", "minLength": 1 },
+            "fr": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "concept": { "description": "The domain concept it belongs to (a domain-model or code entity): Classroom.", "type": "string", "minLength": 1 },
+        "note": { "description": "More on the entry, for people.", "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

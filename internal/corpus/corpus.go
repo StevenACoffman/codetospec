@@ -17,6 +17,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/drift"
 	"github.com/StevenACoffman/codetospec/internal/ears"
 	"github.com/StevenACoffman/codetospec/internal/graph"
+	"github.com/StevenACoffman/codetospec/internal/questions"
 )
 
 // Manifest lists the graphs to check.
@@ -57,6 +58,11 @@ type Measures struct {
 	// their EARS kind, by the current ears.Check (old graphs carry no
 	// ears_issue, so it is recomputed).
 	EARSIssues int `json:"ears_issues"`
+	// NFRTargets and ConditionMismatches count the questions of those
+	// kinds the nodes raise (questions.List): noise a person must clear,
+	// so fewer is better.
+	NFRTargets          int `json:"nfr_targets"`
+	ConditionMismatches int `json:"condition_mismatches"`
 }
 
 // LoadManifest reads a manifest file.
@@ -100,6 +106,14 @@ func Measure(nodes []graph.Node, violations int, report drift.Report) Measures {
 			}
 		}
 	}
+	for _, q := range questions.List(nodes, nil) {
+		switch q.Kind {
+		case questions.KindNFRTarget:
+			m.NFRTargets++
+		case questions.KindConditionMismatch:
+			m.ConditionMismatches++
+		}
+	}
 	return m
 }
 
@@ -115,7 +129,7 @@ func trusted(verdict string) bool {
 
 // Compare lists how got is worse than baseline; nil when it is not. A
 // changed rule count is listed too: the graph is not the one measured.
-func Compare(baseline, got Measures) []string {
+func Compare(baseline, got *Measures) []string {
 	var worse []string
 	more := func(name string, b, g int) {
 		if g > b {
@@ -138,6 +152,8 @@ func Compare(baseline, got Measures) []string {
 	more("partial domains", baseline.PartialDomains, got.PartialDomains)
 	more("verify violations", baseline.Violations, got.Violations)
 	more("drifted rules", baseline.Drifted, got.Drifted)
+	more("nfr_target questions", baseline.NFRTargets, got.NFRTargets)
+	more("condition_mismatch questions", baseline.ConditionMismatches, got.ConditionMismatches)
 	more("EARS form issues", baseline.EARSIssues, got.EARSIssues)
 	return worse
 }

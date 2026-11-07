@@ -52,9 +52,16 @@ func usersCheckers() policy.Checkers {
 			{Means: policy.MeansRelation, Relation: "managing_coach_of", SubjectArg: &one},
 		}},
 		"permissions.CanViewCDI": {Means: policy.MeansRelation, Relation: "teacher_of"},
-		// districts' ActorCanViewUserDistrictData, as its code reads.
+		// districts' ActorCanViewUserDistrictData, as its code reads, plus a
+		// content grant (the content scope).
 		"permissions.ActorCanViewUserDistrictData": {Any: []policy.Checker{
 			{Means: policy.MeansServiceAdmin},
+			{
+				Means:       policy.MeansCapability,
+				Capability:  identityGoName,
+				Scope:       policy.ScopeContent,
+				ContentKind: "Video",
+			},
 			{
 				Means:      policy.MeansCapability,
 				Capability: identityGoName,
@@ -160,6 +167,24 @@ func usersModel() policy.Model {
 				`{"not":{"var":"caller.hasPermission.CanViewUserIdentity","op":"equal","value":true}}]}`,
 			`[{"check":"acl.IsCurrentUser","var":"acl.IsCurrentUser","means":"self","subject":"user.Kaid","subject_from":"parent:Kaid"},`+
 				`{"check":"acl.ActorHasPermission","var":"caller.hasPermission.CanViewUserIdentity","means":"capability","scope":"user","capability":"CanViewUserIdentity","matcher":"acl.UserScope","matcher_arg":"user.Kaid","subject_from":"parent:Kaid"}]`,
+		),
+		// Checks about two users: the second's self check names the same
+		// variable as the first's.
+		node(
+			"rule.user.authz-transfer-from",
+			"Mutation.transfer",
+			"acl.IsCurrentUser",
+			`{"not":{"var":"acl.IsCurrentUser","op":"equal","value":true}}`,
+			`[{"check":"acl.IsCurrentUser","var":"acl.IsCurrentUser","means":"self","subject":"from","subject_from":"arg:from"}]`,
+		),
+		node(
+			"rule.user.authz-transfer-to",
+			"Mutation.transfer",
+			"acl.IsCurrentUser,acl.IsCoach",
+			`{"all":[{"not":{"var":"acl.IsCurrentUser","op":"equal","value":true}},`+
+				`{"not":{"var":"acl.IsCoach","op":"equal","value":true}}]}`,
+			`[{"check":"acl.IsCurrentUser","var":"acl.IsCurrentUser","means":"self","subject":"to","subject_from":"arg:to"},`+
+				`{"check":"acl.IsCoach","var":"acl.IsCoach","means":"coach","subject":"to","subject_from":"arg:to"}]`,
 		),
 		node("rule.misc.authz-time", "Query.time", "open", "", ""),
 		node(
@@ -282,7 +307,11 @@ type world struct {
 	relations     []types.Value
 	// The attribute names of each holder, and the subject's relations.
 	callerAttrs, resourceAttrs, requestAttrs, subjectRelations []types.Value
-	localeGrants                                               []types.Value
+	localeGrants, contentGrants                                []types.Value
+	// The second user's, for an operation whose checks are about two.
+	subject2          types.EntityUID
+	coaches2          types.Set
+	subjectRelations2 []types.Value
 }
 
 // apply makes one check hold or not.
@@ -311,22 +340,46 @@ func (w *world) apply(l *policy.Leaf, holds bool) {
 	case policy.LeafOkta:
 		w.ctx["isOktaLifecycle"] = types.Boolean(holds)
 	case policy.LeafSelf:
-		if holds {
+		switch {
+		case holds && l.Second:
+			w.subject2 = w.uid("User", actor)
+		case holds:
 			w.subject = w.uid("User", actor)
 		}
 	case policy.LeafCoach:
-		if holds {
+		switch {
+		case holds && l.Second:
+			w.coaches2 = types.NewSet(w.uid("User", actor))
+		case holds:
 			w.coaches = types.NewSet(w.uid("User", actor))
 		}
 	case policy.LeafCapability:
 		if holds {
-			w.parents = append(w.parents, w.capabilityGroups(l)...)
-			if l.Scope == policy.ScopeLocale {
-				w.localeGrants = append(w.localeGrants, types.NewRecord(types.RecordMap{
-					"capability": types.String(l.Capability), "locale": types.String("en"),
-				}))
-			}
+			w.grant(l)
 		}
+	}
+}
+
+// localeKey is the grants' and the context's locale attribute.
+const localeKey = "locale"
+
+// grant gives the principal a grant satisfying capability check l: its
+// groups, and a locale or content grant for those scopes.
+func (w *world) grant(l *policy.Leaf) {
+	w.parents = append(w.parents, w.capabilityGroups(l)...)
+	switch l.Scope {
+	case policy.ScopeLocale:
+		// A grant on every locale, so the oracle covers that disjunct; the
+		// Cerbos suite realizes the request's locale.
+		w.localeGrants = append(w.localeGrants, types.NewRecord(types.RecordMap{
+			"capability": types.String(l.Capability), localeKey: types.String(policy.EveryValue),
+		}))
+	case policy.ScopeContent:
+		// The request's locale on every content kind, likewise.
+		w.contentGrants = append(w.contentGrants, types.NewRecord(types.RecordMap{
+			"capability": types.String(l.Capability), localeKey: types.String("en"),
+			"contentKind": types.String(policy.EveryValue),
+		}))
 	}
 }
 
@@ -334,6 +387,8 @@ func (w *world) apply(l *policy.Leaf, holds bool) {
 // in the list its template reads.
 func (w *world) addName(l *policy.Leaf) {
 	switch {
+	case l.Kind == policy.LeafRelation && l.Subject != "" && l.Second:
+		w.subjectRelations2 = append(w.subjectRelations2, types.String(l.Relation))
 	case l.Kind == policy.LeafRelation && l.Subject != "":
 		w.subjectRelations = append(w.subjectRelations, types.String(l.Relation))
 	case l.Kind == policy.LeafRelation:
@@ -389,16 +444,19 @@ func realize(
 			"countryGrants": types.NewSet(),
 		},
 		ctx: types.RecordMap{
-			"isTask": types.False, "isOktaLifecycle": types.False, "locale": types.String("en"),
+			"isTask": types.False, "isOktaLifecycle": types.False, localeKey: types.String("en"),
 		},
-		subject: uid("User", "kaid_other"),
-		coaches: types.NewSet(),
+		subject:  uid("User", "kaid_other"),
+		coaches:  types.NewSet(),
+		subject2: uid("User", "kaid_other"),
+		coaches2: types.NewSet(),
 	}
 	for i := range leaves {
 		w.apply(&leaves[i], given[leaves[i].Var])
 	}
 	w.attrs["attributes"] = types.NewSet(w.callerAttrs...)
 	w.attrs["localeGrants"] = types.NewSet(w.localeGrants...)
+	w.attrs["contentGrants"] = types.NewSet(w.contentGrants...)
 	w.ctx["attributes"] = types.NewSet(w.requestAttrs...)
 	principal := uid(w.principalType, actor)
 	p := types.Entity{UID: principal, Parents: types.NewEntityUIDSet(w.parents...)}
@@ -416,6 +474,9 @@ func realize(
 			"relations":         types.NewSet(w.relations...),
 			"subjectRelations":  types.NewSet(w.subjectRelations...),
 			"attributes":        types.NewSet(w.resourceAttrs...),
+			"subject2":          w.subject2,
+			"coaches2":          w.coaches2,
+			"subjectRelations2": types.NewSet(w.subjectRelations2...),
 		})},
 	}
 	return entities, cedar.Request{

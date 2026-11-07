@@ -15,11 +15,10 @@ import (
 // EARS text, and returns the rule's frontmatter accordingly (a new map):
 //   - a condition comparing with a value its cited lines do not hold is
 //     removed, graph.ExtraConditionDropped saying which values;
-//   - a kept condition that disagrees with the EARS conditions (where,
-//     while, when, if) gets graph.ExtraConditionDisagreement: the values
-//     one side states and the other does not, each marked cited or not
-//     (whether the cited lines hold it), or a condition on a rule whose
-//     text states none. Neither side is changed: a person decides.
+//   - a kept condition whose EARS conditions (where, while, when, if)
+//     state values it doesn't gets graph.ExtraConditionDisagreement: those
+//     values, each marked cited or not (whether the cited lines hold it).
+//     Neither side is changed: a person decides.
 //
 // Requires: citations are n's, loaded.
 // Ensures:  n.Extra is not modified; without a condition, Extra as is.
@@ -29,6 +28,7 @@ func checkCondition(n *graph.Node, citations []Citation, opts Options) map[strin
 		return n.Extra
 	}
 	extra := maps.Clone(n.Extra)
+	delete(extra, graph.ExtraConditionDisagreement) // recomputed below
 	cited := citedLines(citations)
 	values := conditionLiterals(&c)
 	var missing []string
@@ -43,16 +43,28 @@ func checkCondition(n *graph.Node, citations []Citation, opts Options) map[strin
 		extra[graph.ExtraConditionDropped] = strings.Join(missing, "; ")
 		return extra
 	}
-	if detail := disagreement(n, values, cited, opts); detail != "" {
+	if detail := disagreement(n, &c, values, cited, opts); detail != "" {
 		extra[graph.ExtraConditionDisagreement] = detail
 	}
 	return extra
 }
 
-// disagreement describes how a rule's condition, whose values are given,
-// and its EARS conditions differ; "" when they agree or the sentence does
-// not parse.
-func disagreement(n *graph.Node, values []literal, cited []string, opts Options) string {
+// disagreement describes the values a rule's EARS conditions state that
+// its condition c, whose values are given, doesn't; "" when there are none
+// or the sentence does not parse. Only the text's side is a question: the
+// condition's values are grounded in the cited code already, so a value
+// the text leaves out only says the text is vaguer. A text value counts
+// as stated when it is one of c's values, a value the extractor carries
+// beside the condition (check_args), part of one of c's variable names
+// (caller.hasPermission.CanModerateUsers), or a constant's value a
+// variable names (opts.Constants: retry.MaxAttempts for 3).
+func disagreement(
+	n *graph.Node,
+	c *condition.Condition,
+	values []literal,
+	cited []string,
+	opts Options,
+) string {
 	components, ok := graph.RuleComponents(n)
 	if !ok {
 		return ""
@@ -61,42 +73,23 @@ func disagreement(n *graph.Node, values []literal, cited []string, opts Options)
 		components.When, components.If)
 	text := strings.TrimSpace(strings.Join(clauses, "\n"))
 	if text == "" {
-		return "text none"
+		return ""
 	}
-	where := func(lit *literal) string {
-		if lit.foundIn(cited, opts.Constants) {
-			return "cited"
-		}
-		return "not cited"
-	}
-	var parts []string
-	// What the condition states, and what the extractor carries beside it
-	// that the notation can't (a check's scope matcher, a rate limit's
-	// numbers): the text naming either agrees with the rule.
-	written := carriedValues(n)
+	written := append(carriedValues(n), c.Variables()...)
 	for i := range values {
 		written = append(written, values[i].text)
-		if !values[i].implicit() && !values[i].foundIn([]string{text}, nil) {
-			parts = append(parts, "condition "+values[i].text+" ("+where(&values[i])+")")
-		}
 	}
+	var parts []string
 	for _, lit := range extractLiterals(text, opts.DecimalSeparator) {
-		if !lit.foundIn(written, nil) {
-			parts = append(parts, "text "+lit.text+" ("+where(&lit)+")")
+		if !lit.foundIn(written, opts.Constants) {
+			where := "not cited"
+			if lit.foundIn(cited, opts.Constants) {
+				where = "cited"
+			}
+			parts = append(parts, "text "+lit.text+" ("+where+")")
 		}
 	}
 	return strings.Join(parts, "; ")
-}
-
-// implicit reports whether a condition value is one prose states in
-// words rather than digits or quotes: zero ("negative", "positive") and
-// the empty string ("empty", "missing"). Its absence from the EARS text is
-// no disagreement.
-func (l *literal) implicit() bool {
-	if l.number {
-		return l.value == 0
-	}
-	return l.folded == ""
 }
 
 // conditionLiterals reads c's values as literals: numbers as JSON writes

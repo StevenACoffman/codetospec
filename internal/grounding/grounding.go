@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
@@ -123,6 +124,50 @@ type Options struct {
 	// Constants maps identifiers as written in code to their numeric value
 	// (see Constants), so "400" is found behind http.StatusBadRequest.
 	Constants map[string]float64
+}
+
+// Quantities are the numeric constants (Constants) that are no enum's
+// value: an enum value labels a case (iota or not), so it is no amount a
+// threshold could be.
+func Quantities(facts []extract.Fact) map[string]float64 {
+	quantities := Constants(facts)
+	for _, f := range facts {
+		if f.Kind == extract.KindEnumValue {
+			delete(quantities, f.Attrs[extract.AttrName])
+		}
+	}
+	return quantities
+}
+
+// NamedConstants lists the numeric constants (by name, as Constants keys
+// them) the cited ranges name, as "Name = value", in order of first
+// appearance: a quantity the code sets, not one the requirement states.
+// A name counts as a whole identifier, alone or after a package
+// qualifier (retry.MaxAttempts).
+func NamedConstants(citations []Citation, constants map[string]float64) []string {
+	var named []string
+	seen := map[string]bool{}
+	for _, c := range citations {
+		for _, line := range c.File[c.Start-1 : c.End] {
+			for _, word := range identifiers(line) {
+				v, ok := constants[word]
+				if !ok || seen[word] {
+					continue
+				}
+				seen[word] = true
+				named = append(named, word+" = "+strconv.FormatFloat(v, 'f', -1, 64))
+			}
+		}
+	}
+	return named
+}
+
+// identifiers splits a line of code into its identifiers (a qualified
+// name gives its parts).
+func identifiers(line string) []string {
+	return strings.FieldsFunc(line, func(r rune) bool {
+		return r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
 }
 
 // Constants indexes the numeric extract.KindConstant facts by name;
@@ -411,7 +456,13 @@ func (l *literal) foundIn(lines []string, constants map[string]float64) bool {
 			}
 		}
 		for _, ident := range codeIdent.FindAllString(line, -1) {
+			// A constant keyed by its own name may be read through its
+			// package (retry.MaxAttempts).
+			_, name, qualified := strings.Cut(ident, ".")
 			if v, ok := constants[ident]; ok && l.matches(v) {
+				return true
+			}
+			if v, ok := constants[name]; qualified && ok && l.matches(v) {
 				return true
 			}
 		}

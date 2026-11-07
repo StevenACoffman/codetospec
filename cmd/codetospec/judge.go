@@ -51,7 +51,12 @@ func (p *pipeline) judge(
 		return judged{}, err
 	}
 	nodes = stamp(p.cfg.Roots(), nodes, facts, groundingOpts)
-	nodes = quality.AnnotateThresholds(nodes, groundingOpts.DecimalSeparator)
+	nodes = quality.AnnotateThresholds(
+		p.cfg.Roots(),
+		nodes,
+		groundingOpts,
+		grounding.Quantities(facts),
+	)
 	nodes, unusedTargets := nfrtarget.Annotate(nodes, prior.Targets)
 	// After the stamps: a condition the cited code does not ground is gone,
 	// so no example tests it.

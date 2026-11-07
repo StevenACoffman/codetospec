@@ -10,6 +10,8 @@
 //
 // Kinds of input (the vocabulary this package pins):
 //   - KindField: a struct field read (a reads fact);
+//   - KindMethod: a method of the module's types called (a calls_method
+//     fact);
 //   - KindLoad: a datastore kind queried, with its filter properties;
 //   - KindStaff, KindFlag: a value of a type a value_kind fact says is a
 //     capability's or a feature flag's;
@@ -25,7 +27,9 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/concept"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 )
@@ -34,6 +38,7 @@ import (
 const (
 	KindField   = "field"
 	KindLoad    = "load"
+	KindMethod  = "method"
 	KindStaff   = "staff"
 	KindFlag    = "flag"
 	KindValue   = "value"
@@ -64,6 +69,11 @@ type Inventory struct {
 	// entry: shown beside what they qualify, never evaluated.
 	Conditions map[string]string `json:"conditions,omitempty"`
 	Depth      int               `json:"depth"`
+	// Access is who can do what, by concept (Define).
+	Access []ConceptAccess `json:"access,omitempty"`
+	// Joined are the checks calling another service's operation: the pin
+	// each took from there (Join), or why none.
+	Joined []Joined `json:"joined,omitempty"`
 }
 
 // Endpoint is one enforcement point and the guards of its handler.
@@ -83,6 +93,9 @@ type Guard struct {
 	Kinds       []string    `json:"kinds,omitempty"` // per call, its kind
 	Scope       string      `json:"scope,omitempty"` // "item" for a guard that drops one item
 	DelegatesTo string      `json:"delegates_to,omitempty"`
+	Concept     string      `json:"concept,omitempty"` // the rule's concept (concept.Assign)
+	condition   string      // the rule's deny condition (graph.ExtraCondition)
+	answers     []string    // the checks whose result the handler returns (graph.ExtraAnswers)
 	endpoints   []string    // the endpoints it guards
 	marker      string      // "open" or "todo", else ""
 }
@@ -134,6 +147,9 @@ type Check struct {
 	Digest       string        `json:"digest,omitempty"`
 	Inputs       []Input       `json:"inputs,omitempty"`
 	Descriptions []Description `json:"descriptions,omitempty"`
+	// Definition is what the check means: the code's allowing paths, and
+	// with Define, the pin and its verification.
+	Definition Definition `json:"definition"`
 }
 
 // Input is one thing a check reads.
@@ -222,6 +238,11 @@ func guardOf(n *graph.Node) (Guard, bool) {
 		Title:       n.Title,
 		Scope:       n.Extra[graph.ExtraCheckScope],
 		DelegatesTo: n.Extra[graph.ExtraDelegatesTo],
+		Concept:     n.Extra[concept.ExtraConcept],
+		condition:   n.Extra[graph.ExtraCondition],
+	}
+	if answers := n.Extra[graph.ExtraAnswers]; answers != "" {
+		g.answers = strings.Split(answers, ",")
 	}
 	if len(n.Sources) > 0 {
 		g.Source = n.Sources[0]
@@ -267,9 +288,10 @@ func checks(idx *factIndex, rules []graph.Node, reg Registry) []Check {
 	out := make([]Check, 0, len(idx.checks))
 	for _, f := range idx.checks {
 		c := Check{
-			Name:   f.Attrs[extract.AttrName],
-			Form:   f.Attrs[extract.AttrForm],
-			Source: f.Source,
+			Name:       f.Attrs[extract.AttrName],
+			Form:       f.Attrs[extract.AttrForm],
+			Source:     f.Source,
+			Definition: pathsOf(&f),
 		}
 		if c.Source.Path != "" && c.Source.Root == "" {
 			c.Inputs = inputsOf(idx, idx.reached(c.Source), reg)
@@ -319,6 +341,8 @@ func inputsOf(idx *factIndex, spans []extract.Ref, reg Registry) []Input {
 		switch f.Kind {
 		case extract.KindReads:
 			add(Input{Kind: KindField, Name: f.Attrs[extract.AttrField]})
+		case extract.KindCallsMethod:
+			add(Input{Kind: KindMethod, Name: f.Attrs[extract.AttrCalledMethod]})
 		case extract.KindLoads:
 			add(
 				Input{
@@ -344,14 +368,21 @@ func inputsOf(idx *factIndex, spans []extract.Ref, reg Registry) []Input {
 	return out
 }
 
-// coverage returns the field and load inputs no registry entry declares,
-// and the registry entries no check reads, both sorted and unique.
+// declarable reports whether a registry entry can declare in: a field, a
+// load or a method.
+func (in Input) declarable() bool {
+	return in.Kind == KindField || in.Kind == KindLoad || in.Kind == KindMethod
+}
+
+// coverage returns the field, load and method inputs no registry entry
+// declares, and the registry entries no check reads, both sorted and
+// unique.
 func coverage(checks []Check, reg Registry) ([]string, []string) {
 	undeclared := map[string]bool{}
 	read := map[string]bool{}
 	for _, c := range checks {
 		for _, in := range c.Inputs {
-			if in.Kind != KindField && in.Kind != KindLoad {
+			if !in.declarable() {
 				continue
 			}
 			if in.DeclaredBy == "" {

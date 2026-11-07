@@ -7,8 +7,9 @@
 // value absent from its citation (KindUngrounded), one whose requirement
 // lacks the form of its EARS kind (KindEARSIssue), one the crosscheck
 // refuted (KindRefuted), an inherited rule whose shared code changed since
-// its verdict (KindStaleVerdict), a non-functional rule whose code states
-// no threshold (KindNFRTarget: the target is the person's to set), a rule
+// its verdict (KindStaleVerdict), a non-functional rule stating a quantity
+// whose code states no threshold (KindNFRTarget: the target is the
+// person's to set), a rule
 // whose nature its code's layer contradicts, with its own evidence
 // backing the layer (KindNatureMismatch), one whose
 // condition and EARS text state different checks (KindConditionMismatch),
@@ -169,7 +170,8 @@ func ruleFindings(n *graph.Node) []finding {
 	if options := n.Extra[concept.ExtraConceptConflict]; options != "" {
 		found = append(found, finding{KindConceptConflict, options, conceptNames(options)})
 	}
-	if quality.IsNFR(n) && n.Extra[graph.ExtraThreshold] == "" {
+	if quality.IsNFR(n) && n.Extra[graph.ExtraThreshold] == "" &&
+		n.Extra[graph.ExtraQuantity] == graph.QuantityStated {
 		attribute := n.Extra[graph.ExtraQualityAttribute]
 		found = append(found, finding{KindNFRTarget, attribute, attribute})
 	}

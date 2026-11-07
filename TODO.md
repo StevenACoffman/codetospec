@@ -563,7 +563,7 @@ left out.
       literal `content_kind_arg`; loader contract updated). Re-pin the 7
       content-editing checkers (and the 8 request-locale ones with
       `scope: locale`).
-- [ ] Re-pin the review's checkers files with the vocabulary added since
+- [x] Re-pin the review's checkers files with the vocabulary added since
       (`docs/verification/checker-recognition-2026-11-06.md`) and
       re-measure the six exports:
   - `scope: locale` for the request-locale checkers;
@@ -593,6 +593,19 @@ left out.
     review's YAML with every comment carried into `note` fields (or a
     per-service notes file), and the 13 approx pins marked
     `approx: true`, live beside the review (private).
+  - Done (2026-11-06): 20 checkers re-read by two blind readers each with
+    the new vocabulary (`scope: locale` and `content`, `capability_arg`,
+    `cases`, context attributes, `self`/`coach` in an item filter), the
+    differences adjudicated in the code: 18 pinned, 2 kept unpinnable
+    with a firmer reason. Every recorded checker's pin carries its
+    `digest`, and every unpinnable checker an `unpinnable` entry (the
+    review's 24 files: 152 pins, 128 unpinnable). Exports: users 112 →
+    118 operations; `cerbos compile` OK on all five re-run graphs. One
+    item filter keeps its relations until a filter can carry a
+    call-level meaning (the item above). The re-read also found that
+    webapp's current-locale and content checks accept a grant on every
+    locale or kind, so the `locale` and `content` templates now accept
+    `"*"` (`policy.EveryValue`) too.
 - [x] Permits scoped by principal type. Done (2026-11-06):
       `Operation.Principals`, from the denies; on the five re-measured
       graphs, 423 of 846 permits are restricted.

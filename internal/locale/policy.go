@@ -103,7 +103,10 @@ func newPolicy(tr translate) Policy {
 		),
 		ScopeUserAll:  tr(" pour tous les utilisateurs", " for all users"),
 		ScopeUserNWEA: tr(" pour les utilisateurs NWEA", " for NWEA users"),
-		ScopeLocale:   tr(" pour la langue de la requête", " for the request's language"),
+		ScopeLocale: tr(
+			" pour la langue de la requête (ou pour toutes)",
+			" for the request's language (or for every language)",
+		),
 		ScopeExplicit: tr(
 			" par un octroi explicite (pas un que donne un rôle)",
 			" through an explicit grant (not one a role gives)",

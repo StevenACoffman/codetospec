@@ -49,7 +49,10 @@
 //     User && principal.localeGrants.contains({capability, locale:
 //     context.locale})); explicit principal in CapExplicit::"<c>"; content
 //     (principal is User && principal.contentGrants.contains({capability,
-//     locale: context.locale, contentKind: "<kind>"})). The
+//     locale: context.locale, contentKind: "<kind>"})). A locale or content
+//     grant on every locale has locale "*", one on every content kind
+//     contentKind "*": the templates accept either, as webapp's admin
+//     service decides. The
 //     language has no quantifier over a grant list, so the loader flattens
 //     grants into these groups.
 //
@@ -362,13 +365,28 @@ func capabilityExpr(ns string, l *policy.Leaf) string {
 	case policy.ScopeUserNwea:
 		return group("CapNwea")
 	case policy.ScopeLocale:
-		return fmt.Sprintf("(principal is %s::User && principal.localeGrants.contains("+
-			"{capability: %q, locale: context.locale}))", ns, l.Capability)
+		grant := func(locale string) string {
+			return fmt.Sprintf("principal.localeGrants.contains({capability: %q, locale: %s})",
+				l.Capability, locale)
+		}
+		return fmt.Sprintf("(principal is %s::User && (%s || %s))",
+			ns, grant("context.locale"), grant(fmt.Sprintf("%q", policy.EveryValue)))
 	case policy.ScopeExplicit:
 		return group("CapExplicit")
 	case policy.ScopeContent:
-		return fmt.Sprintf("(principal is %s::User && principal.contentGrants.contains("+
-			"{capability: %q, locale: context.locale, contentKind: %q}))", ns, l.Capability, l.ContentKind)
+		every := fmt.Sprintf("%q", policy.EveryValue)
+		var grants []string
+		for _, locale := range []string{"context.locale", every} {
+			for _, kind := range []string{fmt.Sprintf("%q", l.ContentKind), every} {
+				grants = append(grants, fmt.Sprintf(
+					"principal.contentGrants.contains({capability: %q, locale: %s, contentKind: %s})",
+					l.Capability,
+					locale,
+					kind,
+				))
+			}
+		}
+		return fmt.Sprintf("(principal is %s::User && (%s))", ns, strings.Join(grants, " || "))
 	}
 	return group("CapAny")
 }

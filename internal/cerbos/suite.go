@@ -250,11 +250,13 @@ func grantMatches(g *grant, l *policy.Leaf, r *resource) bool {
 	case policy.ScopeUserNwea:
 		return g.UserKind == userKindNwea
 	case policy.ScopeLocale:
-		return g.Locale == r.Attr.Locale
+		return g.Locale == r.Attr.Locale || g.Locale == policy.EveryValue
 	case policy.ScopeExplicit:
 		return g.Explicit
 	case policy.ScopeContent:
-		return g.Locale == r.Attr.Locale && slices.Contains(g.ContentKinds, l.ContentKind)
+		return (g.Locale == r.Attr.Locale || g.Locale == policy.EveryValue) &&
+			(slices.Contains(g.ContentKinds, l.ContentKind) ||
+				slices.Contains(g.ContentKinds, policy.EveryValue))
 	}
 	return true
 }

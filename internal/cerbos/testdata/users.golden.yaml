@@ -58,7 +58,7 @@ resourcePolicy:
             - '*'
           condition:
             match:
-                expr: '!(("internal_user" in P.attr.attributes && !("deleted" in R.attr.attributes) && "bio_flag" in R.attr.requestAttributes && P.attr.grants.exists(g, g.capability == "can_view_user_identity" && g.locale == R.attr.locale) && P.attr.grants.exists(g, g.capability == "can_view_user_identity" && g.explicit == true) && "managing_coach_of" in R.attr.subjectRelations))'
+                expr: '!(("internal_user" in P.attr.attributes && !("deleted" in R.attr.attributes) && "bio_flag" in R.attr.requestAttributes && P.attr.grants.exists(g, g.capability == "can_view_user_identity" && (g.locale == R.attr.locale || g.locale == "*")) && P.attr.grants.exists(g, g.capability == "can_view_user_identity" && g.explicit == true) && "managing_coach_of" in R.attr.subjectRelations))'
         - name: rule.hook.authz-notify
           actions:
             - Mutation.notify
@@ -104,7 +104,7 @@ resourcePolicy:
             - '*'
           condition:
             match:
-                expr: '!(("service" in P.roles || P.attr.grants.exists(g, g.capability == "can_view_user_identity" && g.locale == R.attr.locale && "Video" in g.contentKinds) || P.attr.grants.exists(g, g.capability == "can_view_user_identity" && g.userKind == "all") || P.attr.grants.exists(g, g.capability == "can_view_user_identity" && g.userKind == "nwea-map")))'
+                expr: '!(("service" in P.roles || P.attr.grants.exists(g, g.capability == "can_view_user_identity" && (g.locale == R.attr.locale || g.locale == "*") && ("Video" in g.contentKinds || "*" in g.contentKinds)) || P.attr.grants.exists(g, g.capability == "can_view_user_identity" && g.userKind == "all") || P.attr.grants.exists(g, g.capability == "can_view_user_identity" && g.userKind == "nwea-map")))'
         - name: rule.user.authz-emails
           actions:
             - User.emails

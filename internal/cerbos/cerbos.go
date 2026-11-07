@@ -31,7 +31,8 @@
 //     name), global (bool: every scope key at its global value), userKind,
 //     country, locale, explicit (bool: granted to the caller, not implied
 //     by a role such as admin's), contentKinds (the content kinds a
-//     content grant covers, empty for others)}, a role's capabilities
+//     content grant covers, empty for others); a grant on every locale has
+//     locale "*", one on every content kind "*" among its contentKinds}, a role's capabilities
 //     expanded at the
 //     role grant's scope, and every capability at global scope for a site
 //     admin (GCP IAM);
@@ -62,7 +63,9 @@
 // whatever the data; locale a grant for the request's locale; explicit
 // any grant the caller holds itself, not through a role's implicit ones;
 // content a grant for the request's locale covering the pinned content
-// kind.
+// kind. A locale or content grant on every locale ("*") matches any
+// request's, and one on every content kind any kind, as webapp's admin
+// service decides.
 package cerbos
 
 import (
@@ -313,14 +316,19 @@ func scopeTest(l *policy.Leaf) string {
 	case policy.ScopeUserNwea:
 		return `g.userKind == "nwea-map"`
 	case policy.ScopeLocale:
-		return "g.locale == R.attr.locale"
+		return localeTest
 	case policy.ScopeExplicit:
 		return "g.explicit == true"
 	case policy.ScopeContent:
-		return fmt.Sprintf("g.locale == R.attr.locale && %q in g.contentKinds", l.ContentKind)
+		return fmt.Sprintf("%s && (%q in g.contentKinds || %q in g.contentKinds)",
+			localeTest, l.ContentKind, policy.EveryValue)
 	}
 	return "true" // any scope
 }
+
+// localeTest is the CEL test of a grant g for the request's locale, or
+// for every locale (policy.EveryValue).
+const localeTest = `(g.locale == R.attr.locale || g.locale == "` + policy.EveryValue + `")`
 
 // attributesOf is the CEL list of an attribute holder's attribute names.
 func attributesOf(holder string) string {

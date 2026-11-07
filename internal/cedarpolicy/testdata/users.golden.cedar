@@ -7,7 +7,7 @@ when { principal is Users::User };
 @source("resolvers/u.go:1-3")
 @subject("arg:kaid")
 forbid (principal, action == Users::Action::"Mutation.editBio", resource)
-when { !(((principal is Users::User && principal.attributes.contains("internal_user")) && !(resource.attributes.contains("deleted")) && context.attributes.contains("bio_flag") && (principal is Users::User && principal.localeGrants.contains({capability: "can_view_user_identity", locale: context.locale})) && principal in Users::CapExplicit::"can_view_user_identity" && resource.subjectRelations.contains("managing_coach_of"))) };
+when { !(((principal is Users::User && principal.attributes.contains("internal_user")) && !(resource.attributes.contains("deleted")) && context.attributes.contains("bio_flag") && (principal is Users::User && (principal.localeGrants.contains({capability: "can_view_user_identity", locale: context.locale}) || principal.localeGrants.contains({capability: "can_view_user_identity", locale: "*"}))) && principal in Users::CapExplicit::"can_view_user_identity" && resource.subjectRelations.contains("managing_coach_of"))) };
 
 @id("allow:Mutation.login")
 permit (principal, action == Users::Action::"Mutation.login", resource)
@@ -68,7 +68,7 @@ when { principal is Users::Service || principal is Users::User };
 @id("rule.district.authz-udi")
 @source("resolvers/u.go:1-3")
 forbid (principal, action == Users::Action::"Query.udi", resource)
-when { !((principal is Users::Service || (principal is Users::User && principal.contentGrants.contains({capability: "can_view_user_identity", locale: context.locale, contentKind: "Video"})) || principal in Users::CapUserAll::"can_view_user_identity" || principal in Users::CapNwea::"can_view_user_identity")) };
+when { !((principal is Users::Service || (principal is Users::User && (principal.contentGrants.contains({capability: "can_view_user_identity", locale: context.locale, contentKind: "Video"}) || principal.contentGrants.contains({capability: "can_view_user_identity", locale: context.locale, contentKind: "*"}) || principal.contentGrants.contains({capability: "can_view_user_identity", locale: "*", contentKind: "Video"}) || principal.contentGrants.contains({capability: "can_view_user_identity", locale: "*", contentKind: "*"}))) || principal in Users::CapUserAll::"can_view_user_identity" || principal in Users::CapNwea::"can_view_user_identity")) };
 
 @id("allow:User.emails")
 @subject("parent:Kaid")

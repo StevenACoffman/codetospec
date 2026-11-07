@@ -369,13 +369,16 @@ func (w *world) grant(l *policy.Leaf) {
 	w.parents = append(w.parents, w.capabilityGroups(l)...)
 	switch l.Scope {
 	case policy.ScopeLocale:
+		// A grant on every locale, so the oracle covers that disjunct; the
+		// Cerbos suite realizes the request's locale.
 		w.localeGrants = append(w.localeGrants, types.NewRecord(types.RecordMap{
-			"capability": types.String(l.Capability), localeKey: types.String("en"),
+			"capability": types.String(l.Capability), localeKey: types.String(policy.EveryValue),
 		}))
 	case policy.ScopeContent:
+		// The request's locale on every content kind, likewise.
 		w.contentGrants = append(w.contentGrants, types.NewRecord(types.RecordMap{
 			"capability": types.String(l.Capability), localeKey: types.String("en"),
-			"contentKind": types.String(l.ContentKind),
+			"contentKind": types.String(policy.EveryValue),
 		}))
 	}
 }

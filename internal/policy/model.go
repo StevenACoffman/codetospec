@@ -214,6 +214,11 @@ const (
 	ScopeContent = "content"
 )
 
+// EveryValue is the locale or content kind of a grant on every one (a
+// global locale grant): a locale or content scope accepts it, as webapp's
+// admin service does for the current-locale and content checks.
+const EveryValue = "*"
+
 func pinnedScopes() []string {
 	return []string{
 		ScopeAny, ScopeGlobal, ScopeUser, ScopeCountry,

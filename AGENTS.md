@@ -66,6 +66,16 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   reads the tree-sitter `fileInfo`, not the merged facts; test it through
   the real path (`sitter.Parse` → `UniversalFacts` → `Merge`), not with
   hand-built facts.
+- `internal/llm` — the one OpenAI-compatible client, shared by every phase
+  and worker (`pipeline.go`). Each failure carries a toerr `errcode`
+  status (`classify`, `throttle.go`, pure): resource exhausted (429, or a
+  5xx naming a wait) closes a `gate` every call waits on, for the wait the
+  reply names (`Retry-After`, Gemini's `RetryInfo.retryDelay`) or a
+  minute, capped at 5, up to 10 pauses per call; unavailable or deadline
+  exceeded (network error, timeout, other 5xx) retries that call alone
+  after jittered backoffs; anything else fails. A worker retrying on its
+  own kept a throttle going for the others. Pauses and retries log at
+  WARN (`NewClient` takes the logger).
 - `internal/{mapper,reducer,crosscheck}` — LLM phases, each mechanically
   validates its output (2 corrections max then a traced failure). The map
   prefixes each line of code with its absolute number (`numberedContent`):

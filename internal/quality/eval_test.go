@@ -153,9 +153,10 @@ func TestEvalPromise(t *testing.T) {
 			Body: text.Requirement + r.Text,
 		}
 	}
+	logger := slog.New(slog.NewTextHandler(t.Output(), nil))
 	c := quality.Classifier{
-		LLM:       llm.NewClient(baseURL, os.Getenv("LLM_API_KEY"), model, 4096),
-		Log:       slog.New(slog.NewTextHandler(t.Output(), nil)),
+		LLM:       llm.NewClient(baseURL, os.Getenv("LLM_API_KEY"), model, 4096, logger),
+		Log:       logger,
 		Model:     model,
 		Workers:   4,
 		CachePath: t.TempDir() + "/quality.json",

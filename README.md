@@ -241,6 +241,11 @@ parsed, facts, map/reduce progress, failures, live token counts; `q` stops
 cleanly and the run resumes later). Use `--no-tui` for plain logs (CI).
 An output directory belongs to one source: `run` refuses an `--out` whose
 `.codetospec/state.json` records another `--src`, before writing anything.
+When the endpoint throttles (429, or a 5xx naming a wait), every call
+pauses together for the wait it names (`Retry-After` or Gemini's
+`retryDelay`), else a minute, then resumes; network errors, timeouts and
+other 5xx are retried three times with jittered backoff. Each pause and
+retry is logged as a warning, so a stalled run shows which it is.
 
 Other commands:
 

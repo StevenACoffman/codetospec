@@ -136,7 +136,7 @@ func (p *pipeline) run(ctx context.Context) error {
 		DecimalSeparator: locale.For(cfg.Lang).DecimalSeparator,
 		Constants:        grounding.Constants(ext.facts),
 	}
-	p.client = llm.NewClient(cfg.BaseURL, cfg.APIKey, cfg.Model, cfg.MaxTokens)
+	p.client = llm.NewClient(cfg.BaseURL, cfg.APIKey, cfg.Model, cfg.MaxTokens, p.logger)
 	mapOutputs, err := p.mapChunks(ctx, chunks, &idx, groundingOpts)
 	if err != nil {
 		return err

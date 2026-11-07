@@ -65,9 +65,10 @@ func TestEvalPlantedFaults(t *testing.T) {
 	}
 	runs := make([]map[string]crosscheck.Verdict, 0, repeat)
 	for range repeat {
+		logger := slog.New(slog.NewTextHandler(t.Output(), nil))
 		checker := &crosscheck.Checker{
-			Log:     slog.New(slog.NewTextHandler(t.Output(), nil)),
-			LLM:     llm.NewClient(baseURL, os.Getenv("LLM_API_KEY"), model, 4096),
+			Log:     logger,
+			LLM:     llm.NewClient(baseURL, os.Getenv("LLM_API_KEY"), model, 4096, logger),
 			Model:   model,
 			Lang:    "fr",
 			Workers: 2,

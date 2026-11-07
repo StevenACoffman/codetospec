@@ -4,6 +4,7 @@ go 1.27.3
 
 require (
 	github.com/StevenACoffman/indomain v0.3.0
+	github.com/StevenACoffman/toerr v0.3.0
 	github.com/cedar-policy/cedar-go v1.9.0
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10

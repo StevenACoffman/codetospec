@@ -262,7 +262,8 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   operand, a call's failure whose decision has its own variable is its
   error, a call nothing states is data; a stated check under an `any`
   leaves its path unmatched (never a false match); negations and scopes
-  aren't compared. `inv.Compare(first, second)` (`equivalent.go`): truth
+  aren't compared; a call of a check nothing states inlines that check's
+  own paths (`pathReader`, `MaxDepth`, cycles cut). `inv.Compare(first, second)` (`equivalent.go`): truth
   table over canonical leaves, a counterexample. `Inventory.Access`
   (`access.go`): per concept, each guard stated from its own condition
   (the negated deny, De Morgan to the leaves), or undecided with the
@@ -295,12 +296,18 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   `<check>#n`, `Deny.Defined` lets the oracle decide the checker's
   variable from them), `subject_arg` for a user check (on a compound
   checker, passed to its parts) or a relation to an argument's user
-  (`R.attr.subjectRelations`), `capability_arg` for a part's capability,
+  (`R.attr.subjectRelations`; an argument the webapp extractor bound to
+  the request user is `from: caller`, `policy.FromCaller`, which the
+  subject annotation passes as the principal itself),
+  `capability_arg` for a part's capability,
   an `attribute` of the caller, resource or request, the `locale`,
   `explicit` and `content` (`content_kind` or a literal
   `content_kind_arg`) scopes, `cases` keyed on literal arguments
   (`ArgCase`, `Checker.For` the one resolver: a call matching no case is
-  skipped), `approx`, `item: <Kind>` for a visibility filter
+  skipped; `"@caller"`, `policy.CallerArg`, matches an argument bound to
+  the caller whatever its text), `approx`, `item: <Kind>` for a visibility
+  filter, with an optional `call` (its call-level meaning, where a guard
+  tests the filter itself; `Checker.atCall` is the one substitution)
   (`Model.Items`: a `view` policy per kind, where self and coach are
   about the item's user, `SubjectItem`), `unpinnable: <reason>` (the
   skip reason), `digest` (`policy.StalePins`: `export --src` warns about
@@ -636,7 +643,17 @@ wherever it stands; a nil result for one with none; an empty filter
 result its caller denies on), follows checkers wrapped in a package
 variable and resolver packages the root resolvers embed, and names every
 function a denying guard calls (`form: call`, no meaning) so a person can
-pin it (`docs/verification/checker-recognition-2026-11-06.md`). No
+pin it (`docs/verification/checker-recognition-2026-11-06.md`). It also
+recognizes capability helpers (`caphelpers.go`: a function whose decision
+is admin's `hasPermission` field in its genqlient operation; calls get
+`means: capability`, scope from the enum, the capability by Go name from
+admin's generated `capabilities.go`), binds the request user's kaid to
+`from: caller`, makes no guard of a branch that returns `true`, and
+reads a branch returning `RequestUser()`'s error (alone or in `||`) as
+rejecting service-admin requests, unless the path already tests for them
+(it also fails on an unvalidated identity, which both loader contracts
+deny). The Cerbos suite leaves out assignments no single principal kind
+realizes (`policy.Realizable`, the `kindsOf` that `Principals` uses). No
 repository-specific code in the core: all webapp knowledge lives in
 `extractors/webapp`.
 

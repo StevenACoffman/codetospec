@@ -498,7 +498,14 @@ left out.
     a person pins the mapping (`join_subject_arg`). Most, with static
     queries: the extractor maps the GraphQL variables at the call site.
     Never match parameters by name (a wrong match can over-permit).
-- [ ] Two-subject operations: two bound users built (`subject2`, self,
+  - Measured (2026-11-07): across six re-run graphs the join reaches 2
+    checks, both "the operation answers no check". It is blocked
+    upstream, not by the user mapping: `dependency` facts name the root
+    field a query starts from (`users:Query.user`, 36 of ai-guide's 119),
+    not the federated field that decides, and several cross-service
+    checkers aren't recorded as checks. Next: dependency facts that name
+    the answering field; the mapping decision waits for that.
+- [x] Two-subject operations: two bound users built (`subject2`, self,
       coach and subject relations about the caller). The reviewed
       two-subject checkers check a relation held by a named user who is
       not the caller.
@@ -507,20 +514,34 @@ left out.
     gating them. If so they are answers (`answers`), not guards. A leaf
     for another user's relation only if a real guard of that shape turns
     up.
-- [ ] A call-level reading for item filters. Three districts guards use a
+  - Done (2026-11-07): the five districts `User.can*` resolvers are
+    answers (their callees fail only on a failed load, their rules gate
+    nothing). Their guard call sites pass the caller's own kaid, so the
+    webapp extractor binds `<local>.Kaid` of a top-level `RequestUser()`
+    local to `from: caller`, and a pin case keys on it with `when_arg:
+    {"N": "@caller"}`. No guard about a second user turned up.
+- [x] A call-level reading for item filters. Three districts guards use a
       visibility filter's failure as a call-level check, which an item
       pin with `self`/`coach` can't state.
   - Decided (2026-11-06): an item entry may carry an explicit call-level
     checker (`call: {…}`), pinned by a person beside the item meaning and
     verified the same way; without one, the operation stays out.
+  - Done (2026-11-07): two of the three guards were extractor misreads
+    (a branch returning `true` from a bool resolver allows; it is no
+    longer a guard). The third is a real call-level use, so `call` is
+    built (`Checker.Call`, `atCall`), worded and compared; the visibility
+    filter is `self`/`coach` with a call-level meaning, and the three
+    operations are kept.
 - [ ] Path coverage: read more of the code before flagging a pin. A
       review of the 13 flagged definitions (users, coaches, ai-guide,
       districts) found 10 pins correct and the flags due to these limits,
       in order of how many they explain:
-  - reuse the pins of the checkers a path calls, and inline a package's
+  - [x] reuse the pins of the checkers a path calls, and inline a package's
     private helpers (`_checkActorCapabilityScopes`,
     `_actorCanViewAllAssignmentDistrictInfos`, an unpinned wrapper of the
-    coach lookup);
+    coach lookup). Done (2026-11-07): a call of a check with no meaning
+    and no pin inlines that check's own paths (`pathReader`, depth
+    `MaxDepth`, cycles cut);
   - make checks under `any` and `not(any(…))` readable: split `a || b`
     into paths and push negations to the leaves before matching;
   - read the decision from the function's error when it denies with an
@@ -533,7 +554,12 @@ left out.
   - compare an item filter's pin with its per-item decision, never with
     the function's own bool (`AdministeredSchoolsInDistrict`'s second
     result is a stricter, separate decision callers gate on);
-  - follow a check one level into a cross-service helper;
+  - [x] follow a check one level into a cross-service helper. Done
+    (2026-11-07) for capability helpers: the webapp extractor reads a
+    helper whose decision is admin's `hasPermission` from its genqlient
+    operation (`means: capability`, scope from the enum, capability a
+    literal, a constant or the call's argument). Left: helpers whose
+    locale is an argument (`hasContentPermission`);
   - recognize `actor.Kaid == kaid` and the coach-coachee lookup as
     `self` and `coach`;
   - don't count a call that only builds the result (`moaPayload`) as a
@@ -560,9 +586,10 @@ left out.
 - [x] Pins keyed on argument values: `cases` with `when_arg`. Three of the
       five districts checkers take the value as a literal and were
       re-pinned by two blind readers; the other two take a variable.
-  - [ ] A visibility filter pinned with `self`/`coach` doesn't translate
+  - [x] A visibility filter pinned with `self`/`coach` doesn't translate
         where a guard uses the filter's failure as a call-level check (3
-        districts operations); decide what that guard means.
+        districts operations); decide what that guard means. Done
+        (2026-11-07): the item entry's `call` meaning, above.
 - [ ] Content-kind scopes: built (`scope: content`, `content_kind` or a
       literal `content_kind_arg`; loader contract updated). Re-pin the 7
       content-editing checkers (and the 8 request-locale ones with

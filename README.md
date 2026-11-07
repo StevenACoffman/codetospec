@@ -273,12 +273,19 @@ checker's code; `item: <Kind>` makes a visibility filter a `view` policy
 on that kind; `unpinnable: <reason>` records why a check can't be
 pinned; `approx: true` that the pin is stricter than the code; `digest`
 the checker's code it was written for, so `export --src` reports a stale
-pin and `policies --src` prints each check's digest). A capability's
+pin and `policies --src` prints each check's digest). A case may key on
+`"@caller"`, an argument that is the caller's own kaid; an item filter may
+state, beside when one item is visible, what it means where a guard tests
+the filter itself (`call`). A capability's
 scopes include `locale` and `content` (a grant for the request's locale
 and one content kind; a grant on every locale or every kind, `"*"` in the
 loader's data, matches too, as webapp's admin service decides). `--join <graph>=<checkers>` lets a check that
 calls one operation of another service take the pin of the check that
 operation answers there (reported, never guessed, when it doesn't map).
+A guard returning webapp's `RequestUser()` error is read as a
+service-admin rejection, so the loader must deny a request whose identity
+fails validation rather than load it as anonymous (both loader contracts
+say so).
 An operation is left out whole (logged at debug level), never exported
 as a bare allow, when a guard doesn't translate, a rule of it names no
 check, its resolver calls a recognized check its guards don't (one it

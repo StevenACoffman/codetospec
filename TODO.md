@@ -488,12 +488,52 @@ left out.
 
 - [ ] Cross-service join of inventories: built (`--join`, `policy.Join`)
       for a target check about no user. Left: a target check about a user
-      needs to know which of the call's arguments is that user; and the
-      join hasn't been run across the reviewed graphs yet.
+      needs to know which of the call's arguments is that user.
+  - Decided (2026-11-06): run the join across the reviewed graphs first
+    and count the checkers whose target check is about a user. A handful:
+    a person pins the mapping (`join_subject_arg`). Most, with static
+    queries: the extractor maps the GraphQL variables at the call site.
+    Never match parameters by name (a wrong match can over-permit).
 - [ ] Two-subject operations: two bound users built (`subject2`, self,
       coach and subject relations about the caller). The reviewed
       two-subject checkers check a relation held by a named user who is
-      not the caller: that needs a leaf for another user's relation.
+      not the caller.
+  - Decided (2026-11-06): first check whether those `User.can*` field
+    resolvers return the check's result as their value with nothing else
+    gating them. If so they are answers (`answers`), not guards. A leaf
+    for another user's relation only if a real guard of that shape turns
+    up.
+- [ ] A call-level reading for item filters. Three districts guards use a
+      visibility filter's failure as a call-level check, which an item
+      pin with `self`/`coach` can't state.
+  - Decided (2026-11-06): an item entry may carry an explicit call-level
+    checker (`call: {…}`), pinned by a person beside the item meaning and
+    verified the same way; without one, the operation stays out.
+- [ ] Path coverage: read more of the code before flagging a pin. A
+      review of the 13 flagged definitions (users, coaches, ai-guide,
+      districts) found 10 pins correct and the flags due to these limits,
+      in order of how many they explain:
+  - reuse the pins of the checkers a path calls, and inline a package's
+    private helpers (`_checkActorCapabilityScopes`,
+    `_actorCanViewAllAssignmentDistrictInfos`, an unpinned wrapper of the
+    coach lookup);
+  - make checks under `any` and `not(any(…))` readable: split `a || b`
+    into paths and push negations to the leaves before matching;
+  - read the decision from the function's error when it denies with an
+    authorization error, and don't take a bool that isn't the decision
+    (`AuthorizeCSVExportRequest`'s means "is the current user");
+  - treat a nil result from a function returning a pointer as a deny
+    (the extractor read `return nil, nil` from a `*bool` as an allow);
+  - don't count a `cache.Cache` wrapper as a call level when grounding
+    leaves (two capability leaves read 4 calls down looked ungrounded);
+  - compare an item filter's pin with its per-item decision, never with
+    the function's own bool (`AdministeredSchoolsInDistrict`'s second
+    result is a stricter, separate decision callers gate on);
+  - follow a check one level into a cross-service helper;
+  - recognize `actor.Kaid == kaid` and the coach-coachee lookup as
+    `self` and `coach`;
+  - don't count a call that only builds the result (`moaPayload`) as a
+    check.
 - [x] `checksBelow` can't tell a check returned as data from a deeper
       guard. Done (2026-11-06): the webapp extractor's `answers` (a check
       returned as the resolver's value, its error unable to reach the
@@ -542,10 +582,17 @@ left out.
     re-pinned with `cases` by two blind readers, compared with
     `policies --compare`. `policies --checkers` now shows, per pin, its
     coverage by the code's paths: 26 of 31 covered on users, coaches,
-    assignments and ai-guide, 6 of 14 on districts. Review the five
-    flagged there and districts' eight
+    assignments and ai-guide, 6 of 14 on districts
     (`docs/verification/checker-definitions-2026-11-06.md`). Re-run admin
     with a model (its role sentences changed).
+  - Reviewed (2026-11-06): of the 13 flagged pins, none over-permits; 10
+    are correct (the flags are the path-coverage limits above), and
+    `governingMoa`, `UserAdministersAdminAggregate` (the MOA flag, now a
+    context attribute) and `GetAllVisibleUDIs` (`cases` on
+    `includeDeleted`) are exact now. The JSON files, generated from the
+    review's YAML with every comment carried into `note` fields (or a
+    per-service notes file), and the 13 approx pins marked
+    `approx: true`, live beside the review (private).
 - [x] Permits scoped by principal type. Done (2026-11-06):
       `Operation.Principals`, from the denies; on the five re-measured
       graphs, 423 of 846 permits are restricted.

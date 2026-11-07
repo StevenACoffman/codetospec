@@ -17,6 +17,12 @@ a **library** (importable) or an **idea** (port the design).
 A scratch prototype built against it with Go 1.27.1 (see #2) confirmed the
 API used below.
 
+Items 14-19 come from a second survey, of the NLP4RE tools catalog
+(2026-11-06, `nlp4re-tools.md`): tools that read prose requirements, so
+they matter to codetospec as labeled data, as independent readers of
+its EARS output, or as methods to reimplement in Go, never as
+dependencies.
+
 Everything else is ideas to port. feelc, gortex and codegrapher keep their
 code under `internal/`, and zen-go links prebuilt Rust archives through cgo.
 Licenses: feelc and gortex are Apache-2.0 (copied code needs NOTICE
@@ -42,6 +48,7 @@ extractor, on admin, ai-guide and content-editing) before being built.
 | 7 | **Rejected by measurement** | exact Type-2 clones: users 6.1% of map lines (mostly mocks, testutil, a data list, now excluded by `scanwebapp.sh`), districts 1.5% |
 | 11 | **Done** (2026-11-01) | tests linked to the rules they reach (`testreach`, frontmatter `tested_by`), `*_test.go` left out of the map by default, the two nearest tests shown to the crosscheck: eval 15/15 faults, 0 false alarms, incl. a mock-only planted rule (`docs/verification/crosscheck-tests-evidence-2026-11-01.md`) |
 | 10, 12, 13 | Deferred | no consumer yet |
+| 14-19 | Proposed (2026-11-06) | NLP4RE survey (`nlp4re-tools.md`); 14 is the cheapest outside measurement available |
 
 Go is now 1.27 (go.mod), and gonum v0.17.0 is a dependency of the main
 module. Go 1.27's vet also required wrapping tree-sitter's `QueryError` by
@@ -64,6 +71,12 @@ value (`internal/sitter/sitter.go`).
 | 11 | Tests that exercise a cited function as evidence | codegrapher | idea | crosscheck |
 | 12 | Stable diagnostic codes | feelc `diag` | idea | tooling |
 | 13 | Decision-table export (JDM / DMN) | zen-go, feelc | idea | interoperability |
+| 14 | Measure `--quality` and nature on labeled requirement sets | RE-2019-Materials, NoRBERT, ZSL4REQ | data | accuracy (measured) |
+| 15 | Check a condition's logic against its EARS text | CiRA | tool (offline script) | consistency |
+| 16 | Measure citations against gold trace links | TAROT, TLR-KRL | data | citation fidelity (measured) |
+| 17 | Termhood and near-synonyms for concepts | pyate, TermSuite, REVV | idea | domain quality |
+| 18 | More `ears` parser cases; coordination ambiguity | NL2RT, MAANA | data + idea | EARS fidelity |
+| 19 | SBVR vocabulary and rules export | sbvr-extraction | idea | interoperability |
 
 ## 1. Structured `condition` per rule — use go-rule-engine
 
@@ -400,6 +413,100 @@ whose cells are unary expressions like `"> 10"`) and edges. feelc
 authorization rules as one decision table: inputs are the checks, the output
 is allow or reject with an error. Owners can open and simulate it in the
 GoRules editor. Write the JSON directly.
+
+## 14. Measure `--quality` and nature on labeled requirement sets
+
+**Source.** `explainable-re/RE-2019-Materials` (Dalpiaz et al., GPL-3.0):
+nine sets with functional and quality aspects labeled separately.
+`tobhey/NoRBERT` (GPL-3.0): PROMISE NFR at three levels, plus
+`func_concerns.csv` (function, data, behavior). Use its corrected fold
+results. `waadalhoshan/ZSL4REQ` (MIT): zero-shot embedding baseline.
+
+**Application.** `--quality` reads only a rule's title and requirement,
+so PROMISE sentences go straight through its prompt. The PROMISE classes
+map onto `internal/quality`'s attributes (A availability, FT
+reliability, L compliance, LF/US usability, MN maintainability, PE
+performance_efficiency, PO portability, SC scalability, SE security).
+Operational (O) needs a decision first.
+
+Dalpiaz's separate labels test whether a rule that is both ends up
+`technical`, `business` or `open`. The eval harness follows
+`CODETOSPEC_EVAL`. The data is downloaded at evaluation time, never
+committed (GPL-3.0), and the result goes in a `docs/verification/` file.
+Run ZSL4REQ as the baseline only if the LLM result is ambiguous. This
+measures the classifier, not the map: none of the data comes from code.
+
+## 15. Check a condition's logic against its EARS text
+
+**Source.** `JulianFrattini/cira` (Apache-2.0, Python service): causal
+sentence detection, causes, effects, conjunctions and negations, a
+cause-effect graph, and a minimal test suite from it.
+
+**Application.** `condition_disagreement` (`internal/grounding`)
+compares literal values only, never which are joined by AND or OR and
+what sits under a NOT. Run CiRA over each rule's EARS text in an
+offline script, compare its graph with `condition.Parse` of the rule's
+condition, and count rules whose logic disagrees while their values
+agree. CiRA's test suites are a second oracle for `--acceptance`
+examples. Its models are English-only, and it belongs in a script, not
+the binary.
+
+## 16. Measure citations against gold trace links
+
+**Source.** `huiAlex/TAROT` (no license; ASE 2022): gold
+requirement→code links for nine Java projects (iTrust first in the
+literature), and the "consensual biterms" retrieval method.
+
+**Application.** codetospec has never measured, against an outside
+source, whether a rule describing a known requirement cites the code
+that implements it. The links are file or class level, so compare at
+file level. Needs a Java grammar in `internal/sitter` first (a grammar
+plus a query file). The biterm idea also suggests an LLM-free weak
+warning: lexical agreement between a rule's text and its cited
+identifiers. No license: measure with it, never redistribute it.
+
+## 17. Termhood and near-synonyms for concepts
+
+**Source.** C-value and Weirdness (`kevinlu1248/pyate`, MIT), and
+specificity against a reference frequency list (TermSuite, Apache-2.0).
+For near-synonym terms, `RELabUU/revv-light` (no license, method only).
+For a reference vocabulary, PURE (79 requirements documents, CC-BY-4.0).
+
+**Application.** Reimplemented in Go, not imported.
+- **Termhood.** Score identifiers by how specific they are to this
+  repository against a cross-repository reference (every graph under
+  `~/spec-graphs`), to tell domain entities from infrastructure in
+  `domainmodel.ConceptsFile`'s proposals. `nature_by_evidence` stays
+  free of words, by design.
+- **Near-synonyms.** Over the rules' `touches` and condition variables,
+  flag concepts two domains name differently ("learner" and "student")
+  as questions. That is the TODO item "Terminology checks".
+
+## 18. More `ears` parser cases; coordination ambiguity
+
+**Source.** NL2RT (`parv97/EARS-Rupp-s-template-conversion-`, no
+license): 16 problem specifications converted to EARS, and a vagueness
+dictionary. MAANA (`SNTSVV/MAANA`, MIT): coordination ("A and B or C")
+and attachment ambiguity, with ground truth.
+
+**Application.**
+- Add the converted specifications as `ears.Parse` and `ears.Normalized`
+  cases, in the spirit of `earslint_test.go`. The data is used as test
+  input, and no code is copied.
+- MAANA's heuristics are the published method for `ears.Parse`'s known
+  undecidable case: a lowercase "and" inside a trigger.
+- Measure a vagueness check's precision before adding it: the last
+  clause-level check measured about 25 %.
+
+## 19. SBVR vocabulary and rules export
+
+**Source.** `paudan/sbvr-extraction` (Apache-2.0, Java): SBVR business
+vocabularies (terms, fact types) and rules, from use cases.
+
+**Application.** SBVR is the OMG standard for business vocabulary and
+rules, and codetospec has the pieces: entities, `touches`, structured
+conditions, EARS rules. An SBVR export would sit beside the Quire and
+Kiro exports, as #13 would. Wait for a consumer, as #13 does.
 
 ## Already present, or not worth taking
 

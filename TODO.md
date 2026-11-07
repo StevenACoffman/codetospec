@@ -1,10 +1,11 @@
 # TODO
 
 Outstanding work for codetospec found by comparing it with the
-harness-engineering notes (`~/Documents/git/harness-engineering/docs`) and
-with anarch-lint (`~/Documents/git/anarch-lint`). `IMPROVEMENTS.md` keeps the
-survey of neighbouring projects and its measurements; this file holds the
-rest.
+harness-engineering notes (`~/Documents/git/harness-engineering/docs`), with
+anarch-lint (`~/Documents/git/anarch-lint`) and with the NLP4RE tools catalog
+(`nlp4re-tools.md`), plus what the policy work left open. `IMPROVEMENTS.md`
+keeps the survey of neighbouring projects and its measurements; this file
+holds the rest.
 
 ## Map Input
 
@@ -139,7 +140,9 @@ rest.
       `docs/verification/concept-assignment-2026-11-04.md`).
 - [x] Actors that own concepts are the EARS subject (recommendation 23).
 - [ ] Apply the concept regrouping: move each rule with a `concept` into
-      its model's context (domain), on a person-confirmed model. Measure
+      its model's context (domain), on a person-confirmed model. TT-RecS
+      (`nlp4re-tools.md` item 10) is a reference for scoring candidate
+      concepts with a person confirming. Measure
       first on the assignments pilot: coverage, conflicts, and id churn
       with cross-domain matching
       (`docs/verification/concept-assignment-2026-11-04.md`: 625 of 794
@@ -170,7 +173,15 @@ rest.
 - [ ] Terminology checks (recommendation 9): one concept under several
       domain names (`content-assignment` / `content-assignments`), one
       name for several concepts. The concept table shows the first;
-      nothing reports it.
+      nothing reports it. Method: REVV's near-synonym detection over the
+      rules' `touches` and condition variables (IMPROVEMENTS #17), as a
+      question kind.
+- [ ] Termhood for concept proposals (IMPROVEMENTS #17): score
+      identifiers by how specific they are to this repository against
+      every graph under `~/spec-graphs` (C-value, weirdness), so
+      `domainmodel.ConceptsFile` proposes domain entities, not
+      infrastructure. Measure on the assignments proposal the pilot
+      reviews.
 - [ ] Audit facet (recommendation 5): change events and audit trails
       have no structural signal yet; only `access` is a facet.
 - [ ] Boundary error handling as platform (recommendation 6): the 70
@@ -368,6 +379,13 @@ rest.
   - Done (2026-11-05): webapp `c55b04b0090`; rules +26–44 % per output,
     share proven unchanged, no violations, drift or `ears_issue`
     (`docs/verification/remap-2026-11-05.md`).
+- [ ] Regenerate `~/spec-graphs` and re-record the corpus
+      (`scripts/remap.sh`). The outputs predate FIX R1-R3 (admin still
+      carries the leaked `testutil` role rule, and the corpus baseline
+      counts it) and the checker recognition (new `check_args`,
+      `access_check` and route facts, and changed extractor conditions,
+      which re-map the chunks they feed). Until then, `make corpus`
+      measures stale outputs. Review the baseline diff before committing.
 - [ ] Fix what checking admin's role rules against their code found
       (2026-11-05): findings, recommendations and the step-by-step plan
       are in `FIX.md`. The 46 role rules are exact, but `--exclude` doesn't
@@ -425,6 +443,117 @@ rest.
     gives `fitness.fields` proposals worth a file, with the rules citing
     the writes as each proposal's reason. A proposal records today's
     writers, not intent: a person judges each.
+
+## Measurement Against Outside Data (`nlp4re-tools.md`)
+
+- [ ] Measure `--quality` on labeled requirement sets (IMPROVEMENTS #14):
+      Dalpiaz's RE-2019 sets and NoRBERT's PROMISE splits, downloaded at
+      evaluation time (GPL-3.0), through an eval harness modeled on
+      `CODETOSPEC_EVAL`. Decide the PROMISE `O` (operational) mapping
+      first. Also check nature on the sets labeled both functional and
+      quality: `technical`, `business` or `open`? Add the ZSL4REQ
+      baseline only if the result is ambiguous.
+- [ ] Check condition logic against the EARS text with CiRA
+      (IMPROVEMENTS #15): an offline script over one `~/spec-graphs`
+      output, counting rules whose AND/OR/NOT structure disagrees with
+      their condition while the values agree. If the count is
+      meaningful, decide whether it becomes a question kind beside
+      `condition_mismatch`.
+- [ ] Add NL2RT's EARS specifications and MAANA's coordination cases as
+      `ears` test inputs (IMPROVEMENTS #18); use MAANA's method on the
+      lowercase-"and" trigger case. Measure a vagueness check's precision
+      before adding one.
+- [ ] Measure citations against TAROT's gold links (IMPROVEMENTS #16).
+      Blocked on a Java grammar in `internal/sitter`; start with iTrust,
+      at file level.
+- [ ] Read the Ross-taxonomy business-rule papers (Anish et al. 2019,
+      2022) before the next change to rule nature or concepts, and the
+      system-states paper (Pudlitz et al. 2019) before the next change
+      to `enum` nodes.
+
+## Policy Inventory and Exports
+
+Left open by `policy_inventory_plan.md` and the checker work
+(`docs/verification/checker-recognition-2026-11-06.md`). Never
+over-permit stays the rule: an operation the export can't decide whole is
+left out.
+
+- [ ] Cross-service join of inventories (`policy_inventory_plan.md` Part
+      2, step 8). 22 of the reviewed checkers decide in another service
+      (a `cross_service.X` call); joining the graphs would let such a
+      call take the target resolver's exported policy instead of a
+      hand-made relation.
+- [ ] Two-subject operations: 13 reviewed checkers check two users, or a
+      user not bound to the request, and their operations are left out.
+      Let an operation carry several bound subjects, each a named
+      resource attribute; this touches every leaf's binding, the case
+      oracle and both renderers.
+- [ ] `checksBelow` can't tell a check returned as data (a resolver
+      answering "is this user coached by the caller") from a deeper guard,
+      so recognizing more checks withheld 6 coaches operations. Find a
+      structural signal (the check's result returned or assigned to a
+      response field, not branched on) before relaxing it.
+- [ ] The 34 reviewed checkers still unrecorded, by why:
+  - **16 have a pin but no guard of their own.** Most are helpers called
+    only from inside checkers the extractor does record (a capability
+    helper inside `isActorCoachOrAdmin`, a content-kind helper inside
+    `checkEditContentKindPermission`). The rest are results passed into a
+    write or a transaction (`canEditDevProps` into `ReviseProgram`).
+  - **3 decide in another service** (the cross-service join, above).
+  - **About 6 are per-item or per-field filters and data predicates**
+    (feedback visibility, assessment access status).
+  - **8 are helpers whose results steer a mutation** rather than guard
+    it (users' settings ACLs).
+
+  Recording a helper or a steering result as a guard would claim
+  decisions the resolver doesn't make. Data-access authorization needs
+  the inventory to read it first.
+- [ ] Pins keyed on argument values (`when_arg`): five districts
+      checkers are pinned at their strictest reading because a literal
+      argument changes the decision.
+- [ ] Content-kind scopes: 7 reviewed content-editing checkers (3
+      recorded, 4 unrecorded) check a capability on a locale and a content
+      kind. Their mixed scope keys need the grant model. (The 8 that check
+      only the request's locale can be pinned now: `scope: locale`.)
+- [ ] Re-pin the review's checkers files with the vocabulary added since
+      (`docs/verification/checker-recognition-2026-11-06.md`) and
+      re-measure the six exports:
+  - `scope: locale` for the request-locale checkers;
+  - `capability_arg` for checkers that take their capability as an
+    argument;
+  - `self`/`coach` in item filters instead of invented relations;
+  - a context `attribute` for feature-flag gates pinned at their
+    strictest reading;
+  - `unpinnable` reasons for the rest;
+  - `digest` on every pin.
+
+  One entry alone took users from 112 to 118 operations. The files are
+  private.
+- [ ] Permits scoped by principal type (planned in the export-gaps work, never
+      built nor recorded): each operation gets one allow over every
+      principal kind the loader sets (user, service, push, anonymous).
+      Scoping it, say a Pub/Sub handler allowing only `push`, would move
+      that knowledge from deny guards into the permit.
+- [ ] Rate limits as obligations: today a rate-limit guard keeps its
+      operation out (52 guards). Exporting it as an annotation would
+      allow what the code throttles. That is a policy decision for the
+      people running the export: decide first, then build.
+- [ ] Registry entries naming methods (`ParseRegistry`).
+- [ ] Extractor shapes not followed:
+  - a local any-combinator passed to a helper (`_anyPermission`, 20 of
+    22 sites), which needs higher-order inlining;
+  - import aliases (one case);
+  - shared-secret principals (the gateways, no graph);
+  - an `item` scope on a filter whose denial is an error passed through
+    from another service.
+- [ ] A `pin` command: an LLM proposes each pin from the checker's code,
+      a blind second model refutes it, and the export's oracle checks the
+      result, as the crosscheck does for rules. It writes proposals for a
+      person, never the checkers file. Needs its own eval, as the
+      crosscheck has.
+- [ ] Checker bugs as questions (`checker_comment_mismatch`,
+      `dead_branch`): recorded by a pin's author (the checkers entry's
+      `note` starts it), reviewed beside the rules.
 
 ## Conditions
 

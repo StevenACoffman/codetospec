@@ -41,6 +41,9 @@ func Statement(pin *Checker, reg Registry, t *locale.Text) string {
 		out = fmt.Sprintf(t.CasesFmt, strings.Join(cases, "; "))
 	case pin.Item != "":
 		out = fmt.Sprintf(t.ItemVisibleFmt, pin.Item, s.part(pin, false))
+		if pin.Call != nil {
+			out += fmt.Sprintf(t.CallFmt, s.part(pin.Call, false))
+		}
 	default:
 		out = fmt.Sprintf(t.AllowedWhenFmt, s.part(pin, false))
 	}

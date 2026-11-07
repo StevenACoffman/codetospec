@@ -68,6 +68,10 @@ type Checker struct {
 	// arguments: the first case whose WhenArg the call's arguments match
 	// is the call's meaning (For); a call matching none has none.
 	Cases []ArgCase `json:"cases,omitempty" yaml:"cases,omitempty"`
+	// Call, on an item entry, is the filter's call-level meaning: when a
+	// guard tests the filter itself for one call (its failure, an empty
+	// result), not one item.
+	Call *Checker `json:"call,omitempty" yaml:"call,omitempty"`
 	// Approx, on an entry, says the pin is stricter than the code: it
 	// leaves out an allowing path the policy model can't state, so the
 	// export denies some requests the code allows, never the reverse.
@@ -76,8 +80,9 @@ type Checker struct {
 
 // ArgCase is one case of a checker keyed on argument values: WhenArg maps
 // argument indexes (from 0, the context included, as SubjectArg) to the
-// argument's text as written (`"admin"`, models.RoleAdmin), and Checker is
-// the meaning when every one matches.
+// argument's text as written (`"admin"`, models.RoleAdmin), or CallerArg
+// for an argument that is the caller's kaid, and Checker is the meaning
+// when every one matches.
 type ArgCase struct {
 	WhenArg map[string]string `json:"when_arg" yaml:"when_arg"`
 	Checker
@@ -93,18 +98,40 @@ func (c *Checker) For(call *CheckCall) (Checker, bool) {
 	for i := range c.Cases {
 		if c.Cases[i].matches(call) {
 			out := c.Cases[i].Checker
-			out.Item = c.Item
+			out.Item, out.Call = c.Item, c.Call
 			return out, true
 		}
 	}
 	return Checker{}, false
 }
 
-// matches reports whether call's arguments are k's WhenArg.
+// FromCaller is the origin (CallArg.From, CheckCall.SubjectFrom) of an
+// operand that is the request user's own kaid: the caller. CallerArg, as a
+// WhenArg value, matches an argument of that origin, whatever its text.
+const (
+	FromCaller = "caller"
+	CallerArg  = "@caller"
+)
+
+// atCall is what c means where a guard tests it for the call: its Call
+// for an item filter that states one, else c itself.
+func (c *Checker) atCall() Checker {
+	if c.Item != "" && c.Call != nil {
+		return *c.Call
+	}
+	return *c
+}
+
+// matches reports whether call's arguments are k's WhenArg: each argument
+// as written, or for CallerArg, bound to the caller.
 func (k *ArgCase) matches(call *CheckCall) bool {
 	for index, text := range k.WhenArg {
 		i, err := strconv.Atoi(index)
-		if err != nil || i < 0 || i >= len(call.Args) || call.Args[i].Text != text {
+		if err != nil || i < 0 || i >= len(call.Args) {
+			return false
+		}
+		arg := call.Args[i]
+		if text == CallerArg && arg.From != FromCaller || text != CallerArg && arg.Text != text {
 			return false
 		}
 	}
@@ -135,6 +162,10 @@ func pinnable() []string {
 // off the checker itself; c is not modified.
 func (c *Checker) withSubjectArg() Checker {
 	out := *c
+	if c.Call != nil {
+		call := c.Call.withSubjectArg()
+		out.Call = &call
+	}
 	if c.Cases != nil {
 		out.Cases = make([]ArgCase, len(c.Cases))
 		for i, k := range c.Cases {
@@ -236,9 +267,12 @@ func (c *Checker) check(part, item bool) error {
 			shapes++
 		}
 	}
+	if err := c.checkCall(part); err != nil {
+		return err
+	}
 	switch {
 	case part && (c.Item != "" || c.Unpinnable != "" || c.Cases != nil):
-		return errors.New("item, unpinnable and cases name a whole entry, not a part")
+		return errors.New("item, unpinnable, cases and call name a whole entry, not a part")
 	case shapes != 1:
 		return errors.New("states one of means, any, all, not, cases or unpinnable")
 	case c.Unpinnable != "":
@@ -254,6 +288,24 @@ func (c *Checker) check(part, item bool) error {
 		return c.checkParts(item)
 	}
 	return c.checkLeaf(part, item)
+}
+
+// checkCall validates c's call-level meaning: on an item entry only, and
+// a checker of its own (not an item: about the call's arguments, so a
+// self or coach check names its subject_arg).
+func (c *Checker) checkCall(part bool) error {
+	switch {
+	case c.Call == nil:
+		return nil
+	case part:
+		return errors.New("item, unpinnable, cases and call name a whole entry, not a part")
+	case c.Item == "":
+		return errors.New("call states an item filter's call-level meaning: it needs item")
+	}
+	if err := c.Call.check(true, false); err != nil {
+		return fmt.Errorf("call: %w", err)
+	}
+	return nil
 }
 
 // checkCases validates an entry's cases, naming the first bad one by its

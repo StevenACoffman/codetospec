@@ -307,3 +307,54 @@ func TestDefineOperandsAndHelpers(t *testing.T) {
 		t.Errorf("Coverage = %+v, want %+v", d.Coverage, want)
 	}
 }
+
+// TestDefineInlinesCalledChecks: a path's call of a check with no meaning
+// and no pin, whose own paths the inventory has, reads as those paths, so
+// a pin stated in the callee's leaves covers it.
+func TestDefineInlinesCalledChecks(t *testing.T) {
+	const outer, inner = "permissions.Outer", "_helper"
+	selfPath := `[{"condition":"{\"var\":\"acl.IsCurrentUser\",\"op\":\"equal\",\"value\":true}","lines":"11-11",` +
+		`"checks":[{"check":"acl.IsCurrentUser","var":"acl.IsCurrentUser","means":"self"}]}]`
+	callPath := `[{"condition":"{\"var\":\"_helper\",\"op\":\"equal\",\"value\":true}","lines":"21-21",` +
+		`"checks":[{"check":"_helper","var":"_helper"}]}]`
+	facts := []extract.Fact{
+		fact(
+			extract.KindAccessCheck,
+			"access_check.webapp."+inner,
+			at(checkFile, "10-15"),
+			map[string]string{
+				extract.AttrName:  inner,
+				extract.AttrForm:  "call",
+				extract.AttrPaths: selfPath,
+			},
+		),
+		fact(
+			extract.KindAccessCheck,
+			"access_check.webapp."+outer,
+			at(checkFile, "20-25"),
+			map[string]string{
+				extract.AttrName:  outer,
+				extract.AttrForm:  formMarked,
+				extract.AttrPaths: callPath,
+			},
+		),
+	}
+	pins, err := policy.ParseCheckers(
+		[]byte(`{"` + outer + `": {"means": "self", "subject_arg": 1}}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv := policy.Build(facts, nil, policy.Registry{})
+	inv.Define(pins, policy.Registry{}, locale.For("en"))
+	for _, c := range inv.Checks {
+		if c.Name == outer && (c.Definition.Coverage == nil || !c.Definition.Coverage.Covered) {
+			t.Errorf(
+				"%s coverage = %+v, want covered through %s",
+				outer,
+				c.Definition.Coverage,
+				inner,
+			)
+		}
+	}
+}

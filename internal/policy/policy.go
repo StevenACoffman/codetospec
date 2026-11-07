@@ -116,8 +116,9 @@ type CheckCall struct {
 	MatcherArg string `json:"matcher_arg,omitempty"`
 	Subject    string `json:"subject,omitempty"`
 	// SubjectFrom says where the user a self, coach or user-scope check is
-	// about comes from: "arg:<param>[.field]", "parent[:field]"; unset
-	// for a local. Args are an unknown check's arguments, the same way.
+	// about comes from: "arg:<param>[.field]", "parent[:field]", or
+	// FromCaller for the request user's own kaid; unset for a local. Args
+	// are an unknown check's arguments, the same way.
 	SubjectFrom string     `json:"subject_from,omitempty"`
 	Rate        *RateLimit `json:"rate,omitempty"`
 	Args        []CallArg  `json:"args,omitempty"`

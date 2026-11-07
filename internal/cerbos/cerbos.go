@@ -25,7 +25,10 @@
 // write a loader):
 //   - P.id the caller's KAID; P.roles one of "user", "service" (a
 //     service-admin request), "push" (a Pub/Sub push whose token
-//     validated), "anonymous";
+//     validated), "anonymous"; a request whose user identity fails
+//     validation (webapp's RequestUser error outside service-admin) is
+//     no principal at all: deny it, never load it as "anonymous" (a guard
+//     returning that error is read as a service-admin check);
 //   - P.attr.loggedIn, P.attr.phantom (bool);
 //   - P.attr.grants, the caller's grants as a list of {capability (stored
 //     name), global (bool: every scope key at its global value), userKind,
@@ -40,7 +43,8 @@
 //     checkers file pins (internal_user, has_any_permission…);
 //   - R.attr.subject, the user a self or user-scope check is about, taken
 //     from the request where the policy's "subject:<action>" annotation
-//     says ("arg:<param>[.field]", "parent[:field]");
+//     says ("arg:<param>[.field]", "parent[:field]", or "caller":
+//     the principal's own id, P.id);
 //     R.attr.subject2, R.attr.coaches2 and R.attr.subjectRelations2,
 //     the same of the second user of an operation whose checks are about
 //     two (annotation "subject2:<action>"), always set (a placeholder

@@ -799,6 +799,7 @@ func (t *translator) check(variable string) (Expr, bool) {
 			t.fail("no case of " + call.Check + " matches its arguments")
 			return Expr{}, false
 		}
+		pinned = pinned.atCall()
 	}
 	if pinned.Unpinnable != "" {
 		t.fail(fmt.Sprintf("not pinnable (%s): %s", pinned.Unpinnable, call.Check))

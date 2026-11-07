@@ -276,7 +276,7 @@ func subjectGuard(id, op, subject, from string) graph.Node {
 // about three users, is left out.
 func TestModelSubjectBinding(t *testing.T) {
 	m := policy.BuildModel(nil, []graph.Node{
-		subjectGuard("rule.a.bound", "User.emails", "obj.Kaid", "parent:Kaid"),
+		subjectGuard("rule.a.bound", "User.emails", "obj.Kaid", parentKaid),
 		subjectGuard("rule.a.local", "Query.local", "actorKaid", ""),
 		subjectGuard("rule.a.two1", "Query.two", "kaid", "arg:kaid"),
 		subjectGuard("rule.a.two2", "Query.two", "other", "arg:other"),
@@ -288,7 +288,7 @@ func TestModelSubjectBinding(t *testing.T) {
 	for i := range m.Operations {
 		ops[m.Operations[i].Action] = &m.Operations[i]
 	}
-	if op := ops["User.emails"]; op == nil || op.Subject != "parent:Kaid" || op.Subject2 != "" {
+	if op := ops["User.emails"]; op == nil || op.Subject != parentKaid || op.Subject2 != "" {
 		t.Errorf("User.emails = %+v, want bound to parent:Kaid", op)
 	}
 	two := ops["Query.two"]

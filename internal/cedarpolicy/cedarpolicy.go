@@ -56,7 +56,10 @@
 //     language has no quantifier over a grant list, so the loader flattens
 //     grants into these groups.
 //
-// Loader contract (codetospec writes none): User entities by KAID, with
+// Loader contract (codetospec writes none): a request whose user identity
+// fails validation (webapp's RequestUser error outside service-admin) is
+// no principal: deny it, never load it as Anonymous (a guard returning
+// that error is read as a service-admin check). User entities by KAID, with
 // loggedIn, phantom, countryGrants, localeGrants, contentGrants (one per
 // content kind a content grant covers) and attributes (the names
 // of the caller's boolean attributes a checkers file pins), member of
@@ -67,7 +70,7 @@
 // admin (GCP IAM) in CapAny and CapGlobal of every capability. A Target
 // per request: subject (the User a check is about, taken from the request
 // where the policies' @subject annotation says: "arg:<param>[.field]",
-// "parent[:field]"), coaches, kmapDistrictOwned, country, relations (the
+// "parent[:field]", or "caller", the principal itself), coaches, kmapDistrictOwned, country, relations (the
 // names of the relations, registry entries a checkers file pins, the
 // caller holds to the request's resource), subjectRelations (those it
 // holds to subject), attributes (the resource's), and subject2, coaches2,

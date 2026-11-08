@@ -72,8 +72,10 @@ type Writer struct {
 	// Review sends each observable to a blind adversarial review (with
 	// --crosscheck): one more call per rule, cached beside its facts.
 	Review bool
-	// OnUnit is called after each rule (cached or live) with its usage.
-	OnUnit func(usage llm.Usage)
+	// OnUnit is called after each rule (cached or live), in the calling
+	// goroutine, with how many of the total asked rules are done and the
+	// rule's usage.
+	OnUnit func(ruleID string, done, total int, usage llm.Usage)
 }
 
 // cached is one rule's cache file: its facts, or the error that left it
@@ -107,6 +109,7 @@ func (w *Writer) Run(ctx context.Context, nodes []graph.Node) (map[string]Result
 	slices.SortFunc(rules, func(a, b graph.Node) int { return cmp.Compare(a.ID, b.ID) })
 	results := make(map[string]Result, len(rules))
 	var runErr error
+	done := 0
 	workpool.Run(ctx, w.Workers, rules,
 		func(ctx context.Context, rule *graph.Node) unit {
 			r, ok, usage, err := w.rule(ctx, rule)
@@ -120,8 +123,9 @@ func (w *Writer) Run(ctx context.Context, nodes []graph.Node) (map[string]Result
 			if u.ok {
 				results[u.id] = u.result
 			}
+			done++
 			if w.OnUnit != nil {
-				w.OnUnit(u.usage)
+				w.OnUnit(u.id, done, len(rules), u.usage)
 			}
 		})
 	if runErr == nil && ctx.Err() != nil {

@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"maps"
+	"slices"
 )
 
 // maxDepth bounds how deep guards are looked for in nested statements.
@@ -225,7 +226,20 @@ func (sc scanner) denial(b *branch) (guard, bool) {
 	}
 	block := &ast.BlockStmt{List: b.body}
 	errName, denies := sc.known.errorName(block)
-	if !sc.mentions(b.cond, b.res) && !denies {
+	if svcAdmin, failed := requestUserFailure(
+		b.cond,
+		b.res,
+	); failed &&
+		!testsServiceAdmin(p.conds) {
+		// RequestUser() fails on every service-admin request, which has no
+		// request user (pkg/web/request_context.go): returning its error
+		// rejects exactly those, unless the path already tests for them
+		// (then the failure is a system error).
+		withCond := *b
+		withCond.cond = svcAdmin
+		b = &withCond
+	}
+	if !sc.mentions(b.cond, b.res) && !denies || !denies && returnsAllow(b.body) {
 		return guard{}, false
 	}
 	start := min(b.line, b.res.start)
@@ -329,4 +343,73 @@ func exits(body []ast.Stmt, inLoop bool) bool {
 func endsInContinue(body []ast.Stmt) bool {
 	last, ok := body[len(body)-1].(*ast.BranchStmt)
 	return ok && last.Tok == token.CONTINUE
+}
+
+// returnsAllow reports whether stmts end in a return that allows: its
+// first result the literal true and every other one a zero value (a bool
+// resolver failing open returns true, nil); such a branch is no denial,
+// whatever it tests.
+func returnsAllow(stmts []ast.Stmt) bool {
+	ret, ok := lastReturn(stmts)
+	if !ok || len(ret.Results) == 0 {
+		return false
+	}
+	first, isIdent := ret.Results[0].(*ast.Ident)
+	return isIdent && first.Name == goTrue && allZero(ret.Results[1:])
+}
+
+// requestUserFailure reads cond, or a disjunct of an `||` chain, as the
+// failure of a RequestUser() call ("err != nil" on its error, resolved),
+// and returns cond with that failure replaced by the service-admin check
+// on the same context; false when no part is such a failure.
+func requestUserFailure(cond ast.Expr, res *resolution) (ast.Expr, bool) {
+	bin, ok := cond.(*ast.BinaryExpr)
+	if !ok {
+		return nil, false
+	}
+	if bin.Op == token.LOR {
+		x, inX := requestUserFailure(bin.X, res)
+		y, inY := requestUserFailure(bin.Y, res)
+		if !inX && !inY {
+			return nil, false
+		}
+		or := *bin
+		if inX {
+			or.X = x
+		}
+		if inY {
+			or.Y = y
+		}
+		return &or, true
+	}
+	if bin.Op != token.NEQ {
+		return nil, false
+	}
+	call, isCall := bin.X.(*ast.CallExpr)
+	if !isCall || !isRequestUserCall(call) || res.marks.failed[call] == 0 {
+		return nil, false
+	}
+	fn, isSel := call.Fun.(*ast.SelectorExpr)
+	if !isSel {
+		return nil, false
+	}
+	return &ast.CallExpr{
+		Fun: &ast.SelectorExpr{
+			X:   fn.X,
+			Sel: &ast.Ident{Name: isServiceAdminQuery, NamePos: call.Pos()},
+		},
+		Lparen: call.Lparen,
+		Rparen: call.Rparen,
+	}, true
+}
+
+// testsServiceAdmin reports whether one of conds calls the service-admin
+// check.
+func testsServiceAdmin(conds []ast.Expr) bool {
+	return slices.ContainsFunc(conds, func(c ast.Expr) bool {
+		return containsCall(
+			c,
+			func(call *ast.CallExpr) bool { return calledName(call) == isServiceAdminQuery },
+		)
+	})
 }

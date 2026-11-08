@@ -96,6 +96,24 @@ func usersCheckers() policy.Checkers {
 // Query.cdi denied unless the caller is a teacher of the resource (a
 // pinned checker returning an error), Query.cdiAlias delegating to it;
 // Mutation.notify denied unless a Pub/Sub push.
+// notifyRateLimit is a rate-limit guard of Mutation.notify: no forbid, an
+// @obligation on its permit.
+func notifyRateLimit() graph.Node {
+	return graph.Node{
+		ID:      "rule.hook.ratelimit-notify",
+		Type:    graph.TypeRule,
+		Sources: []extract.Ref{{Path: "resolvers/u.go", Lines: "1-3"}},
+		Extra: map[string]string{
+			graph.ExtraExtractedBy: "webapp",
+			graph.ExtraOperation:   "Mutation.notify",
+			graph.ExtraChecks:      "ratelimit.ByIP",
+			graph.ExtraCondition:   `{"var":"caller.overRateLimit.Notify","op":"equal","value":true}`,
+			graph.ExtraCheckArgs: `[{"check":"ratelimit.ByIP","var":"caller.overRateLimit.Notify",` +
+				`"rate":{"key":"Notify","count":"10","window":"60 * time.Second"}}]`,
+		},
+	}
+}
+
 func usersModel() policy.Model {
 	facts := []extract.Fact{
 		{
@@ -159,6 +177,7 @@ func usersModel() policy.Model {
 			`[{"check":"pubsub.DecodeAndValidatePushMsg","var":"pubsub.DecodeAndValidatePushMsg.fails",`+
 				`"fails":true,"means":"push"}]`,
 		),
+		notifyRateLimit(),
 		node(
 			"rule.user.authz-emails",
 			"User.emails",

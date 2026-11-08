@@ -1,12 +1,16 @@
 package main
 
 import (
+	"fmt"
 	"go/ast"
 	"reflect"
 	"strings"
 	"testing"
 	"testing/fstest"
 )
+
+// isServiceAdminCond is the condition of a service-admin check.
+const isServiceAdminCond = `{"var":"request.isServiceAdmin","op":"equal","value":true}`
 
 // The files the recognition tests parse.
 const (
@@ -572,6 +576,39 @@ func filter(ctx context.Context) ([]string, error) {
 	return nil, nil
 }
 
+func filterWithBool(ctx context.Context) ([]string, bool, error) {
+	if ctx.RequestIsServiceAdminQuery() {
+		return nil, true, nil
+	}
+	return nil, false, nil
+}
+
+func withheld(ctx context.Context, kaid string) (*bool, error) {
+	if !acl.IsCurrentUser(ctx, kaid) {
+		return nil, nil
+	}
+	v := true
+	return &v, nil
+}
+
+func isSelfOrAdmin(ctx context.Context, kaid string) (isSelf bool, err error) {
+	isSelf = acl.IsCurrentUser(ctx, kaid)
+	if !isSelf && !ctx.RequestIsServiceAdminQuery() {
+		return false, errors.Unauthorized()
+	}
+	return isSelf, nil
+}
+
+func boolDenies(ctx context.Context, kaid string) (bool, error) {
+	if ctx.RequestIsServiceAdminQuery() {
+		return true, nil
+	}
+	if kaid == "" {
+		return false, errors.Unauthorized()
+	}
+	return false, nil
+}
+
 func looping(ctx context.Context, kaids []string) bool {
 	for _, k := range kaids {
 		if acl.IsCurrentUser(ctx, k) {
@@ -601,18 +638,27 @@ func TestAllowingPaths(t *testing.T) {
 			`{"var":"caller.hasPermission.CanView","op":"equal","value":true}`,
 		},
 		"sequence": {
-			`{"var":"request.isServiceAdmin","op":"equal","value":true}`,
-			`{"all":[{"not":{"var":"request.isServiceAdmin","op":"equal","value":true}},` +
+			isServiceAdminCond,
+			`{"all":[{"not":` + isServiceAdminCond + `},` +
 				`{"not":{"var":"kaid","op":"equal","value":""}},` +
 				`{"var":"acl.IsCurrentUser","op":"equal","value":true}]}`,
 		},
 		"errOnly": {`{"var":"caller.loggedInNonPhantom","op":"equal","value":true}`},
 		"valued":  {`{"var":"caller.loggedIn","op":"equal","value":true}`},
 		"delegating": {
-			`{"var":"request.isServiceAdmin","op":"equal","value":true}`,
-			`{"all":[{"not":{"var":"request.isServiceAdmin","op":"equal","value":true}},` +
+			isServiceAdminCond,
+			`{"all":[{"not":` + isServiceAdminCond + `},` +
 				`{"var":"validate.fails","op":"equal","value":false}]}`,
 		},
+		// return nil, nil from a pointer result withholds the value: a deny.
+		"withheld": {`{"var":"acl.IsCurrentUser","op":"equal","value":true}`},
+		// The error decides; the bool is data its callers read.
+		"isSelfOrAdmin": {
+			`{"not":{"all":[{"not":{"var":"acl.IsCurrentUser","op":"equal","value":true}},` +
+				`{"not":` + isServiceAdminCond + `}]}}`,
+		},
+		// false beside a nil error denies by the bool: the bool decides.
+		"boolDenies": {isServiceAdminCond},
 	}
 	for name, paths := range want {
 		if strings.Join(got[name], "\n") != strings.Join(paths, "\n") || reasons[name] != "" {
@@ -624,7 +670,10 @@ func TestAllowingPaths(t *testing.T) {
 		t.Errorf("invalid: paths %v, reason %q; want none: every return builds an error",
 			got["invalid"], reasons["invalid"])
 	}
-	for name, reason := range map[string]string{"looping": "loop", "filter": "filter"} {
+	const isFilter = "filter" // the reason names a filter
+	for name, reason := range map[string]string{
+		"looping": "loop", "filter": isFilter, "filterWithBool": isFilter,
+	} {
 		if len(got[name]) != 0 || !strings.Contains(reasons[name], reason) {
 			t.Errorf(
 				"%s: paths %v, reason %q; want none, %q",
@@ -706,5 +755,141 @@ func TestAnswers(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("answers = %v, want %v", got, want)
+	}
+}
+
+// TestCallerLocals: a local bound once, at the top level, from the request
+// user is the caller; one assigned again, or bound in a nested block, is
+// not.
+func TestCallerLocals(t *testing.T) {
+	sources := sourcesOf(t, map[string]string{resolverFile: `package r
+
+func top(ctx context.Context) error {
+	actor, err := ctx.RequestUser()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func reassigned(ctx context.Context) error {
+	actor, err := ctx.RequestUser()
+	actor, err = other()
+	return err
+}
+
+func nested(ctx context.Context) error {
+	if true {
+		actor, _ := ctx.RequestUser()
+		_ = actor
+	}
+	return nil
+}
+`})
+	got := map[string][]string{}
+	for _, fn := range funcDecls(sources[0].file) {
+		got[fn.Name.Name] = callerLocals(fn)
+	}
+	want := map[string][]string{"top": {"actor"}, "reassigned": nil, "nested": nil}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("callerLocals = %v, want %v", got, want)
+	}
+}
+
+// allowingReturnSrc is a bool field resolver that fails open: it returns
+// true on its filter's error and on an empty result, then decides per
+// item.
+const allowingReturnSrc = `package r
+
+//ka:permission-check
+func visibleUDIs(ctx context.Context, kaid string) ([]string, error) {
+	return nil, nil
+}
+
+func canSetOwnBirthday(ctx context.Context, kaid string) (bool, error) {
+	acl.OpenAccess()
+	udis, err := visibleUDIs(ctx, kaid)
+	if err != nil {
+		return true, nil
+	}
+	if len(udis) == 0 {
+		return true, nil
+	}
+	return false, nil
+}
+
+func hasTakenExam(ctx context.Context, kaid string) (bool, error) {
+	udis, err := visibleUDIs(ctx, kaid)
+	if err != nil {
+		return false, nil
+	}
+	return len(udis) > 0, nil
+}
+`
+
+// TestAllowingReturnIsNoGuard: a branch that returns true from a bool
+// resolver allows, so it is no access rule, whatever it tests; the
+// resolver's open marker remains its rule.
+func TestAllowingReturnIsNoGuard(t *testing.T) {
+	sources := sourcesOf(t, map[string]string{resolverFile: allowingReturnSrc})
+	known, _ := knownChecks(sources, nil, &Inputs{})
+	sc := fileScanner(&sources[0], known)
+	for _, fn := range funcDecls(sources[0].file) {
+		if fn.Name.Name != "canSetOwnBirthday" {
+			continue
+		}
+		for _, g := range sc.rules(fn) {
+			if g.kind == ruleAccess {
+				t.Errorf("canSetOwnBirthday: access rule at line %d, want none", g.start)
+			}
+		}
+	}
+}
+
+// TestRequestUserFailureRejectsServiceAdmin: returning RequestUser()'s
+// error rejects every service-admin request (it has no request user), so
+// that branch is a guard on the service-admin check; the guard after it
+// stays.
+func TestRequestUserFailureRejectsServiceAdmin(t *testing.T) {
+	const tools = `package r
+
+func tools(ctx context.Context) ([]string, error) {
+	user, err := ctx.RequestUser()
+	if %s {
+		return nil, err
+	}
+	kaid := user.Kaid
+	if !acl.IsCurrentUser(ctx, kaid) {
+		return []string{}, nil
+	}
+	return nil, nil
+}
+`
+	notSelf := `{"not":{"var":"acl.IsCurrentUser","op":"equal","value":true}}`
+	tests := []struct {
+		name, cond string
+		want       []string
+	}{
+		{"error", "err != nil", []string{isServiceAdminCond, notSelf}},
+		{
+			"error or no user", "err != nil || user == nil",
+			[]string{`{"any":[` + isServiceAdminCond + `,{"not":{"exists":"user"}}]}`, notSelf},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sources := sourcesOf(t, map[string]string{resolverFile: fmt.Sprintf(tools, tt.cond)})
+			known, _ := knownChecks(sources, nil, &Inputs{})
+			sc := fileScanner(&sources[0], known)
+			var conds []string
+			for _, fn := range funcDecls(sources[0].file) {
+				for _, g := range sc.rules(fn) {
+					conds = append(conds, conditionOf(sc.fset, &g))
+				}
+			}
+			if !reflect.DeepEqual(conds, tt.want) {
+				t.Errorf("conditions = %q, want %q", conds, tt.want)
+			}
+		})
 	}
 }

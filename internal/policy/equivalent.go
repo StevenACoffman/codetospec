@@ -59,6 +59,13 @@ func Equivalent(a, b *Checker) Comparison {
 		}
 	case a.Item != b.Item:
 		return Comparison{Reason: "the pins filter different items"}
+	case (a.Call == nil) != (b.Call == nil):
+		return Comparison{Reason: "only one pin states a call-level meaning", Case: "call"}
+	case a.Call != nil:
+		if cmp := Equivalent(a.Call, b.Call); !cmp.Equal {
+			cmp.Case = "call"
+			return cmp
+		}
 	case a.Cases != nil || b.Cases != nil:
 		return equivalentCases(a, b)
 	}

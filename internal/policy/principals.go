@@ -63,6 +63,17 @@ func (op *Operation) allowsSome(leaves []Leaf, kind string) bool {
 	return false
 }
 
+// Realizable reports whether one principal kind can make every check
+// given as holding hold (kindsOf), the assumption Operation.Principals
+// makes: a service-admin request is never also a user's self check.
+func Realizable(leaves []Leaf, given map[string]bool) bool {
+	return slices.ContainsFunc(Principals(), func(kind string) bool {
+		return !slices.ContainsFunc(leaves, func(l Leaf) bool {
+			return given[l.Var] && !slices.Contains(kindsOf(&l), kind)
+		})
+	})
+}
+
 // kindsOf lists the principal kinds check l can hold for, as the exports'
 // templates test them: a service-admin check for a service, a push for a
 // push, a check on the caller's account, grants or attributes for a user

@@ -1,6 +1,7 @@
 apiVersion: api.cerbos.dev/v1
 metadata:
     annotations:
+        obligation:Mutation.notify: rate_limit ratelimit.ByIP key=Notify count=10 window=60 * time.Second
         subject:Mutation.editBio: arg:kaid
         subject:Mutation.transfer: arg:from
         subject:User.emails: parent:Kaid

@@ -43,6 +43,10 @@
         "item": { "description": "The check filters items of this kind: its meaning says when one is visible.", "type": "string", "minLength": 1 },
         "unpinnable": { "description": "Why the check can't be pinned (cross_service, data_predicate…): its guards are skipped with this reason.", "type": "string", "minLength": 1 },
         "note": { "description": "More on the entry, for people.", "type": "string" },
+        "call": {
+          "description": "On an item entry: the filter's call-level meaning, when a guard tests the filter itself for one call (its failure, an empty result) rather than one item. A self or coach check here names its subject_arg.",
+          "$ref": "#/$defs/part"
+        },
         "cases": {
           "description": "A checker whose meaning depends on its call's arguments: the first case whose when_arg the call's arguments match is its meaning; a call matching none has none.",
           "type": "array", "minItems": 1,
@@ -50,7 +54,7 @@
             "$ref": "#/$defs/fields",
             "properties": {
               "when_arg": {
-                "description": "Argument indexes (from 0, the context included) to the argument's text as written: {\"2\": \"\\\"admin\\\"\"}.",
+                "description": "Argument indexes (from 0, the context included) to the argument's text as written: {\"2\": \"\\\"admin\\\"\"}; \"@caller\" matches an argument the extractor bound to the request user's kaid, whatever its text.",
                 "type": "object", "minProperties": 1,
                 "propertyNames": { "pattern": "^[0-9]+$" },
                 "additionalProperties": { "type": "string" }
@@ -61,7 +65,20 @@
           }
         },
         "approx": { "description": "The pin is stricter than the code: it leaves out an allowing path the policy model can't state, so the export denies some requests the code allows, never the reverse.", "type": "boolean" },
-        "digest": { "description": "The digest of the checker's definition the entry was written for (policies --src prints it): a different current digest makes the pin stale.", "type": "string", "minLength": 1 }
+        "digest": { "description": "The digest of the checker's definition the entry was written for (policies --src prints it): a different current digest makes the pin stale.", "type": "string", "minLength": 1 },
+        "bugs": {
+          "description": "Defects the entry's author found in the checker's code while pinning it: questions for review beside the rules, whatever the pin.",
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": { "description": "The doc comment says what the code doesn't do, or a branch can never run.", "enum": ["checker_comment_mismatch", "dead_branch"] },
+              "detail": { "description": "What and where, in the author's words.", "type": "string", "minLength": 1 }
+            },
+            "required": ["kind", "detail"],
+            "additionalProperties": false
+          }
+        }
       },
       "unevaluatedProperties": false
     }

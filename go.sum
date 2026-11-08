@@ -1,5 +1,7 @@
 github.com/StevenACoffman/indomain v0.3.0 h1:LN1MnRehTuCq8Vtfa6PLoKeRkwZB0lcGstDWBwl2ADw=
 github.com/StevenACoffman/indomain v0.3.0/go.mod h1:OZiFeY7u2D//FM0U0ic23McxQuWqcKsOfnxMHF6uWeU=
+github.com/StevenACoffman/toerr v0.3.0 h1:YwTCJV0hNyEhpgLyF67bCWJlnNcQoFuKITnLRGeBRmg=
+github.com/StevenACoffman/toerr v0.3.0/go.mod h1:AdIwfFGbcKfzztZts0uNo621iylYWOjGQL1YeFw3H1E=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1/go.mod h1:uYgXzlJ7ZpABp8OJ+exZzJJhRNQ2ASbcXHWsFqH8hp8=
 github.com/cedar-policy/cedar-go v1.9.0 h1:p6KSbPT0E79gO5mXNdwAqbDPn4ypz7gX5WV0ScLWmFc=

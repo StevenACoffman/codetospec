@@ -32,7 +32,8 @@ const (
 // condition, as the extractor wrote it, holds (package condition decides:
 // the oracle is the rule, not this package's rendering). An assignment no
 // principal can realize (a global grant always satisfies an any-scope
-// check) is left out. `cerbos compile` runs it.
+// check; a service-admin request is never a user's self check,
+// policy.Realizable) is left out. `cerbos compile` runs it.
 //
 // Ensures: deterministic; every permit case has, for each guard, a case
 // where that guard denies when one is realizable (authz §9.6).
@@ -63,7 +64,7 @@ func (s *suite) add(kind, prefix, label string, op *policy.Operation) {
 	leaves := op.Leaves()
 	for n, c := range op.Cases() {
 		p, r := realize(leaves, c.Given)
-		if !feasible(leaves, c.Given, &p, &r) {
+		if !policy.Realizable(leaves, c.Given) || !feasible(leaves, c.Given, &p, &r) {
 			continue
 		}
 		effect := effectAllow

@@ -2,6 +2,7 @@ package acceptance_test
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"reflect"
 	"slices"
@@ -274,7 +275,7 @@ func (s *script) Chat(context.Context, []llm.Message) (string, llm.Usage, error)
 // TestRun: LLM rules not refuted are asked, once: an unchanged rule reuses
 // its cached facts, which give the same results as the live reply (a
 // number written 2.0 stays 2.0); extractor and refuted rules are not
-// asked.
+// asked. Each run reports its asked rule's progress, cached or live.
 func TestRun(t *testing.T) {
 	rule := func(id string, extra map[string]string) graph.Node {
 		return graph.Node{
@@ -302,6 +303,10 @@ func TestRun(t *testing.T) {
 		Roots:     extract.Roots{Src: fstest.MapFS{retryFile: {Data: []byte(retryCode)}}},
 		Grounding: grounding.Options{DecimalSeparator: '.'},
 	}
+	var progress []string
+	w.OnUnit = func(id string, done, total int, _ llm.Usage) {
+		progress = append(progress, fmt.Sprintf("%s %d/%d", id, done, total))
+	}
 	var runs []map[string]acceptance.Result
 	for run := range 2 {
 		results, err := w.Run(t.Context(), nodes)
@@ -318,6 +323,10 @@ func TestRun(t *testing.T) {
 	}
 	if model.calls != 1 {
 		t.Errorf("%d calls over two runs, want 1 (the second from the cache)", model.calls)
+	}
+	want := []string{ruleID + " 1/1", ruleID + " 1/1"}
+	if !slices.Equal(progress, want) {
+		t.Errorf("progress = %q, want %q", progress, want)
 	}
 }
 

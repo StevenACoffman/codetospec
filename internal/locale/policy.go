@@ -5,6 +5,7 @@ package locale
 type Policy struct {
 	AllowedWhenFmt string // %s the condition
 	ItemVisibleFmt string // %s the item kind, %s the condition
+	CallFmt        string // appended to a filter's statement: %s the call-level condition
 	NotStatedFmt   string // %s the person's reason
 	ApproxNote     string // appended to an approximate pin's statement
 	CasesFmt       string // %s the cases (CaseFmt), joined by "; "
@@ -32,6 +33,10 @@ type Policy struct {
 func newPolicy(tr translate) Policy {
 	return Policy{
 		AllowedWhenFmt: tr("Autorisé si %s.", "Allowed when %s."),
+		CallFmt: tr(
+			" Testé pour l'appel : autorisé si %s.",
+			" When tested for one call: allowed when %s.",
+		),
 		ItemVisibleFmt: tr(
 			"Un élément %s est visible si %s.",
 			"An item of kind %s is visible when %s.",

@@ -19,6 +19,7 @@ forbid (principal, action == Users::Action::"Mutation.login", resource)
 when { (!((principal is Users::User && principal.loggedIn && !principal.phantom)) && !(principal is Users::Service)) };
 
 @id("allow:Mutation.notify")
+@obligation("rate_limit ratelimit.ByIP key=Notify count=10 window=60 * time.Second")
 permit (principal, action == Users::Action::"Mutation.notify", resource)
 when { principal is Users::Push };
 

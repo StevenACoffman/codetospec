@@ -89,6 +89,23 @@ type CrosscheckUnit struct {
 	Usage   llm.Usage
 }
 
+// QualityBatch reports one classified batch of rules (--quality); rules
+// answered from the cache are in none.
+type QualityBatch struct {
+	Done  int
+	Total int
+	Usage llm.Usage
+}
+
+// AcceptanceUnit reports one rule's acceptance facts (--acceptance),
+// cached or live.
+type AcceptanceUnit struct {
+	RuleID string
+	Done   int
+	Total  int
+	Usage  llm.Usage
+}
+
 // LogLine forwards a log record (warnings surface in the TUI journal).
 type LogLine struct {
 	Level   slog.Level
@@ -200,6 +217,10 @@ func (p Plain) Emit(event any) {
 			"total",
 			e.Total,
 		)
+	case QualityBatch:
+		p.Log.Info("quality progress", "done", e.Done, "total", e.Total)
+	case AcceptanceUnit:
+		p.Log.Info("acceptance progress", "rule", e.RuleID, "done", e.Done, "total", e.Total)
 	case LogLine:
 		p.Log.Log(context.Background(), e.Level, e.Message)
 	case RunFinished:

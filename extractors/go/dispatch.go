@@ -14,6 +14,9 @@ import (
 const (
 	attrDispatch      = "dispatch"
 	dispatchInterface = "interface"
+	// attrCalleeVar marks a call of a package-level variable holding a
+	// function: a hop that only forwards (extract.AttrCalleeVar).
+	attrCalleeVar = "callee_var"
 )
 
 // implementations maps the position of each method of the module's own

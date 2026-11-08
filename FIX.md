@@ -335,6 +335,12 @@ Ground rules for all steps (`AGENTS.md`):
    `graph.ValidateRuleFacts` requires.
 3. Re-run admin from its cache and check that the three rules appear,
    with `extracted_by` naming the file's origin.
+4. Done (2026-11-08): `~/spec-graphs/admin/adopted.facts.json` (a facts
+   envelope, `origin: adopted`) holds the three rules; the re-run renders
+   them `extracted_by: adopted`, the two invariants `grounded` with 2
+   tests each, the skip rule `tests: 3`. Listing them to the map
+   re-mapped the chunks of `scopes.go` and `support.go`: a few LLM rules
+   of the permissions domain were rewritten (5 added, 3 removed).
 
 ### Step 7 — R6 (deferred)
 

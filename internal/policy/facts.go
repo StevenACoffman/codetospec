@@ -19,9 +19,12 @@ type factIndex struct {
 	valueKinds map[string]string
 }
 
-// call is one direct call fact: caller span to callee span.
+// call is one direct call fact: caller span to callee span; forwards when
+// the callee is a variable holding a function (a cache wrapper), a hop
+// reach doesn't count.
 type call struct {
 	caller, callee extract.Ref
+	forwards       bool
 }
 
 // indexFacts sorts facts by the kinds the inventory reads.
@@ -39,6 +42,7 @@ func indexFacts(facts []extract.Fact) *factIndex {
 						Path:  f.Attrs[extract.AttrCalleePath],
 						Lines: f.Attrs[extract.AttrCalleeLines],
 					},
+					forwards: f.Attrs[extract.AttrCalleeVar] == "true",
 				})
 			}
 		case extract.KindReads, extract.KindUsesValue, extract.KindLoads, extract.KindCallsMethod:
@@ -98,7 +102,9 @@ func (idx *factIndex) checksBelow(spans []extract.Ref, checked []string) []strin
 }
 
 // reachedFrom is starts and every definition their calls reach within
-// MaxDepth, never entering a callee that overlaps one of stop.
+// MaxDepth, never entering a callee that overlaps one of stop. A call
+// into a forwarding variable (a cache wrapper) doesn't count toward the
+// depth: what it wraps is one call from the caller.
 func (idx *factIndex) reachedFrom(starts, stop []extract.Ref) []extract.Ref {
 	seen := map[extract.Ref]bool{}
 	for _, s := range starts {
@@ -107,10 +113,15 @@ func (idx *factIndex) reachedFrom(starts, stop []extract.Ref) []extract.Ref {
 	frontier := slices.Clone(starts)
 	for depth := 0; depth < MaxDepth && len(frontier) > 0; depth++ {
 		var next []extract.Ref
-		for _, s := range frontier {
+		for i := 0; i < len(frontier); i++ {
 			for _, c := range idx.calls {
-				if overlaps(c.caller, s) && !seen[c.callee] && !coveredBy(c.callee, stop) {
-					seen[c.callee] = true
+				if !overlaps(c.caller, frontier[i]) || seen[c.callee] || coveredBy(c.callee, stop) {
+					continue
+				}
+				seen[c.callee] = true
+				if c.forwards {
+					frontier = append(frontier, c.callee) // the same depth
+				} else {
 					next = append(next, c.callee)
 				}
 			}

@@ -171,6 +171,9 @@ func (c cli) exportPolicies(cfg *config.Config, nodes []graph.Node) int {
 		cfg.To,
 		len(m.Skipped),
 	)
+	if n := m.ObligationCount(); n > 0 {
+		summary += fmt.Sprintf(", %d rate limit(s) left to the enforcement point (obligations)", n)
+	}
 	if len(stale) > 0 {
 		summary += fmt.Sprintf(", %d pin(s) stale", len(stale))
 	}

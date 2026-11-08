@@ -206,7 +206,7 @@
     "attrs": {
       "form": "marked",
       "name": "_canEditDrafts",
-      "paths": "[{\"condition\":\"{\\\"all\\\":[{\\\"var\\\":\\\"caller.loggedIn\\\",\\\"op\\\":\\\"equal\\\",\\\"value\\\":true},{\\\"var\\\":\\\"caller.hasPermission.CanEditDrafts\\\",\\\"op\\\":\\\"equal\\\",\\\"value\\\":true}]}\",\"lines\":\"153-153\",\"checks\":[{\"check\":\"acl.IsLoggedIn\",\"var\":\"caller.loggedIn\",\"means\":\"login\"},{\"check\":\"acl.ActorHasPermission\",\"var\":\"caller.hasPermission.CanEditDrafts\",\"means\":\"capability\",\"scope\":\"any\",\"capability\":\"CanEditDrafts\",\"matcher\":\"acl.AnyScope\"}]}]"
+      "paths": "[{\"condition\":\"{\\\"var\\\":\\\"caller.loggedIn\\\",\\\"op\\\":\\\"equal\\\",\\\"value\\\":true}\",\"lines\":\"153-153\",\"checks\":[{\"check\":\"acl.IsLoggedIn\",\"var\":\"caller.loggedIn\",\"means\":\"login\"}]}]"
     },
     "source": {
       "path": "resolvers/guards.go",
@@ -1930,12 +1930,14 @@
     "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:111-115",
     "attrs": {
-      "condition": "{\"all\":[{\"exists\":\"user.Kaid\"},{\"var\":\"ktx.RequestUser.fails\",\"op\":\"equal\",\"value\":true}]}",
+      "check_args": "[{\"check\":\"method.RequestIsServiceAdminQuery\",\"var\":\"request.isServiceAdmin\",\"means\":\"service_admin\"}]",
+      "checks": "method.RequestIsServiceAdminQuery",
+      "condition": "{\"all\":[{\"exists\":\"user.Kaid\"},{\"var\":\"request.isServiceAdmin\",\"op\":\"equal\",\"value\":true}]}",
       "domain": "user",
       "ears": "unwanted",
       "nature": "business",
       "operation": "User.partner",
-      "requirement": "IF `user.Kaid != nil` holds AND `ktx.RequestUser()` fails, THEN the system shall reject User.partner with the `Unauthorized` error.",
+      "requirement": "IF `user.Kaid != nil` holds AND the request is a service-admin query, THEN the system shall reject User.partner with the `Unauthorized` error.",
       "slug": "authz-user-partner",
       "title": "Access control: User.partner"
     },
@@ -2349,9 +2351,32 @@
   },
   {
     "kind": "rule",
+    "id": "rule.webapp.authz.resolvers/guards.go:313-316",
+    "attrs": {
+      "check_args": "[{\"check\":\"method.RequestIsServiceAdminQuery\",\"var\":\"request.isServiceAdmin\",\"means\":\"service_admin\"}]",
+      "checks": "method.RequestIsServiceAdminQuery",
+      "condition": "{\"var\":\"request.isServiceAdmin\",\"op\":\"equal\",\"value\":true}",
+      "domain": "user",
+      "ears": "unwanted",
+      "nature": "business",
+      "operation": "Query.tools",
+      "requirement": "IF the request is a service-admin query, THEN the system shall reject Query.tools.",
+      "route": "route.graphql.query.tools",
+      "slug": "authz-query-tools",
+      "title": "Access control: Query.tools"
+    },
+    "source": {
+      "path": "resolvers/guards.go",
+      "lines": "313-316"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "rule",
     "id": "rule.webapp.authz.resolvers/guards.go:320-323",
     "attrs": {
-      "check_args": "[{\"check\":\"method.RequestIsServiceAdminQuery\",\"var\":\"request.isServiceAdmin\",\"means\":\"service_admin\"},{\"check\":\"acl.IsCurrentUser\",\"var\":\"acl.IsCurrentUser\",\"means\":\"self\",\"subject\":\"kaid\"}]",
+      "check_args": "[{\"check\":\"method.RequestIsServiceAdminQuery\",\"var\":\"request.isServiceAdmin\",\"means\":\"service_admin\"},{\"check\":\"acl.IsCurrentUser\",\"var\":\"acl.IsCurrentUser\",\"means\":\"self\",\"subject\":\"kaid\",\"subject_from\":\"caller\"}]",
       "checks": "acl.IsCurrentUser,method.RequestIsServiceAdminQuery",
       "condition": "{\"not\":{\"any\":[{\"var\":\"request.isServiceAdmin\",\"op\":\"equal\",\"value\":true},{\"var\":\"acl.IsCurrentUser\",\"op\":\"equal\",\"value\":true}]}}",
       "domain": "user",
@@ -2360,8 +2385,8 @@
       "operation": "Query.tools",
       "requirement": "IF the request is not a service-admin query AND the caller is not the user `kaid`, the caller themselves (never true), THEN the system shall return no data for Query.tools.",
       "route": "route.graphql.query.tools",
-      "slug": "authz-query-tools",
-      "title": "Access control: Query.tools"
+      "slug": "authz-query-tools-2",
+      "title": "Access control: Query.tools (2)"
     },
     "source": {
       "path": "resolvers/guards.go",

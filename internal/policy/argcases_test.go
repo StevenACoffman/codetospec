@@ -95,3 +95,24 @@ func TestArgCasesStatementAndCompare(t *testing.T) {
 		t.Errorf("editor differs: %+v", c)
 	}
 }
+
+// TestArgCasesCaller: a case keyed on "@caller" matches an argument the
+// extractor bound to the request user, whatever its text, and no other.
+func TestArgCasesCaller(t *testing.T) {
+	cs, err := policy.ParseCheckers([]byte(`{"x": {"cases": [
+		{"when_arg": {"1": "` + policy.CallerArg + `"}, "means": "relation", "relation": "teacher_of"}]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin := cs["x"]
+	for text, from := range map[string]string{"actor.Kaid": policy.FromCaller, "parentUser.Kaid": parentKaid} {
+		call := policy.CheckCall{
+			Check: "x",
+			Args:  []policy.CallArg{{Text: "ktx"}, {Text: text, From: from}},
+		}
+		got, ok := pin.For(&call)
+		if want := from == policy.FromCaller; ok != want || ok && got.Relation != "teacher_of" {
+			t.Errorf("%s (%s): For = %+v, %v; want matched %v", text, from, got, ok, want)
+		}
+	}
+}

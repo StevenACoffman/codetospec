@@ -238,9 +238,17 @@ bin/codetospec run --src /path/to/legacy-repo --out /path/to/spec-graph
 
 On an interactive terminal, `run` shows a full-screen dashboard (files
 parsed, facts, map/reduce progress, failures, live token counts; `q` stops
-cleanly and the run resumes later). Use `--no-tui` for plain logs (CI).
+cleanly and the run resumes later). Use `--no-tui` for plain logs (CI):
+every LLM phase logs a progress line per unit (map every 25 chunks;
+reduce, crosscheck and acceptance each domain or rule; quality each
+batch), so a log that stays quiet for minutes is a stall.
 An output directory belongs to one source: `run` refuses an `--out` whose
 `.codetospec/state.json` records another `--src`, before writing anything.
+When the endpoint throttles (429, or a 5xx naming a wait), every call
+pauses together for the wait it names (`Retry-After` or Gemini's
+`retryDelay`), else a minute, then resumes; network errors, timeouts and
+other 5xx are retried three times with jittered backoff. Each pause and
+retry is logged as a warning, so a stalled run shows which it is.
 
 Other commands:
 
@@ -273,12 +281,19 @@ checker's code; `item: <Kind>` makes a visibility filter a `view` policy
 on that kind; `unpinnable: <reason>` records why a check can't be
 pinned; `approx: true` that the pin is stricter than the code; `digest`
 the checker's code it was written for, so `export --src` reports a stale
-pin and `policies --src` prints each check's digest). A capability's
+pin and `policies --src` prints each check's digest). A case may key on
+`"@caller"`, an argument that is the caller's own kaid; an item filter may
+state, beside when one item is visible, what it means where a guard tests
+the filter itself (`call`). A capability's
 scopes include `locale` and `content` (a grant for the request's locale
 and one content kind; a grant on every locale or every kind, `"*"` in the
 loader's data, matches too, as webapp's admin service decides). `--join <graph>=<checkers>` lets a check that
 calls one operation of another service take the pin of the check that
 operation answers there (reported, never guessed, when it doesn't map).
+A guard returning webapp's `RequestUser()` error is read as a
+service-admin rejection, so the loader must deny a request whose identity
+fails validation rather than load it as anonymous (both loader contracts
+say so).
 An operation is left out whole (logged at debug level), never exported
 as a bare allow, when a guard doesn't translate, a rule of it names no
 check, its resolver calls a recognized check its guards don't (one it
@@ -288,6 +303,10 @@ exported operation shares its policies. Each operation's user bindings
 (`arg:kaid`, `parent:Kaid`; a second user's as `subject2`) are
 annotations on its policies. An operation whose guards pass only some
 principal kinds (a Pub/Sub handler: push) is allowed for those alone.
+A rate-limit guard is no deny: its operation is exported with the limit
+as an obligation the enforcement point must apply (Cerbos
+`obligation:<action>` annotation, the Cedar policy language
+`@obligation`), since the policy alone allows what the code throttles.
 `--registry` reports each relation a checker names that the registry
 doesn't declare. Cerbos gets a resource policy and
 a test suite whose expectations come from the rules' own conditions
@@ -320,8 +339,11 @@ the code's allowing paths (read by the webapp extractor, or
 `--lang` ("Allowed when the caller is signed in, or the caller teaches
 the class."), and its verification: each leaf grounded or not in what
 the check reads and calls, the pin's alternatives matched with the
-code's paths both ways (`path_coverage`), a stale digest, and the
-relations the registry lacks. `--compare <file>` compares each pin with
+code's paths both ways (`path_coverage`; a path's `any` reads as its
+alternatives, each of which the pin must state), a stale digest, and the
+relations the registry lacks; a checkers entry's `bugs` (a doc comment
+the code contradicts, a dead branch) are listed as questions with stable
+ids. `--compare <file>` compares each pin with
 a second reader's by truth table and names a counterexample. "Who can
 do what" lists, per concept, each operation's guards as statements, or
 why one is undecided. It reads the graph and `.codetospec/facts.json`,

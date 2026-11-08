@@ -5,8 +5,8 @@ import "testing"
 // TestCallFactsThroughVars: a package-level variable holding a function
 // built by a call or written as a literal (webapp's cache.Cache wrappers and
 // dataloaders) is a definition call facts can name: a use of it is a call
-// of it, and its initializer's uses are its calls. A variable holding data
-// stays out, as it was.
+// of it, marked as forwarding, and its initializer's uses are its calls. A
+// variable holding data stays out, as it was.
 func TestCallFactsThroughVars(t *testing.T) {
 	m, dir := loadModule(t, "example.com/cached", map[string]string{
 		"cached.go": `package cached
@@ -37,8 +37,16 @@ func Check(kaid string) error { return ErrEmpty }
 `,
 	})
 	calls := map[string]bool{}
+	forwards := map[string]bool{}
 	for _, f := range CallFacts(m.pkgs, m.fset, dir) {
-		calls[f.Source.Lines+">"+f.Attrs["callee_lines"]] = true
+		pair := f.Source.Lines + ">" + f.Attrs["callee_lines"]
+		calls[pair] = true
+		forwards[pair] = f.Attrs[attrCalleeVar] == "true"
+	}
+	for pair, want := range map[string]bool{"9-9>7-7": true, "15-15>11-11": true, "7-7>3-3": false} {
+		if forwards[pair] != want {
+			t.Errorf("call %s forwards = %v, want %v", pair, forwards[pair], want)
+		}
 	}
 	cases := []struct {
 		name string

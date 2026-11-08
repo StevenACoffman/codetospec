@@ -159,6 +159,9 @@ func writeDefinition(b *strings.Builder, c *Check) {
 	if d.Comparison != nil {
 		fmt.Fprintf(b, "\nSecond reader: %s.\n", comparisonText(d.Comparison))
 	}
+	for _, q := range d.Questions {
+		fmt.Fprintf(b, "\nQuestion %s (%s): %s\n", q.ID, q.Kind, q.Detail)
+	}
 }
 
 // comparisonText says how a second reader's pin compares.

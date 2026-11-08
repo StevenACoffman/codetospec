@@ -44,6 +44,10 @@ type Operation struct {
 	// (the checks about it marked Leaf.Second): what the PEP sets
 	// resource.subject2 from. Unset for checks about one user or none.
 	Subject2 string `json:"subject2,omitempty"`
+	// Obligations are the rate limits its guards apply, which a policy
+	// can't decide: the enforcement point must apply each to every request
+	// the policy allows. Sorted by rule.
+	Obligations []Obligation `json:"obligations,omitempty"`
 	// Open says the handler is marked open, Unchecked marked todo:
 	// both are the blanket allow alone.
 	Open      bool `json:"open,omitempty"`
@@ -52,6 +56,51 @@ type Operation struct {
 	// allows can come from, when not every kind: an export allows those
 	// alone. Unset for every kind.
 	Principals []string `json:"principals,omitempty"`
+}
+
+// ObligationText is op's obligations in one line, each Obligation.Text
+// joined by "; ", as both exports annotate them; "" for none.
+func (op *Operation) ObligationText() string {
+	texts := make([]string, len(op.Obligations))
+	for i := range op.Obligations {
+		texts[i] = op.Obligations[i].Text()
+	}
+	return strings.Join(texts, "; ")
+}
+
+// ObligationCount is how many rate limits m's operations leave to the
+// enforcement point.
+func (m *Model) ObligationCount() int {
+	n := 0
+	for i := range m.Operations {
+		n += len(m.Operations[i].Obligations)
+	}
+	return n
+}
+
+// Obligation is one rate-limit guard of an operation: the request is
+// rejected past Count requests per Window for Key, counted by Check (as
+// written in the code: "ratelimit.ByIP", "600 * time.Second"). It is no
+// access decision: the export allows what it limits, and the enforcement
+// point must apply it.
+type Obligation struct {
+	RuleID string      `json:"rule"`
+	Source extract.Ref `json:"source"`
+	Check  string      `json:"check"`
+	RateLimit
+}
+
+// Text is o in one line, as both exports annotate it:
+// "rate_limit ratelimit.ByIP key=Login count=200 window=600 * time.Second".
+func (o *Obligation) Text() string {
+	parts := []string{"rate_limit", o.Check, "key=" + o.Key}
+	if o.Count != "" {
+		parts = append(parts, "count="+o.Count)
+	}
+	if o.Window != "" {
+		parts = append(parts, "window="+o.Window)
+	}
+	return strings.Join(parts, " ")
 }
 
 // ViewAction is an item policy's one action: seeing one item.
@@ -621,6 +670,10 @@ func (o *opGuards) add(n *graph.Node, g *Guard, t translator) {
 		o.op.Unchecked = true
 		return
 	}
+	if obligations, ok := rateLimitsOf(n, g); ok {
+		o.op.Obligations = append(o.op.Obligations, obligations...)
+		return
+	}
 	if g.Scope != "" {
 		if ig, ok := t.item(n, g); ok {
 			o.items = append(o.items, ig)
@@ -655,6 +708,9 @@ func (o *opGuards) settle(idx *factIndex) (*Operation, []Skip) {
 		for _, ig := range o.items {
 			skips = append(skips, Skip{RuleID: ig.rule, Reason: other})
 		}
+		for _, ob := range o.op.Obligations {
+			skips = append(skips, Skip{RuleID: ob.RuleID, Reason: other})
+		}
 		return nil, skips
 	}
 	var reason string
@@ -671,8 +727,34 @@ func (o *opGuards) settle(idx *factIndex) (*Operation, []Skip) {
 		return nil, skips
 	}
 	slices.SortFunc(o.op.Denies, func(a, b Deny) int { return cmp.Compare(a.RuleID, b.RuleID) })
+	slices.SortStableFunc(o.op.Obligations, func(a, b Obligation) int {
+		return cmp.Compare(a.RuleID, b.RuleID)
+	})
 	o.op.Principals = o.op.principalsOf()
 	return &o.op, nil
+}
+
+// rateLimitsOf reads guard g of rule n as rate limits when every variable
+// of its condition is a rate-limit call's (CheckCall.Rate): one obligation
+// per such call. false for any other guard, or one with no condition.
+func rateLimitsOf(n *graph.Node, g *Guard) ([]Obligation, bool) {
+	c, err := condition.Parse([]byte(n.Extra[graph.ExtraCondition]))
+	if err != nil || c.IsZero() {
+		return nil, false
+	}
+	var out []Obligation
+	for _, v := range c.Variables() {
+		i := slices.IndexFunc(g.Calls, func(call CheckCall) bool {
+			return call.Var == v && call.Rate != nil
+		})
+		if i < 0 {
+			return nil, false
+		}
+		out = append(out, Obligation{
+			RuleID: n.ID, Source: g.Source, Check: g.Calls[i].Check, RateLimit: *g.Calls[i].Rate,
+		})
+	}
+	return out, true
 }
 
 // translate turns one guard's condition into an Expr; the reason it can't
@@ -799,6 +881,7 @@ func (t *translator) check(variable string) (Expr, bool) {
 			t.fail("no case of " + call.Check + " matches its arguments")
 			return Expr{}, false
 		}
+		pinned = pinned.atCall()
 	}
 	if pinned.Unpinnable != "" {
 		t.fail(fmt.Sprintf("not pinnable (%s): %s", pinned.Unpinnable, call.Check))

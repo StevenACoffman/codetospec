@@ -227,6 +227,7 @@ func (st guardStater) variable(v string, calls []CheckCall) (Checker, string) {
 		if passes, matched = pin.For(call); !matched {
 			return Checker{}, "no case matches its arguments: " + call.Check
 		}
+		passes = passes.atCall()
 		passes.Approx, passes.Item = false, ""
 	default:
 		return Checker{}, ReasonNotPinned + ": " + call.Check

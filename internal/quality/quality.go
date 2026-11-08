@@ -107,8 +107,10 @@ type Classifier struct {
 	Model     string // model id, folded into the cache key
 	Workers   int
 	CachePath string // <out>/.codetospec/quality.json
-	// OnBatch is called after each finished call, in the calling goroutine.
-	OnBatch func(usage llm.Usage)
+	// OnBatch is called after each finished call, in the calling goroutine,
+	// with how many of the total batches asked are done and the call's
+	// usage. Rules answered from the cache are in no batch.
+	OnBatch func(done, total int, usage llm.Usage)
 }
 
 // cacheFile is the persisted classification of every rule the last run
@@ -141,14 +143,16 @@ func (c *Classifier) Run(ctx context.Context, nodes []graph.Node) (map[string]st
 
 	batches := slices.Collect(slices.Chunk(pending, batchSize))
 	var runErr error
+	done := 0
 	workpool.Run(ctx, c.Workers, batches,
 		func(ctx context.Context, batch *[]graph.Node) batchOutcome {
 			attributes, usage, err := c.classify(ctx, *batch)
 			return batchOutcome{rules: *batch, attributes: attributes, usage: usage, err: err}
 		},
 		func(r batchOutcome) {
+			done++
 			if c.OnBatch != nil {
-				c.OnBatch(r.usage)
+				c.OnBatch(done, len(batches), r.usage)
 			}
 			switch {
 			case errors.Is(r.err, context.Canceled) || errors.Is(r.err, context.DeadlineExceeded):

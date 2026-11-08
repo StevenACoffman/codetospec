@@ -230,3 +230,44 @@ func TestModelItemGuard(t *testing.T) {
 		t.Errorf("model = %+v, want %+v skipped", m, want)
 	}
 }
+
+// TestModelRateLimitObligation: a guard whose every variable is a rate
+// limit's is no deny but an obligation of its operation, which is
+// exported with its other guards; a guard mixing a rate limit with
+// another variable still doesn't translate.
+func TestModelRateLimitObligation(t *testing.T) {
+	const (
+		overLimit = `{"var":"caller.overRateLimit.Login","op":"equal","value":true}`
+		limitArgs = `{"check":"ratelimit.ByIP","var":"caller.overRateLimit.Login",` +
+			`"rate":{"key":"Login","count":"200","window":"600 * time.Second"}}`
+	)
+	limited := guardRule("rule.a.limit", "Mutation.login", overLimit, `[`+limitArgs+`]`)
+	mixed := guardRule("rule.b.mixed", "Mutation.mixed",
+		`{"any":[`+overLimit+`,{"var":"blocked","op":"equal","value":true}]}`, `[`+limitArgs+`]`)
+	m := policy.BuildModel(nil, []graph.Node{
+		limited, loginGuard("rule.a.login", "Mutation.login", "1-3", "acl.IsLoggedIn"), mixed,
+	}, nil)
+	if len(m.Operations) != 1 || len(m.Operations[0].Denies) != 1 {
+		t.Fatalf("operations = %+v, want Mutation.login with its login deny", m.Operations)
+	}
+	want := []policy.Obligation{{
+		RuleID: "rule.a.limit", Source: at("resolvers/r.go", "1-3"), Check: "ratelimit.ByIP",
+		RateLimit: policy.RateLimit{Key: "Login", Count: "200", Window: "600 * time.Second"},
+	}}
+	if got := m.Operations[0].Obligations; !reflect.DeepEqual(got, want) {
+		t.Errorf("obligations = %+v, want %+v", got, want)
+	}
+	if text := want[0].Text(); text != "rate_limit ratelimit.ByIP key=Login count=200 window=600 * time.Second" {
+		t.Errorf("Text = %q", text)
+	}
+	if m.ObligationCount() != 1 || len(m.Skipped) != 1 || m.Skipped[0].RuleID != "rule.b.mixed" {
+		t.Errorf("count %d, skipped %+v; want 1, the mixed guard", m.ObligationCount(), m.Skipped)
+	}
+	// An operation left out keeps its rate limits listed with its guards.
+	opaque := guardRule("rule.a.opaque", "Mutation.login",
+		`{"not":{"var":"customCheck","op":"equal","value":true}}`, `[{"check":"customCheck"}]`)
+	m = policy.BuildModel(nil, []graph.Node{limited, opaque}, nil)
+	if len(m.Operations) != 0 || len(m.Skipped) != 2 {
+		t.Errorf("operations %+v, skipped %+v; want none, both guards", m.Operations, m.Skipped)
+	}
+}

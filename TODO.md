@@ -382,13 +382,17 @@ holds the rest.
   - Done (2026-11-05): webapp `c55b04b0090`; rules +26–44 % per output,
     share proven unchanged, no violations, drift or `ears_issue`
     (`docs/verification/remap-2026-11-05.md`).
-- [ ] Regenerate `~/spec-graphs` and re-record the corpus
+- [x] Regenerate `~/spec-graphs` and re-record the corpus
       (`scripts/remap.sh`). The outputs predate FIX R1-R3 (admin still
       carries the leaked `testutil` role rule, and the corpus baseline
       counts it) and the checker recognition (new `check_args`,
       `access_check` and route facts, and changed extractor conditions,
       which re-map the chunks they feed). Until then, `make corpus`
       measures stale outputs. Review the baseline diff before committing.
+  - Done (2026-11-07, `docs/verification/remap-2026-11-07.md`): 0 map or
+    reduce failures but ai-guide's known chunk; rules +0.4–2.1 %,
+    `condition_mismatches` down on users (−78), assignments and coaches;
+    admin's `testutil` rule gone.
 - [ ] Fix what checking admin's role rules against their code found
       (2026-11-05): findings, recommendations and the step-by-step plan
       are in `FIX.md`. The 46 role rules are exact, but `--exclude` doesn't
@@ -406,8 +410,9 @@ holds the rest.
     (2026-11-06: the role sentence names the grant's scope; re-run on a
     scratch copy: 46 role rules reworded, ids kept,
     `docs/verification/quality-promise-and-admin-rerun-2026-11-06.md`;
-    `~/spec-graphs/admin` itself waits for the remap). Open: R5-R6, and the corpus re-record
-    once the outputs are regenerated.
+    `~/spec-graphs/admin` itself waits for the remap). R5 done
+    (2026-11-08: admin's `adopted.facts.json`, FIX.md step 6). Open: R6,
+    deferred until the concept regrouping is measured.
 - [x] Enforce the `AGENTS.md` architecture rules that exist only as prose.
       Each failure should name the rule and the repair.
   - "`internal/atomicfs` is the only writer of output" (`AGENTS.md:239-241`):
@@ -498,7 +503,16 @@ left out.
     a person pins the mapping (`join_subject_arg`). Most, with static
     queries: the extractor maps the GraphQL variables at the call site.
     Never match parameters by name (a wrong match can over-permit).
-- [ ] Two-subject operations: two bound users built (`subject2`, self,
+  - Measured (2026-11-07): across six re-run graphs the join reaches 2
+    checks, both "the operation answers no check". It is blocked
+    upstream, not by the user mapping: `dependency` facts name the root
+    field a query starts from (`users:Query.user`, 36 of ai-guide's 119),
+    not the federated field that decides, and several cross-service
+    checkers aren't recorded as checks. Next: dependency facts that name
+    the answering field; the mapping decision waits for that.
+  - Not built (2026-11-08): naming the answering field needs the target
+    service's types (`docs/verification/policy-work-2026-11-08.md`).
+- [x] Two-subject operations: two bound users built (`subject2`, self,
       coach and subject relations about the caller). The reviewed
       two-subject checkers check a relation held by a named user who is
       not the caller.
@@ -507,37 +521,69 @@ left out.
     gating them. If so they are answers (`answers`), not guards. A leaf
     for another user's relation only if a real guard of that shape turns
     up.
-- [ ] A call-level reading for item filters. Three districts guards use a
+  - Done (2026-11-07): the five districts `User.can*` resolvers are
+    answers (their callees fail only on a failed load, their rules gate
+    nothing). Their guard call sites pass the caller's own kaid, so the
+    webapp extractor binds `<local>.Kaid` of a top-level `RequestUser()`
+    local to `from: caller`, and a pin case keys on it with `when_arg:
+    {"N": "@caller"}`. No guard about a second user turned up.
+- [x] A call-level reading for item filters. Three districts guards use a
       visibility filter's failure as a call-level check, which an item
       pin with `self`/`coach` can't state.
   - Decided (2026-11-06): an item entry may carry an explicit call-level
     checker (`call: {…}`), pinned by a person beside the item meaning and
     verified the same way; without one, the operation stays out.
+  - Done (2026-11-07): two of the three guards were extractor misreads
+    (a branch returning `true` from a bool resolver allows; it is no
+    longer a guard). The third is a real call-level use, so `call` is
+    built (`Checker.Call`, `atCall`), worded and compared; the visibility
+    filter is `self`/`coach` with a call-level meaning, and the three
+    operations are kept.
 - [ ] Path coverage: read more of the code before flagging a pin. A
       review of the 13 flagged definitions (users, coaches, ai-guide,
       districts) found 10 pins correct and the flags due to these limits,
       in order of how many they explain:
-  - reuse the pins of the checkers a path calls, and inline a package's
+  - [x] reuse the pins of the checkers a path calls, and inline a package's
     private helpers (`_checkActorCapabilityScopes`,
     `_actorCanViewAllAssignmentDistrictInfos`, an unpinned wrapper of the
-    coach lookup);
-  - make checks under `any` and `not(any(…))` readable: split `a || b`
+    coach lookup). Done (2026-11-07): a call of a check with no meaning
+    and no pin inlines that check's own paths (`pathReader`, depth
+    `MaxDepth`, cycles cut);
+  - [x] make checks under `any` and `not(any(…))` readable: split `a || b`
     into paths and push negations to the leaves before matching;
-  - read the decision from the function's error when it denies with an
+  - [x] read the decision from the function's error when it denies with an
     authorization error, and don't take a bool that isn't the decision
     (`AuthorizeCSVExportRequest`'s means "is the current user");
-  - treat a nil result from a function returning a pointer as a deny
+  - [x] treat a nil result from a function returning a pointer as a deny
     (the extractor read `return nil, nil` from a `*bool` as an allow);
-  - don't count a `cache.Cache` wrapper as a call level when grounding
+  - [x] don't count a `cache.Cache` wrapper as a call level when grounding
     leaves (two capability leaves read 4 calls down looked ungrounded);
-  - compare an item filter's pin with its per-item decision, never with
+  - [x] compare an item filter's pin with its per-item decision, never with
     the function's own bool (`AdministeredSchoolsInDistrict`'s second
     result is a stricter, separate decision callers gate on);
-  - follow a check one level into a cross-service helper;
+  - Done (2026-11-08, `docs/verification/policy-work-2026-11-08.md`):
+    the five above (`condition.Disjuncts`; `errorDecides`; `nilDenies`;
+    `callee_var`; a collection first result is a filter, and an item
+    pin never states the call's own bool), plus an unqualified call
+    within the package now finds its check's pin and paths. Flags 16 →
+    9 on six graphs, none new; exports unchanged. Left: the three items
+    still open here, and pins for the helpers deciding in loops
+    (districts' `_checkActorCapabilityScopes`, `_actorHasNWEAScopedGrant`,
+    admin's `actorHasGlobalPermission`).
+  - [x] follow a check one level into a cross-service helper. Done
+    (2026-11-07) for capability helpers: the webapp extractor reads a
+    helper whose decision is admin's `hasPermission` from its genqlient
+    operation (`means: capability`, scope from the enum, capability a
+    literal, a constant or the call's argument). Helpers on
+    `hasContentPermission` (locale and kind from the call) done
+    2026-11-08: scope `content_args`, which no pin states, so their
+    operations stay out;
   - recognize `actor.Kaid == kaid` and the coach-coachee lookup as
-    `self` and `coach`;
+    `self` and `coach` (6 guards; the extractor reads guards as calls,
+    and a comparison has none to carry the meaning);
   - don't count a call that only builds the result (`moaPayload`) as a
-    check.
+    check (its flag cleared by the `any` reading; the call is still
+    named).
 - [x] `checksBelow` can't tell a check returned as data from a deeper
       guard. Done (2026-11-06): the webapp extractor's `answers` (a check
       returned as the resolver's value, its error unable to reach the
@@ -560,9 +606,10 @@ left out.
 - [x] Pins keyed on argument values: `cases` with `when_arg`. Three of the
       five districts checkers take the value as a literal and were
       re-pinned by two blind readers; the other two take a variable.
-  - [ ] A visibility filter pinned with `self`/`coach` doesn't translate
+  - [x] A visibility filter pinned with `self`/`coach` doesn't translate
         where a guard uses the filter's failure as a call-level check (3
-        districts operations); decide what that guard means.
+        districts operations); decide what that guard means. Done
+        (2026-11-07): the item entry's `call` meaning, above.
 - [ ] Content-kind scopes: built (`scope: content`, `content_kind` or a
       literal `content_kind_arg`; loader contract updated). Re-pin the 7
       content-editing checkers (and the 8 request-locale ones with
@@ -614,14 +661,23 @@ left out.
 - [x] Permits scoped by principal type. Done (2026-11-06):
       `Operation.Principals`, from the denies; on the five re-measured
       graphs, 423 of 846 permits are restricted.
-- [ ] Rate limits as obligations: today a rate-limit guard keeps its
+- [x] Rate limits as obligations: today a rate-limit guard keeps its
       operation out (52 guards). Exporting it as an annotation would
       allow what the code throttles. That is a policy decision for the
       people running the export: decide first, then build.
-- [ ] Registry entries naming methods (`ParseRegistry`).
+  - Decided (2026-11-08, the user): export, the limit an obligation.
+  - Done (2026-11-08): `Operation.Obligations`, Cerbos
+    `obligation:<action>`, the Cedar policy language `@obligation`, both
+    loader contracts. Users 118 → 142 operations (27 limits on 24),
+    `cerbos compile` OK on all six graphs.
+- [x] Registry entries naming methods (`ParseRegistry`). Built with the
+      definitions (`cbf7429`: `Type.Method()` sources, `define_test.go`).
 - [ ] Extractor shapes not followed:
   - a local any-combinator passed to a helper (`_anyPermission`, 20 of
-    22 sites), which needs higher-order inlining;
+    22 sites), which needs higher-order inlining. Measured (2026-11-08):
+    every site passes the combinator into a getter
+    (`_getLoginWithPermission`) that tests its function parameter; the
+    getter must be inlined first, then the combinator split;
   - import aliases (one case);
   - shared-secret principals (the gateways, no graph);
   - an `item` scope on a filter whose denial is an error passed through
@@ -630,10 +686,13 @@ left out.
       a blind second model refutes it, and the export's oracle checks the
       result, as the crosscheck does for rules. It writes proposals for a
       person, never the checkers file. Needs its own eval, as the
-      crosscheck has.
-- [ ] Checker bugs as questions (`checker_comment_mismatch`,
+      crosscheck has. Deferred by the user (2026-11-08).
+- [x] Checker bugs as questions (`checker_comment_mismatch`,
       `dead_branch`): recorded by a pin's author (the checkers entry's
       `note` starts it), reviewed beside the rules.
+  - Done (2026-11-08): an entry's `bugs` (kind, detail; schema'd) become
+    `Definition.Questions` in `policies`, ids from `questions.ID`. None
+    recorded in the review's files yet.
 
 ## Conditions
 

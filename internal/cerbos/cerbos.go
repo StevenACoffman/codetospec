@@ -19,13 +19,22 @@
 //     target's rules: each lists both actions;
 //   - one EFFECT_DENY rule per guard, named after its rule id, with
 //     roles ["*"] so it binds every role (a DENY wins only within a role),
-//     whose CEL condition holds exactly when the guard rejects.
+//     whose CEL condition holds exactly when the guard rejects;
+//   - a rate-limit guard is no rule: the policy allows what it limits,
+//     and the annotation "obligation:<action>" lists each limit
+//     (policy.Obligation.Text) for the PEP to apply.
 //
 // Loader contract, what the PDP's caller must supply (codetospec doesn't
 // write a loader):
+//   - apply every "obligation:<action>" rate limit to each request the
+//     PDP allows for that action, rejecting one over the limit: the
+//     policy alone allows it;
 //   - P.id the caller's KAID; P.roles one of "user", "service" (a
 //     service-admin request), "push" (a Pub/Sub push whose token
-//     validated), "anonymous";
+//     validated), "anonymous"; a request whose user identity fails
+//     validation (webapp's RequestUser error outside service-admin) is
+//     no principal at all: deny it, never load it as "anonymous" (a guard
+//     returning that error is read as a service-admin check);
 //   - P.attr.loggedIn, P.attr.phantom (bool);
 //   - P.attr.grants, the caller's grants as a list of {capability (stored
 //     name), global (bool: every scope key at its global value), userKind,
@@ -40,7 +49,8 @@
 //     checkers file pins (internal_user, has_any_permission…);
 //   - R.attr.subject, the user a self or user-scope check is about, taken
 //     from the request where the policy's "subject:<action>" annotation
-//     says ("arg:<param>[.field]", "parent[:field]");
+//     says ("arg:<param>[.field]", "parent[:field]", or "caller":
+//     the principal's own id, P.id);
 //     R.attr.subject2, R.attr.coaches2 and R.attr.subjectRelations2,
 //     the same of the second user of an operation whose checks are about
 //     two (annotation "subject2:<action>"), always set (a placeholder
@@ -89,6 +99,12 @@ const subjectAnnotation = "subject:"
 // subject2Annotation is the same for R.attr.subject2, the second user of
 // an operation whose checks are about two (policy.Operation.Subject2).
 const subject2Annotation = "subject2:"
+
+// obligationAnnotation prefixes the policy annotation listing, per action,
+// the rate limits the PEP must apply to every request the policy allows
+// (policy.Operation.Obligations), joined by "; ":
+// "obligation:Mutation.login": "rate_limit ratelimit.ByIP key=Login …".
+const obligationAnnotation = "obligation:"
 
 // Effects of a rule, and of a test's expectation.
 const (
@@ -182,6 +198,7 @@ func policyFor(resource string, ops []policy.Operation) (policyDoc, int) {
 			allowed = append(allowed, op.Actions()...)
 		}
 		doc.annotateSubjects(op)
+		doc.annotateObligations(op)
 		for _, d := range op.Denies {
 			doc.ResourcePolicy.Rules = append(doc.ResourcePolicy.Rules, rule{
 				Name:      d.RuleID,
@@ -216,6 +233,20 @@ func policyFor(resource string, ops []policy.Operation) (policyDoc, int) {
 	}
 	doc.ResourcePolicy.Rules = append(allows, doc.ResourcePolicy.Rules...)
 	return doc, denies
+}
+
+// annotateObligations records, per action of op, the rate limits the PEP
+// must apply (see obligationAnnotation).
+func (doc *policyDoc) annotateObligations(op *policy.Operation) {
+	if len(op.Obligations) == 0 {
+		return
+	}
+	if doc.Metadata == nil {
+		doc.Metadata = &metadata{Annotations: map[string]string{}}
+	}
+	for _, a := range op.Actions() {
+		doc.Metadata.Annotations[obligationAnnotation+a] = op.ObligationText()
+	}
 }
 
 // annotateSubjects records, per action of op, where the PEP takes the

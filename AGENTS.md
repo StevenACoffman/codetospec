@@ -66,6 +66,16 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   reads the tree-sitter `fileInfo`, not the merged facts; test it through
   the real path (`sitter.Parse` → `UniversalFacts` → `Merge`), not with
   hand-built facts.
+- `internal/llm` — the one OpenAI-compatible client, shared by every phase
+  and worker (`pipeline.go`). Each failure carries a toerr `errcode`
+  status (`classify`, `throttle.go`, pure): resource exhausted (429, or a
+  5xx naming a wait) closes a `gate` every call waits on, for the wait the
+  reply names (`Retry-After`, Gemini's `RetryInfo.retryDelay`) or a
+  minute, capped at 5, up to 10 pauses per call; unavailable or deadline
+  exceeded (network error, timeout, other 5xx) retries that call alone
+  after jittered backoffs; anything else fails. A worker retrying on its
+  own kept a throttle going for the others. Pauses and retries log at
+  WARN (`NewClient` takes the logger).
 - `internal/{mapper,reducer,crosscheck}` — LLM phases, each mechanically
   validates its output (2 corrections max then a traced failure). The map
   prefixes each line of code with its absolute number (`numberedContent`):
@@ -109,7 +119,9 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   role definitions reaches the rule citing it; constants and blank
   variables don't count; `docs/verification/testreach-package-vars-2026-11-06.md`)
   then the `call` facts (a package-level variable holding a function,
-  such as webapp's `cache.Cache` wrappers, is a caller and a callee:
+  such as webapp's `cache.Cache` wrappers, is a caller and a callee,
+  its calls marked `callee_var`, a hop the policy inventory's reach
+  doesn't count:
   `docs/verification/calls-through-vars-2026-11-06.md`), at most `MaxDepth` = 3
   definitions. Frontmatter `tests` (0 included), `test_depth`, `tested_by`;
   with no `test` fact at all, nothing (unknown ≠ untested), nor for a rule
@@ -152,7 +164,9 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   crosses the API. `Parse` (an error names the JSON path), `Hash`
   (the engine's canonical hash: equal whatever the spacing or key order),
   `Canonical` (frontmatter `condition`), `Variables`, `Literals`
-  (grounding text), `Renamed`, `Evaluate` (an `Outcome`, never an error:
+  (grounding text), `Renamed`, `Disjuncts` (the alternatives over its
+  boolean checks, negations pushed to the leaves, capped at 64: what
+  path coverage reads), `Evaluate` (an `Outcome`, never an error:
   a missing variable is `Indeterminate`). `matches` is left out (a regex
   is not groundable). Every number is a float (the engine refuses int vs
   float, and a model writes 0 and 0.0 alike): 3 and 3.0 hash equal. `FuzzParse` pins `Parse(Canonical(c))`. Producers:
@@ -257,12 +271,20 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   (`access_check` `paths`, or `not_analyzable` + reason), the pin, its
   `Statement` (`statement.go`, `locale.Policy`), leaf grounding
   (grounded / ungrounded / unknown, from the inputs and the paths), and
-  `path_coverage`: the pin's DNF against each path's required checks
-  (`condition.Required`), both ways. In a path, a scope matcher is an
+  `path_coverage`: the pin's DNF against each alternative of each path's
+  condition (`condition.Disjuncts`), both ways; a path is covered when
+  every alternative matches a part (one the pin lacks is a way the code
+  allows that the pin doesn't state). In a path, a scope matcher is an
   operand, a call's failure whose decision has its own variable is its
-  error, a call nothing states is data; a stated check under an `any`
-  leaves its path unmatched (never a false match); negations and scopes
-  aren't compared. `inv.Compare(first, second)` (`equivalent.go`): truth
+  error, a call nothing states is data; negations and scopes aren't
+  compared; a call of a check nothing states inlines that check's own
+  paths (`pathReader`, `MaxDepth`, cycles cut); a call within the package
+  names its check unqualified (`pathReader.name` qualifies it); an item
+  filter's pin never states the call's own bool (a separate decision).
+  A checkers entry's `bugs` (`checker_comment_mismatch`, `dead_branch`)
+  become `Definition.Questions`, ids from `questions.ID` over the kind,
+  the check, the detail and the checker's digest
+  (`docs/verification/policy-work-2026-11-08.md`). `inv.Compare(first, second)` (`equivalent.go`): truth
   table over canonical leaves, a counterexample. `Inventory.Access`
   (`access.go`): per concept, each guard stated from its own condition
   (the negated deny, De Morgan to the leaves), or undecided with the
@@ -295,12 +317,18 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   `<check>#n`, `Deny.Defined` lets the oracle decide the checker's
   variable from them), `subject_arg` for a user check (on a compound
   checker, passed to its parts) or a relation to an argument's user
-  (`R.attr.subjectRelations`), `capability_arg` for a part's capability,
+  (`R.attr.subjectRelations`; an argument the webapp extractor bound to
+  the request user is `from: caller`, `policy.FromCaller`, which the
+  subject annotation passes as the principal itself),
+  `capability_arg` for a part's capability,
   an `attribute` of the caller, resource or request, the `locale`,
   `explicit` and `content` (`content_kind` or a literal
   `content_kind_arg`) scopes, `cases` keyed on literal arguments
   (`ArgCase`, `Checker.For` the one resolver: a call matching no case is
-  skipped), `approx`, `item: <Kind>` for a visibility filter
+  skipped; `"@caller"`, `policy.CallerArg`, matches an argument bound to
+  the caller whatever its text), `approx`, `item: <Kind>` for a visibility
+  filter, with an optional `call` (its call-level meaning, where a guard
+  tests the filter itself; `Checker.atCall` is the one substitution)
   (`Model.Items`: a `view` policy per kind, where self and coach are
   about the item's user, `SubjectItem`), `unpinnable: <reason>` (the
   skip reason), `digest` (`policy.StalePins`: `export --src` warns about
@@ -313,7 +341,11 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   guards answer one pinned check takes that pin; anything else reported.
   Formats pinned in each package doc, with the loader contract; the
   subject binding is an annotation (Cerbos `subject:<action>`, the Cedar
-  policy language `@subject`). Verified against the oracle, not the
+  policy language `@subject`). A guard whose every variable is a rate
+  limit's (`CheckCall.Rate`) is an `Operation.Obligations` entry, not a
+  deny: exported (decided 2026-11-08), annotated Cerbos
+  `obligation:<action>`, the Cedar policy language `@obligation`
+  (`Obligation.Text`), which both loader contracts make the PEP apply. Verified against the oracle, not the
   rendering: `Operation.Cases()` decides each truth assignment with
   `condition.Evaluate` on the rule's condition; Cerbos writes them as its
   test suite (`go test -tags cerboslocal` runs `cerbos compile`,
@@ -636,7 +668,22 @@ wherever it stands; a nil result for one with none; an empty filter
 result its caller denies on), follows checkers wrapped in a package
 variable and resolver packages the root resolvers embed, and names every
 function a denying guard calls (`form: call`, no meaning) so a person can
-pin it (`docs/verification/checker-recognition-2026-11-06.md`). No
+pin it (`docs/verification/checker-recognition-2026-11-06.md`). A
+checker's allowing paths (`paths.go`): `return nil, nil` from a `(*T,
+error)` checker denies; a `(bool, error)` one denying with an
+authorization error and never by its bool alone decides by its error
+(`errorDecides`); a collection first result is a filter whatever follows.
+It also recognizes capability helpers (`caphelpers.go`: a function whose
+decision is admin's `hasPermission` field in its genqlient operation;
+calls get `means: capability`, scope from the enum, the capability by Go
+name from admin's generated `capabilities.go`; `hasContentPermission`'s
+scope is `content_args`, which no pin states), binds the request user's kaid to
+`from: caller`, makes no guard of a branch that returns `true`, and
+reads a branch returning `RequestUser()`'s error (alone or in `||`) as
+rejecting service-admin requests, unless the path already tests for them
+(it also fails on an unvalidated identity, which both loader contracts
+deny). The Cerbos suite leaves out assignments no single principal kind
+realizes (`policy.Realizable`, the `kindsOf` that `Principals` uses). No
 repository-specific code in the core: all webapp knowledge lives in
 `extractors/webapp`.
 

@@ -199,6 +199,32 @@ a model reproduces at high cost and approximately, or not at all:
   its value (directly, or through a local bound to a single value or with
   its error discarded): the field it serves, not a gate it misses below
   its guards.
+  - **The caller's kaid.** A call argument that is the kaid of the
+    request user (`actor.Kaid`, where `actor, err := ktx.RequestUser()`
+    is bound once at the method's top level) has `from: caller`.
+  - **`RequestUser()`'s failure rejects service-admin requests.** It
+    fails on every service-admin request (those have no request user),
+    so a branch returning on its error (alone, or as a disjunct of `||`)
+    is a guard rejecting them, read as the service-admin check. It also fails
+    when a request's identity headers fail validation; the exports' loader
+    contracts deny such a request rather than load it as anonymous. A path that already tests for service-admin
+    keeps the failure as a system error.
+  - **Returns that allow aren't guards.** A branch that returns the
+    literal `true` (its other results zero, no authorization error built)
+    allows, so it is no guard, whatever it tests: a bool field resolver
+    failing open.
+  - **Capability helpers** (`form: capability`). A function whose
+    decision is admin's `hasPermission` field, read from its genqlient
+    operation, is a recognized check: it returns the field as its bool,
+    or returns nil values when the field is false. Its calls mean a
+    capability check:
+    - its scope comes from the query's enum (`ANY`, `GLOBAL`,
+      `ANY_ON_CURRENT_LOCALE`, `USER_KIND_ALL`);
+    - its capability is the query's literal (mapped to its Go name
+      through `services/admin/generated/capabilities/capabilities.go`),
+      a constant passed as the variable, or the call's argument
+      (`string(capabilities.X)` included).
+    - `hasContentPermission` is not read: its locale is an argument.
 - **Unguarded resolvers** (`unguarded`): a public resolver method with a
   schema field and no guard, marker or delegation, cited on the method:
   how "no check found" differs from "not a resolver" (none in the seven

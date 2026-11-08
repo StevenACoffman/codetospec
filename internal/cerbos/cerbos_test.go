@@ -163,6 +163,15 @@ func usersModel() policy.Model {
 			`[{"check":"pubsub.DecodeAndValidatePushMsg","var":"pubsub.DecodeAndValidatePushMsg.fails",`+
 				`"fails":true,"means":"push"}]`,
 		),
+		// A rate limit: no deny, an obligation annotated for the PEP.
+		node(
+			"rule.hook.ratelimit-notify",
+			"Mutation.notify",
+			"ratelimit.ByIP",
+			`{"var":"caller.overRateLimit.Notify","op":"equal","value":true}`,
+			`[{"check":"ratelimit.ByIP","var":"caller.overRateLimit.Notify",`+
+				`"rate":{"key":"Notify","count":"10","window":"60 * time.Second"}}]`,
+		),
 	}
 	alias := node("rule.class.authz-cdi-alias", "Query.cdiAlias", "", "", "")
 	alias.Extra[graph.ExtraDelegatesTo] = "classResolver.Cdi"

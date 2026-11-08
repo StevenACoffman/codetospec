@@ -3,11 +3,13 @@ package policy_test
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/locale"
 	"github.com/StevenACoffman/codetospec/internal/policy"
+	"github.com/StevenACoffman/codetospec/internal/questions"
 )
 
 // Paths as the webapp extractor writes them (extract.AttrPaths).
@@ -46,6 +48,9 @@ const (
 	teacher     = "permissions.Teacher"
 	delegating  = "permissions.Delegating"
 	either      = "permissions.Either"
+	wider       = "permissions.Wider"
+	outer       = "permissions.Outer"
+	filterBool  = "permissions.UsesFilterBool"
 	looping     = "permissions.Looping"
 	cross       = "permissions.Cross"
 	managed     = "permissions.Managed"
@@ -72,6 +77,15 @@ func definitionFacts() []extract.Fact {
 		check(teacher, "20-25", map[string]string{extract.AttrPaths: teacherPath}),
 		check(delegating, "30-35", map[string]string{extract.AttrPaths: delegatingPath}),
 		check(either, "40-45", map[string]string{extract.AttrPaths: eitherPath}),
+		check(wider, "80-85", map[string]string{extract.AttrPaths: eitherPath}),
+		// A filter's own bool beside its items is no item decision.
+		check(filterBool, "100-105", map[string]string{extract.AttrPaths: `[{"condition":` +
+			`"{\"var\":\"Visible\",\"op\":\"equal\",\"value\":true}","lines":"104-104",` +
+			`"checks":[{"check":"Visible","var":"Visible"}]}]`}),
+		// A call within the package names its check unqualified.
+		check(outer, "90-95", map[string]string{extract.AttrPaths: `[{"condition":` +
+			`"{\"var\":\"AdminOrSelf.fails\",\"op\":\"equal\",\"value\":false}","lines":"94-94",` +
+			`"checks":[{"check":"AdminOrSelf","var":"AdminOrSelf.fails","fails":true}]}]`}),
 		check(looping, "50-55", map[string]string{
 			extract.AttrNotAnalyzable:       "true",
 			extract.AttrNotAnalyzableReason: "a loop, switch or select decides",
@@ -93,7 +107,12 @@ func definitionPins(t *testing.T) policy.Checkers {
 		"permissions.Delegating": {"subject_arg": 1, "any": [{"means": "service_admin"}, {"means": "self"},
 			{"means": "relation", "relation": "ghost"}]},
 		"permissions.Either": {"any": [{"means": "login"}, {"means": "service_admin"}], "approx": true},
-		"permissions.Looping": {"means": "login"},
+		"permissions.Wider": {"means": "login"},
+		"permissions.Outer": {"subject_arg": 1, "any": [{"means": "service_admin"}, {"means": "self"}]},
+		"permissions.Visible": {"item": "School", "means": "relation", "relation": "admin_of"},
+		"permissions.UsesFilterBool": {"means": "relation", "relation": "district_admin_of"},
+		"permissions.Looping": {"means": "login",
+			"bugs": [{"kind": "dead_branch", "detail": "the loop's second return never runs"}]},
 		"permissions.Cross": {"unpinnable": "cross_service"},
 		"permissions.Managed": {"subject_arg": 1, "any": [
 			{"means": "capability", "capability": "CanView", "scope": "user"},
@@ -203,15 +222,32 @@ func TestDefineDelegating(t *testing.T) {
 	}
 }
 
-// TestDefineUnreadable: a path whose checks sit under an any matches
-// nothing (never a false match); a check whose code isn't analyzable gets
-// no coverage; an unpinnable entry is flagged, with its reason.
+// TestDefineUnreadable: a path whose checks sit under an any reads as
+// one alternative per disjunct, covered only when the pin states each (a
+// disjunct the pin lacks leaves the path uncovered); a call naming a
+// check of its own package unqualified takes that check's pin, but an
+// item filter's pin never states the call's own bool (data); a check
+// whose code isn't analyzable gets no coverage; an unpinnable entry is
+// flagged, with its reason.
 func TestDefineUnreadable(t *testing.T) {
 	ds := definitionsOf(t)
-	if d := ds[either]; d.Coverage == nil || len(d.Coverage.UncoveredPaths) != 1 || !d.Approx {
+	if d := ds[either]; d.Coverage == nil || !d.Coverage.Covered || !d.Approx {
 		t.Errorf("either: %+v", d)
 	}
-	if d := ds[looping]; !d.NotAnalyzable || d.Coverage != nil || !d.Pinned {
+	if d := ds[filterBool]; d.Coverage == nil || !d.Coverage.Covered {
+		t.Errorf("filterBool: a filter's own bool reads as data: %+v", d.Coverage)
+	}
+	if d := ds[outer]; d.Coverage == nil || !d.Coverage.Covered {
+		t.Errorf("outer: an unqualified call of a pinned check of its package: %+v", d.Coverage)
+	}
+	if d := ds[wider]; d.Coverage == nil || !slices.Equal(d.Coverage.UncoveredPaths, []int{0}) ||
+		d.Coverage.UnmatchedParts != nil {
+		t.Errorf("wider: %+v", d.Coverage)
+	}
+	if d := ds[looping]; !d.NotAnalyzable || d.Coverage != nil || !d.Pinned ||
+		len(d.Questions) != 1 || d.Questions[0].Kind != policy.BugDeadBranch ||
+		d.Questions[0].ID != questions.ID(policy.BugDeadBranch, looping,
+			"the loop's second return never runs", "new") {
 		t.Errorf("looping: %+v", d)
 	}
 	if d := ds[cross]; !d.Unpinnable || d.UnpinnableReason != "cross_service" || d.Pinned {

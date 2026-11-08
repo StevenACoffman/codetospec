@@ -1,6 +1,6 @@
 # Policy inventory
 
-0 enforcement points, 7 checks, 0 open, 0 todo, 0 unguarded; inputs looked for 3 calls deep.
+0 enforcement points, 10 checks, 0 open, 0 todo, 0 unguarded; inputs looked for 3 calls deep.
 
 ## Enforcement points
 
@@ -75,8 +75,7 @@ Allowing paths:
 Leaves: login (grounded), service_admin (grounded).
 
 Pin alternatives: login; service_admin.
-Coverage: path 1 matches no alternative.
-Coverage: alternatives 1, 2 match no path.
+Coverage: every path matches an alternative and every alternative a path.
 
 Second reader: no pin in the second file.
 
@@ -93,6 +92,8 @@ Allowing paths: not analyzable (a loop, switch or select decides).
 Leaves: login (unknown).
 
 Second reader: no pin in the second file.
+
+Question q-12e57db88788 (dead_branch): the loop's second return never runs
 
 ### permissions.Managed
 
@@ -113,6 +114,25 @@ Pin alternatives: capability CanView; data.
 Coverage: every path matches an alternative and every alternative a path.
 
 Not in the registry: manages.
+
+Second reader: no pin in the second file.
+
+### permissions.Outer
+
+marked, permissions/permissions.go:90-95
+
+> Allowed when the request is an administrator call from another service, or the caller is the user concerned.
+
+Definition: pinned.
+
+Allowing paths:
+
+1. `{"var":"AdminOrSelf.fails","op":"equal","value":false}` (permissions/permissions.go:94-94)
+
+Leaves: service_admin (unknown), self (unknown).
+
+Pin alternatives: service_admin; self.
+Coverage: every path matches an alternative and every alternative a path.
 
 Second reader: no pin in the second file.
 
@@ -139,6 +159,46 @@ Coverage: path 1 matches no alternative.
 Coverage: alternative 1 matches no path.
 
 Second reader: different: only the second pin allows when `{"means":"capability","scope":"global","capability":"CanView"}` false, `{"means":"login"}` true, `{"means":"relation","relation":"teacher_of"}` false.
+
+### permissions.UsesFilterBool
+
+marked, permissions/permissions.go:100-105
+
+> Allowed when the caller has the relation "district_admin_of".
+
+Definition: pinned.
+
+Allowing paths:
+
+1. `{"var":"Visible","op":"equal","value":true}` (permissions/permissions.go:104-104)
+
+Leaves: relation district_admin_of (unknown).
+
+Pin alternatives: data.
+Coverage: every path matches an alternative and every alternative a path.
+
+Not in the registry: district_admin_of.
+
+Second reader: no pin in the second file.
+
+### permissions.Wider
+
+marked, permissions/permissions.go:80-85
+
+> Allowed when the caller is signed in.
+
+Definition: pinned.
+
+Allowing paths:
+
+1. `{"any":[{"var":"caller.loggedIn","op":"equal","value":true},{"var":"request.isServiceAdmin","op":"equal","value":true}]}` (permissions/permissions.go:12-12)
+
+Leaves: login (grounded).
+
+Pin alternatives: login.
+Coverage: path 1 matches no alternative.
+
+Second reader: no pin in the second file.
 
 ## Limits
 

@@ -1,6 +1,7 @@
 package condition_test
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -193,23 +194,73 @@ func TestVariablesAndLiterals(t *testing.T) {
 	}
 }
 
-// TestRequired: only the booleans every match needs, a not flipping
-// them; a variable under any or against a number is left out.
-func TestRequired(t *testing.T) {
-	c := mustParse(t, `{"all": [`+loggedOut+`,
-		{"not": {"var": "a", "op": "equal", "value": true}},
-		{"all": [{"var": "b", "op": "equal", "value": true}]},
-		{"any": [{"var": "c", "op": "equal", "value": true}, {"var": "d", "op": "equal", "value": true}]},
-		{"not": {"all": [{"var": "e", "op": "equal", "value": true}]}},
-		{"var": "shipment.weight", "op": "equal", "value": 3}
-	]}`)
-	got := c.Required()
-	want := map[string]bool{"caller.loggedIn": false, "a": false, "b": true}
-	if !maps.Equal(got, want) {
-		t.Errorf("Required = %v, want %v", got, want)
+// TestDisjuncts: each alternative way a condition matches, with the
+// booleans it needs; negations reach the leaves, an impossible
+// alternative is dropped, other comparisons need nothing, and an
+// expansion past the cap is refused.
+func TestDisjuncts(t *testing.T) {
+	const (
+		a = `{"var": "a", "op": "equal", "value": true}`
+		b = `{"var": "b", "op": "equal", "value": true}`
+		c = `{"var": "c", "op": "not_equal", "value": true}`
+	)
+	cases := map[string]struct {
+		raw  string
+		want []map[string]bool
+	}{
+		"zero":      {"", []map[string]bool{{}}},
+		"one check": {loggedOut, []map[string]bool{{"caller.loggedIn": false}}},
+		"not_equal": {c, []map[string]bool{{"c": false}}},
+		"all": {
+			`{"all": [` + a + `, ` + b + `]}`,
+			[]map[string]bool{{"a": true, "b": true}},
+		},
+		"any": {
+			`{"any": [` + a + `, ` + b + `]}`,
+			[]map[string]bool{{"a": true}, {"b": true}},
+		},
+		"not any": {
+			`{"not": {"any": [` + a + `, ` + b + `]}}`,
+			[]map[string]bool{{"a": false, "b": false}},
+		},
+		"not all": {
+			`{"not": {"all": [` + a + `, ` + b + `]}}`,
+			[]map[string]bool{{"a": false}, {"b": false}},
+		},
+		"double not": {`{"not": {"not": ` + a + `}}`, []map[string]bool{{"a": true}}},
+		"all of any": {
+			`{"all": [{"any": [` + a + `, ` + b + `]}, ` + c + `]}`,
+			[]map[string]bool{{"a": true, "c": false}, {"b": true, "c": false}},
+		},
+		"impossible dropped": {
+			`{"all": [{"any": [` + a + `, ` + b + `]}, {"not": ` + a + `}]}`,
+			[]map[string]bool{{"a": false, "b": true}},
+		},
+		"repeat kept once": {`{"any": [` + a + `, ` + a + `]}`, []map[string]bool{{"a": true}}},
+		"other comparison": {heavyFinnish, []map[string]bool{{}}},
 	}
-	if zero := (condition.Condition{}); len(zero.Required()) != 0 {
-		t.Error("the zero Condition requires something")
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			parsed := mustParse(t, tc.raw)
+			got, ok := parsed.Disjuncts()
+			if !ok || !slices.EqualFunc(got, tc.want, maps.Equal) {
+				t.Errorf("Disjuncts = %v, %v; want %v", got, ok, tc.want)
+			}
+		})
+	}
+
+	// 7 alternatives of 2 each, all of them: 2^7 = 128 > the cap.
+	parts := make([]string, 7)
+	for i := range parts {
+		parts[i] = fmt.Sprintf(
+			`{"any": [{"var": "x%d", "op": "equal", "value": true}, {"var": "y%d", "op": "equal", "value": true}]}`,
+			i,
+			i,
+		)
+	}
+	wide := mustParse(t, `{"all": [`+strings.Join(parts, ", ")+`]}`)
+	if got, ok := wide.Disjuncts(); ok {
+		t.Errorf("Disjuncts of 128 alternatives = %d alternatives, want refused", len(got))
 	}
 }
 

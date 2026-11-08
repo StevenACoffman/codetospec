@@ -65,7 +65,20 @@
           }
         },
         "approx": { "description": "The pin is stricter than the code: it leaves out an allowing path the policy model can't state, so the export denies some requests the code allows, never the reverse.", "type": "boolean" },
-        "digest": { "description": "The digest of the checker's definition the entry was written for (policies --src prints it): a different current digest makes the pin stale.", "type": "string", "minLength": 1 }
+        "digest": { "description": "The digest of the checker's definition the entry was written for (policies --src prints it): a different current digest makes the pin stale.", "type": "string", "minLength": 1 },
+        "bugs": {
+          "description": "Defects the entry's author found in the checker's code while pinning it: questions for review beside the rules, whatever the pin.",
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": { "description": "The doc comment says what the code doesn't do, or a branch can never run.", "enum": ["checker_comment_mismatch", "dead_branch"] },
+              "detail": { "description": "What and where, in the author's words.", "type": "string", "minLength": 1 }
+            },
+            "required": ["kind", "detail"],
+            "additionalProperties": false
+          }
+        }
       },
       "unevaluatedProperties": false
     }

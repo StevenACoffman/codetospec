@@ -249,6 +249,20 @@
             "case": { "description": "The first differing case of pins keyed on argument values.", "type": "string" }
           },
           "additionalProperties": false
+        },
+        "questions": {
+          "description": "The bugs the checkers entry's author recorded in the checker's code, each a question for review beside the rules.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "kind", "detail"],
+            "properties": {
+              "id": { "description": "The question id: the kind, the check, the detail and the checker's current digest (a code change reopens it).", "type": "string" },
+              "kind": { "enum": ["checker_comment_mismatch", "dead_branch"] },
+              "detail": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
         }
       },
       "additionalProperties": false

@@ -9,6 +9,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/condition"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/locale"
+	"github.com/StevenACoffman/codetospec/internal/questions"
 )
 
 // Definition is what an inventory check means and how far that is
@@ -45,6 +46,18 @@ type Definition struct {
 	Concepts        []string `json:"concepts,omitempty"`
 	// Comparison is how a second reader's pin compares (Compare).
 	Comparison *Comparison `json:"comparison,omitempty"`
+	// Questions are the bugs the entry's author recorded in the checker's
+	// code (Checker.Bugs), each with its question id.
+	Questions []CheckerQuestion `json:"questions,omitempty"`
+}
+
+// CheckerQuestion is one recorded checker bug as a question: its id
+// (questions.ID over the kind, the check, the detail and the checker's
+// current digest: a code change reopens it), Kind (Bug*) and Detail.
+type CheckerQuestion struct {
+	ID     string `json:"id"`
+	Kind   string `json:"kind"`
+	Detail string `json:"detail"`
 }
 
 // Path is one path on which a check's code allows (extract.AttrPaths):
@@ -131,6 +144,12 @@ func (inv *Inventory) Define(cs Checkers, reg Registry, t *locale.Text) {
 			continue
 		}
 		d := &c.Definition
+		for _, bug := range pin.Bugs {
+			d.Questions = append(d.Questions, CheckerQuestion{
+				ID:   questions.ID(bug.Kind, c.Name, bug.Detail, c.Digest),
+				Kind: bug.Kind, Detail: bug.Detail,
+			})
+		}
 		d.Stale = pin.Digest != "" && c.Digest != "" && pin.Digest != c.Digest
 		d.Approx = pin.Approx
 		d.Statement = Statement(&pin, reg, t)
@@ -142,7 +161,9 @@ func (inv *Inventory) Define(cs Checkers, reg Registry, t *locale.Text) {
 		d.Leaves = groundLeaves(c, leavesOf(&pin), reg)
 		d.GlossaryMissing, d.Concepts = glossary(d.Leaves, reg)
 		if !d.NotAnalyzable && len(d.Paths) > 0 {
-			d.Coverage = pathCoverage(d.Paths, &pin, pathReader{cs: cs, checks: readable})
+			d.Coverage = pathCoverage(d.Paths, &pin, pathReader{
+				cs: cs, checks: readable, pkg: packageOf(c.Name),
+			})
 		}
 	}
 	inv.Access = inv.access(cs, reg, t)
@@ -307,13 +328,19 @@ func pathCoverage(paths []Path, pin *Checker, r pathReader) *Coverage {
 	matched := make([]bool, len(parts))
 	decided := decidedChecks(paths)
 	for i := range paths {
-		covered := false
-		for _, alt := range r.alternatives(&paths[i], decided) {
+		// Covered when the path reads and each of its alternatives matches
+		// a part: one the pin lacks is a way the code allows that the pin
+		// doesn't state.
+		alts := r.alternatives(&paths[i], decided)
+		covered := len(alts) > 0
+		for _, alt := range alts {
+			hit := false
 			for j, part := range parts {
 				if alt.matches(part) {
-					matched[j], covered = true, true
+					matched[j], hit = true, true
 				}
 			}
+			covered = covered && hit
 		}
 		if !covered {
 			cov.UncoveredPaths = append(cov.UncoveredPaths, i)
@@ -375,27 +402,58 @@ func cross(a, b []alternative) []alternative {
 	return out
 }
 
-// alternatives reads the conjunctions path p requires: one per
-// alternative of each checker it calls (its pin, or its own paths); none
-// when a stated check of its condition is required neither to pass nor to
-// fail (it sits under an any) or the condition doesn't parse. decided
-// names the checks whose decision has a variable of its own on some path
-// (decidedChecks). A call whose variable isn't in the condition is an
-// operand (a scope matcher), a call's failure whose decision has its own
-// variable is its error (not a decision), and one nothing states (no
-// meaning, no pin, no readable paths) a condition on data, like any
-// variable no call became.
+// alternatives reads the conjunctions path p requires: for each
+// alternative of its condition (condition.Disjuncts: an any split,
+// negations pushed to the leaves), one per alternative of each checker it
+// calls (its pin, or its own paths); none when the condition doesn't
+// parse or branches past the cap. decided names the checks whose decision
+// has a variable of its own on some path (decidedChecks). A call whose
+// variable isn't in the condition is an operand (a scope matcher), a
+// call's failure whose decision has its own variable is its error (not a
+// decision), one an alternative doesn't constrain plays no part in it,
+// and one nothing states (no meaning, no pin, no readable paths) a
+// condition on data, like any variable no call became.
 func (r pathReader) alternatives(p *Path, decided map[string]bool) []alternative {
 	c, err := condition.Parse([]byte(p.Condition))
 	if err != nil {
 		return nil
 	}
-	vars := c.Variables()
-	required := c.Required()
+	disjuncts, ok := c.Disjuncts()
+	if !ok {
+		return nil
+	}
+	// The variables of comparisons no alternative names (exists, numbers,
+	// strings): data on every alternative.
+	compared := slices.DeleteFunc(c.Variables(), func(v string) bool {
+		return slices.ContainsFunc(disjuncts, func(d map[string]bool) bool {
+			_, named := d[v]
+			return named
+		})
+	})
+	var out []alternative
+	for _, required := range disjuncts {
+		out = append(out, r.conjunction(p.Checks, compared, required, decided)...)
+	}
+	return out
+}
+
+// conjunction is the alternatives of one alternative of a path's
+// condition, which needs each variable of required at its value: the
+// cross of the alternatives of each stated check it needs to pass (a
+// check it needs to fail is a negation, never compared). Data is needed
+// when a variable no stated call became is needed here, or compared names
+// one (the variables no alternative names). A call whose variable neither
+// names is an operand, or plays no part in this alternative.
+func (r pathReader) conjunction(
+	calls []CheckCall,
+	compared []string,
+	required, decided map[string]bool,
+) []alternative {
 	checkVars := map[string]bool{}
 	out := []alternative{{}}
-	for _, call := range p.Checks {
-		if call.Var == "" || !slices.Contains(vars, call.Var) {
+	for _, call := range calls {
+		if _, needed := required[call.Var]; call.Var == "" ||
+			!needed && !slices.Contains(compared, call.Var) {
 			continue
 		}
 		if call.Fails && decided[call.Check] {
@@ -409,16 +467,14 @@ func (r pathReader) alternatives(p *Path, decided map[string]bool) []alternative
 			continue
 		}
 		checkVars[call.Var] = true
-		v, ok := required[call.Var]
-		switch {
-		case !ok:
-			return nil
-		case v == call.Fails:
-			continue // negated: negations are not compared
+		if v, ok := required[call.Var]; ok && v != call.Fails {
+			out = cross(out, alts)
 		}
-		out = cross(out, alts)
 	}
-	data := slices.ContainsFunc(vars, func(v string) bool { return !checkVars[v] })
+	data := slices.ContainsFunc(compared, func(v string) bool { return !checkVars[v] })
+	for v := range required {
+		data = data || !checkVars[v]
+	}
 	for i := range out {
 		out[i].data = out[i].data || data
 	}
@@ -443,11 +499,42 @@ func decidedChecks(paths []Path) map[string]bool {
 // pathReader reads the conjunctions paths require: cs gives the pinned
 // meanings, checks each analyzed check's paths (to inline a call of one
 // nothing states), inlining the checks being read (cut at MaxDepth, and
-// at a cycle).
+// at a cycle). pkg is the package of the check whose paths are read: a
+// call within it names its check unqualified (UserCanViewDistrict for
+// permissions.UserCanViewDistrict).
 type pathReader struct {
 	cs       Checkers
 	checks   map[string][]Path
 	inlining []string
+	pkg      string
+}
+
+// packageOf is the package a check name is qualified with
+// ("permissions.UserCanViewDistrict" → "permissions"); "" for none.
+func packageOf(name string) string {
+	pkg, _, qualified := strings.Cut(name, ".")
+	if !qualified {
+		return ""
+	}
+	return pkg
+}
+
+// name is the check a path's call names: as written when cs pins it or
+// its paths were read, else qualified with r's package when that names
+// one (an unqualified call within the package), else as written.
+func (r pathReader) name(check string) string {
+	_, pinned := r.cs[check]
+	_, read := r.checks[check]
+	if pinned || read || r.pkg == "" || strings.Contains(check, ".") {
+		return check
+	}
+	qualified := r.pkg + "." + check
+	_, pinned = r.cs[qualified]
+	_, read = r.checks[qualified]
+	if pinned || read {
+		return qualified
+	}
+	return check
 }
 
 // readablePaths maps each check whose paths were read whole to them.
@@ -463,18 +550,26 @@ func readablePaths(checks []Check) map[string][]Path {
 
 // call is what a check call contributes: its meaning, else the pin of the
 // checker it calls, else the alternatives of that checker's own paths
-// when every one reads; false when nothing states it.
+// when every one reads; false when nothing states it. An item filter's
+// pin says when one item is visible, so it states the call's failure
+// (through its call-level meaning) but never a decision variable of the
+// call: that is a separate bool beside the filtered items
+// (AdministeredSchoolsInDistrict's "administers the district").
 func (r pathReader) call(call *CheckCall) ([]alternative, bool) {
 	if call.Means != "" {
 		return []alternative{{keys: []leafKey{{call.Means, goName(call.Capability)}}}}, true
 	}
-	if pin, ok := r.cs[call.Check]; ok && pin.Unpinnable == "" {
+	name := r.name(call.Check)
+	if pin, ok := r.cs[name]; ok && pin.Item != "" && !call.Fails {
+		return nil, false
+	}
+	if pin, ok := r.cs[name]; ok && pin.Unpinnable == "" {
 		if meant, matched := pin.For(call); matched {
 			meant = meant.atCall()
 			return dnf(&meant), true
 		}
 	}
-	return r.inline(call.Check)
+	return r.inline(name)
 }
 
 // inline is the alternatives of check name's own paths, every one read;
@@ -489,6 +584,7 @@ func (r pathReader) inline(name string) ([]alternative, bool) {
 		cs:       r.cs,
 		checks:   r.checks,
 		inlining: append(slices.Clone(r.inlining), name),
+		pkg:      cmp.Or(packageOf(name), r.pkg),
 	}
 	decided := decidedChecks(paths)
 	var out []alternative

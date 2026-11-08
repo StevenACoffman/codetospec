@@ -75,4 +75,29 @@ func TestCheckersSchemaEnums(t *testing.T) {
 			t.Errorf("schema %s = %v, want %v", name, got, want)
 		}
 	}
+	var bugs struct {
+		Defs struct {
+			Entry struct {
+				Properties struct {
+					Bugs struct {
+						Items struct {
+							Properties struct {
+								Kind struct {
+									Enum []string `json:"enum"`
+								} `json:"kind"`
+							} `json:"properties"`
+						} `json:"items"`
+					} `json:"bugs"`
+				} `json:"properties"`
+			} `json:"entry"`
+		} `json:"$defs"`
+	}
+	if err = json.Unmarshal(data, &bugs); err != nil {
+		t.Fatal(err)
+	}
+	if got := bugs.Defs.Entry.Properties.Bugs.Items.Properties.Kind.Enum; !slices.Equal(
+		slices.Sorted(slices.Values(got)), []string{BugCommentMismatch, BugDeadBranch},
+	) {
+		t.Errorf("schema bug kinds = %v", got)
+	}
 }

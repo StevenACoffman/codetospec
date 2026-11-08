@@ -76,7 +76,25 @@ type Checker struct {
 	// leaves out an allowing path the policy model can't state, so the
 	// export denies some requests the code allows, never the reverse.
 	Approx bool `json:"approx,omitempty" yaml:"approx,omitempty"`
+	// Bugs, on an entry, are the defects its author found in the
+	// checker's code while pinning it: questions for review beside the
+	// rules (Definition.Questions), whatever the pin.
+	Bugs []CheckerBug `json:"bugs,omitempty" yaml:"bugs,omitempty"`
 }
+
+// CheckerBug is one defect a pin's author found in a checker's code: Kind
+// (Bug*) and Detail, what and where, in the author's words.
+type CheckerBug struct {
+	Kind   string `json:"kind"   yaml:"kind"`
+	Detail string `json:"detail" yaml:"detail"`
+}
+
+// Kinds of a CheckerBug: the checker's doc comment says what its code
+// doesn't do; a branch of its code can never run.
+const (
+	BugCommentMismatch = "checker_comment_mismatch"
+	BugDeadBranch      = "dead_branch"
+)
 
 // ArgCase is one case of a checker keyed on argument values: WhenArg maps
 // argument indexes (from 0, the context included, as SubjectArg) to the

@@ -101,7 +101,7 @@ func List(nodes []graph.Node, gaps []graph.CoverageGap) []Question {
 	var qs []Question
 	add := func(kind, subject, detail, key, digest string) {
 		qs = append(qs, Question{
-			ID:   id(kind, subject, key, digest),
+			ID:   ID(kind, subject, key, digest),
 			Kind: kind, Subject: subject, Detail: detail,
 			finding: kind + "\x00" + subject,
 		})
@@ -117,7 +117,7 @@ func List(nodes []graph.Node, gaps []graph.CoverageGap) []Question {
 	}
 	for _, g := range gaps {
 		qs = append(qs, Question{
-			ID:   id(KindCoverageGap, g.Domain, g.String(), ""),
+			ID:   ID(KindCoverageGap, g.Domain, g.String(), ""),
 			Kind: KindCoverageGap, Subject: g.Domain, Detail: g.String(),
 			finding: gapFinding(&g),
 		})
@@ -183,10 +183,11 @@ func gapFinding(g *graph.CoverageGap) string {
 	return KindCoverageGap + "\x00" + g.Domain + "\x00" + g.String()
 }
 
-// id identifies a finding by what it is about, not by how it is worded:
+// ID identifies a finding by what it is about, not by how it is worded:
 // its kind, subject and stable key, and the digest of the cited code, so
-// that a resolution lapses when that code changes.
-func id(kind, subject, key, digest string) string {
+// that a resolution lapses when that code changes. Every question id is
+// one, the policy inventory's included.
+func ID(kind, subject, key, digest string) string {
 	sum := sha256.Sum256([]byte(strings.Join([]string{kind, subject, key, digest}, "\x00")))
 	return "q-" + hex.EncodeToString(sum[:])[:idDigits]
 }

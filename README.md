@@ -303,6 +303,10 @@ exported operation shares its policies. Each operation's user bindings
 (`arg:kaid`, `parent:Kaid`; a second user's as `subject2`) are
 annotations on its policies. An operation whose guards pass only some
 principal kinds (a Pub/Sub handler: push) is allowed for those alone.
+A rate-limit guard is no deny: its operation is exported with the limit
+as an obligation the enforcement point must apply (Cerbos
+`obligation:<action>` annotation, the Cedar policy language
+`@obligation`), since the policy alone allows what the code throttles.
 `--registry` reports each relation a checker names that the registry
 doesn't declare. Cerbos gets a resource policy and
 a test suite whose expectations come from the rules' own conditions
@@ -335,8 +339,11 @@ the code's allowing paths (read by the webapp extractor, or
 `--lang` ("Allowed when the caller is signed in, or the caller teaches
 the class."), and its verification: each leaf grounded or not in what
 the check reads and calls, the pin's alternatives matched with the
-code's paths both ways (`path_coverage`), a stale digest, and the
-relations the registry lacks. `--compare <file>` compares each pin with
+code's paths both ways (`path_coverage`; a path's `any` reads as its
+alternatives, each of which the pin must state), a stale digest, and the
+relations the registry lacks; a checkers entry's `bugs` (a doc comment
+the code contradicts, a dead branch) are listed as questions with stable
+ids. `--compare <file>` compares each pin with
 a second reader's by truth table and names a counterexample. "Who can
 do what" lists, per concept, each operation's guards as statements, or
 why one is undecided. It reads the graph and `.codetospec/facts.json`,

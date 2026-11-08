@@ -15,6 +15,9 @@
 //     not all of them (policy.Operation.Principals: a push handler);
 //   - a forbid per guard, @id(rule id) and @source(citation), whose `when`
 //     holds exactly when the guard rejects;
+//   - a rate-limit guard is no forbid: the permit allows what it limits
+//     and carries @obligation, each limit (policy.Obligation.Text) joined
+//     by "; ", for the PEP to apply;
 //   - an alias operation (its handler only delegates) shares its target's
 //     policies: `action in [target, alias]`;
 //   - an entity type per item kind a pinned visibility filter decides,
@@ -56,7 +59,9 @@
 //     language has no quantifier over a grant list, so the loader flattens
 //     grants into these groups.
 //
-// Loader contract (codetospec writes none): a request whose user identity
+// Loader contract (codetospec writes none): the PEP applies every
+// @obligation rate limit of a permit to each request it allows, rejecting
+// one over the limit (the policies alone allow it). A request whose user identity
 // fails validation (webapp's RequestUser error outside service-admin) is
 // no principal: deny it, never load it as Anonymous (a guard returning
 // that error is read as a service-admin check). User entities by KAID, with
@@ -138,11 +143,16 @@ func Export(m *policy.Model, service string) (Spec, error) {
 		if op.Subject2 != "" {
 			subject += fmt.Sprintf("@subject2(%q)\n", op.Subject2)
 		}
+		obligation := ""
+		if text := op.ObligationText(); text != "" {
+			obligation = fmt.Sprintf("@obligation(%q)\n", text)
+		}
 		fmt.Fprintf(
 			&b,
-			"@id(%q)\n%spermit (principal, %s, resource)%s;\n\n",
+			"@id(%q)\n%s%spermit (principal, %s, resource)%s;\n\n",
 			"allow:"+op.Action,
 			subject,
+			obligation,
 			scope,
 			principalsWhen(ns, op.Principals),
 		)

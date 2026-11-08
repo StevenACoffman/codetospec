@@ -382,13 +382,17 @@ holds the rest.
   - Done (2026-11-05): webapp `c55b04b0090`; rules +26–44 % per output,
     share proven unchanged, no violations, drift or `ears_issue`
     (`docs/verification/remap-2026-11-05.md`).
-- [ ] Regenerate `~/spec-graphs` and re-record the corpus
+- [x] Regenerate `~/spec-graphs` and re-record the corpus
       (`scripts/remap.sh`). The outputs predate FIX R1-R3 (admin still
       carries the leaked `testutil` role rule, and the corpus baseline
       counts it) and the checker recognition (new `check_args`,
       `access_check` and route facts, and changed extractor conditions,
       which re-map the chunks they feed). Until then, `make corpus`
       measures stale outputs. Review the baseline diff before committing.
+  - Done (2026-11-07, `docs/verification/remap-2026-11-07.md`): 0 map or
+    reduce failures but ai-guide's known chunk; rules +0.4–2.1 %,
+    `condition_mismatches` down on users (−78), assignments and coaches;
+    admin's `testutil` rule gone.
 - [ ] Fix what checking admin's role rules against their code found
       (2026-11-05): findings, recommendations and the step-by-step plan
       are in `FIX.md`. The 46 role rules are exact, but `--exclude` doesn't
@@ -406,8 +410,8 @@ holds the rest.
     (2026-11-06: the role sentence names the grant's scope; re-run on a
     scratch copy: 46 role rules reworded, ids kept,
     `docs/verification/quality-promise-and-admin-rerun-2026-11-06.md`;
-    `~/spec-graphs/admin` itself waits for the remap). Open: R5-R6, and the corpus re-record
-    once the outputs are regenerated.
+    `~/spec-graphs/admin` itself waits for the remap). Open: R5-R6 (the corpus re-record
+    done 2026-11-07).
 - [x] Enforce the `AGENTS.md` architecture rules that exist only as prose.
       Each failure should name the rule and the repair.
   - "`internal/atomicfs` is the only writer of output" (`AGENTS.md:239-241`):

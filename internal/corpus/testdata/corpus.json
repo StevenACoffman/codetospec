@@ -29,16 +29,16 @@
       "lang": "en",
       "commit": "c55b04b0090e6d0f2df471bef5f37a8a78b58883",
       "baseline": {
-        "rules": 1188,
-        "grounded": 256,
+        "rules": 1195,
+        "grounded": 255,
         "ungrounded": 10,
-        "proven": 251,
+        "proven": 250,
         "partial_domains": 0,
         "violations": 0,
         "drifted": 0,
         "ears_issues": 0,
         "nfr_targets": 3,
-        "condition_mismatches": 37
+        "condition_mismatches": 35
       }
     },
     {
@@ -51,16 +51,16 @@
       "lang": "en",
       "commit": "c55b04b0090e6d0f2df471bef5f37a8a78b58883",
       "baseline": {
-        "rules": 6713,
-        "grounded": 1306,
+        "rules": 6808,
+        "grounded": 1309,
         "ungrounded": 9,
-        "proven": 1252,
+        "proven": 1258,
         "partial_domains": 2,
         "violations": 0,
         "drifted": 0,
         "ears_issues": 0,
         "nfr_targets": 1,
-        "condition_mismatches": 163
+        "condition_mismatches": 164
       }
     },
     {
@@ -73,16 +73,16 @@
       "lang": "en",
       "commit": "c55b04b0090e6d0f2df471bef5f37a8a78b58883",
       "baseline": {
-        "rules": 2275,
-        "grounded": 418,
+        "rules": 2307,
+        "grounded": 434,
         "ungrounded": 9,
-        "proven": 411,
+        "proven": 427,
         "partial_domains": 0,
         "violations": 0,
         "drifted": 0,
         "ears_issues": 0,
         "nfr_targets": 1,
-        "condition_mismatches": 120
+        "condition_mismatches": 102
       }
     },
     {
@@ -95,16 +95,16 @@
       "lang": "en",
       "commit": "c55b04b0090e6d0f2df471bef5f37a8a78b58883",
       "baseline": {
-        "rules": 2582,
-        "grounded": 534,
+        "rules": 2637,
+        "grounded": 567,
         "ungrounded": 7,
-        "proven": 520,
+        "proven": 553,
         "partial_domains": 0,
         "violations": 0,
         "drifted": 0,
         "ears_issues": 0,
         "nfr_targets": 1,
-        "condition_mismatches": 157
+        "condition_mismatches": 139
       }
     },
     {
@@ -117,16 +117,16 @@
       "lang": "en",
       "commit": "c55b04b0090e6d0f2df471bef5f37a8a78b58883",
       "baseline": {
-        "rules": 3924,
-        "grounded": 681,
-        "ungrounded": 8,
-        "proven": 668,
+        "rules": 3968,
+        "grounded": 714,
+        "ungrounded": 9,
+        "proven": 702,
         "partial_domains": 0,
         "violations": 0,
         "drifted": 0,
         "ears_issues": 0,
         "nfr_targets": 1,
-        "condition_mismatches": 118
+        "condition_mismatches": 120
       }
     },
     {
@@ -161,7 +161,7 @@
       "lang": "en",
       "commit": "c55b04b0090e6d0f2df471bef5f37a8a78b58883",
       "baseline": {
-        "rules": 3071,
+        "rules": 3083,
         "grounded": 618,
         "ungrounded": 12,
         "proven": 605,
@@ -170,7 +170,7 @@
         "drifted": 0,
         "ears_issues": 0,
         "nfr_targets": 7,
-        "condition_mismatches": 181
+        "condition_mismatches": 103
       }
     }
   ]

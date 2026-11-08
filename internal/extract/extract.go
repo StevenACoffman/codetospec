@@ -294,6 +294,10 @@ const (
 	// when it is not used directly: DispatchInterface, through a method of
 	// an interface the callee implements (see Fact.ViaDispatch).
 	AttrDispatch = "dispatch"
+	// AttrCalleeVar, on a call fact, is "true" when the callee is a
+	// package-level variable holding a function (a cache wrapper, a
+	// dataloader): a hop that only forwards to the code behind it.
+	AttrCalleeVar = "callee_var"
 	// AttrExecuted and AttrUnexecuted, on an executed fact.
 	AttrExecuted   = "executed"
 	AttrUnexecuted = "unexecuted"

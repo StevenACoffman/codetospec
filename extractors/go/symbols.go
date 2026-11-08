@@ -117,7 +117,8 @@ func symbolKind(obj types.Object) string {
 // which others of the module: one call fact per caller and callee, both
 // cited by their declaration span. A package-level variable holding a
 // function (see callableVars) is a caller and a callee too, so a call
-// through a cache wrapper or a dataloader reaches the code behind it.
+// through a cache wrapper or a dataloader reaches the code behind it; a
+// call of one is marked attrCalleeVar.
 // codetospec places a definition used by
 // callers of one domain alone in that domain. A call of a method of one of
 // the module's interfaces gives a fact per implementation, marked
@@ -202,6 +203,9 @@ func callFact(caller, callee *moduleDecl, static bool, fset *token.FileSet) Fact
 	}
 	if !static {
 		attrs[attrDispatch] = dispatchInterface
+	}
+	if _, isVar := callee.node.(*ast.ValueSpec); isVar {
+		attrs[attrCalleeVar] = "true"
 	}
 	return Fact{
 		Kind: "call",

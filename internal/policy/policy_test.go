@@ -27,6 +27,9 @@ const (
 	classroom     = "Classroom"
 )
 
+// capabilityType is the declared type of webapp's capability constants.
+const capabilityType = "permissions.CapabilityName"
+
 func at(path, lines string) extract.Ref { return extract.Ref{Path: path, Lines: lines} }
 
 func fact(kind, id string, src extract.Ref, attrs map[string]string) extract.Fact {
@@ -53,7 +56,7 @@ func districtFacts() []extract.Fact {
 			map[string]string{extract.AttrField: studentsOf}),
 		fact(extract.KindUsesValue, "uses.1", def, map[string]string{
 			extract.AttrName:  "capabilities.CanActLikeADistrictAdmin",
-			extract.AttrType:  "permissions.CapabilityName",
+			extract.AttrType:  capabilityType,
 			extract.AttrValue: "CAN_ACT_LIKE_A_DISTRICT_ADMIN",
 		}),
 		fact(extract.KindUsesValue, "uses.2", def, map[string]string{
@@ -258,5 +261,55 @@ func checkGolden(t *testing.T, path string, got []byte) {
 	}
 	if !bytes.Equal(got, want) {
 		t.Errorf("differs from %s:\n%s", path, got)
+	}
+}
+
+// TestBuildInputsThroughWrapper: a call into a variable holding a function
+// (a cache wrapper) is a hop reach doesn't count, so a value read three
+// calls below what the wrapper wraps is still the check's input; without
+// the mark it is a fourth call, past MaxDepth.
+func TestBuildInputsThroughWrapper(t *testing.T) {
+	const file = "permissions/visible.go"
+	chain := func(forwards string) []extract.Fact {
+		call := func(id, from, to string, attrs map[string]string) extract.Fact {
+			attrs[extract.AttrCalleePath] = file
+			attrs[extract.AttrCalleeLines] = to
+			return fact(extract.KindCall, id, at(file, from), attrs)
+		}
+		return []extract.Fact{
+			fact(
+				extract.KindAccessCheck,
+				"access_check.webapp.visible",
+				at(file, "1-3"),
+				map[string]string{
+					extract.AttrName: "permissions.Visible",
+					extract.AttrForm: formMarked,
+				},
+			),
+			call("call.1", "1-3", "5-5", map[string]string{extract.AttrCalleeVar: forwards}),
+			call("call.2", "5-5", "7-9", map[string]string{}),
+			call("call.3", "7-9", "11-13", map[string]string{}),
+			call("call.4", "11-13", "15-17", map[string]string{}),
+			fact(extract.KindUsesValue, "uses.1", at(file, "15-17"), map[string]string{
+				extract.AttrName:  "capabilities.CanView",
+				extract.AttrType:  capabilityType,
+				extract.AttrValue: "CAN_VIEW",
+			}),
+		}
+	}
+	cases := map[string]struct {
+		forwards string
+		inputs   int
+	}{
+		"through a wrapper": {"true", 1},
+		"plain calls":       {"", 0},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			inv := policy.Build(chain(tc.forwards), nil, policy.Registry{})
+			if len(inv.Checks) != 1 || len(inv.Checks[0].Inputs) != tc.inputs {
+				t.Errorf("checks %+v, want one with %d inputs", inv.Checks, tc.inputs)
+			}
+		})
 	}
 }

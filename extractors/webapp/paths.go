@@ -20,22 +20,63 @@ type allowPath struct {
 type resultMode struct {
 	boolAt  int // -1 when no result is a bool
 	errOnly bool
+	// nilDenies: an error-only checker whose first result is a pointer
+	// denies by returning nil there with no error (a value withheld:
+	// _getBooleanSetting's "return nil, nil").
+	nilDenies bool
 }
 
 // modeOf reads fn's results: its first bool result, else a last error
 // (any value beside it is ignored: the error decides). A filter, whose
-// first result is a collection, decides per item, which no path reads.
+// first result is a collection, decides per item, which no path reads;
+// a bool beside its collection is a separate decision its callers may
+// gate on (AdministeredSchoolsInDistrict's "administers the district"),
+// not the filter's.
 func modeOf(fn *ast.FuncType) (resultMode, bool) {
 	types := resultTypes(fn)
+	if len(types) > 0 && isCollection(types[0]) {
+		return resultMode{}, false
+	}
 	for i, t := range types {
 		if ident, ok := t.(*ast.Ident); ok && ident.Name == goBool {
 			return resultMode{boolAt: i}, true
 		}
 	}
-	if returnsErrorLast(fn) && !isCollection(types[0]) {
-		return resultMode{boolAt: -1, errOnly: true}, true
+	if returnsErrorLast(fn) {
+		_, pointer := types[0].(*ast.StarExpr)
+		return resultMode{boolAt: -1, errOnly: true, nilDenies: pointer && len(types) > 1}, true
 	}
 	return resultMode{}, false
+}
+
+// errorDecides reports whether fn's last error, not its bool, carries the
+// decision: fn denies by building an authorization error and never by its
+// bool alone (no return of false beside a nil error, nor a bare return).
+// The bool is then data its callers read: AuthorizeCSVExportRequest
+// returns (isCurrentUser, err), _canEditAndIsAdmin (isAdmin, err).
+func errorDecides(fn *ast.FuncDecl, mode resultMode) bool {
+	if mode.boolAt < 0 || !returnsErrorLast(fn.Type) || !buildsAuthorizationError(fn.Body) {
+		return false
+	}
+	alone := false
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		switch node := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.ReturnStmt:
+			alone = alone || len(node.Results) <= mode.boolAt ||
+				isIdentNamed(node.Results[mode.boolAt], goFalse) &&
+					isIdentNamed(node.Results[len(node.Results)-1], goNil)
+		}
+		return !alone
+	})
+	return !alone
+}
+
+// isIdentNamed reports whether e is the identifier name.
+func isIdentNamed(e ast.Expr, name string) bool {
+	ident, ok := e.(*ast.Ident)
+	return ok && ident.Name == name
 }
 
 // isCollection reports whether t is a slice, array or map type.
@@ -64,10 +105,12 @@ func (sc scanner) allowingPaths(fn *ast.FuncDecl) ([]allowPath, string) {
 	switch {
 	case fn.Body == nil:
 		return nil, "has no body"
-	case !ok && returnsErrorLast(fn.Type):
+	case !ok && (returnsErrorLast(fn.Type) || returnsCollectionFirst(fn.Type)):
 		return nil, "a filter: decides per item"
 	case !ok:
 		return nil, "returns no bool and no error"
+	case errorDecides(fn, mode):
+		mode = resultMode{boolAt: -1, errOnly: true}
 	}
 	w := pathWalk{sc: sc, mode: mode, locals: map[string]binding{}, marks: newCallMarks()}
 	for _, stmt := range fn.Body.List {
@@ -180,6 +223,9 @@ func (w *pathWalk) decision(ret *ast.ReturnStmt, locals map[string]binding) (ast
 		result = ret.Results[len(ret.Results)-1]
 	default:
 		return nil, false
+	}
+	if w.mode.nilDenies && isIdentNamed(ret.Results[0], goNil) {
+		return nil, false // a nil value, withheld
 	}
 	if ident, ok := result.(*ast.Ident); ok {
 		switch {

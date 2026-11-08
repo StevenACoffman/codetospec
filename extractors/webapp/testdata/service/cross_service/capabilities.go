@@ -40,3 +40,16 @@ func ActorCanMapStandards(ctx gqlclient.KAContext) (bool, error) {
 	}
 	return resp.User.CanMapStandards, nil
 }
+
+// UserKeyIfActorCanEditContentKind returns nil when the caller can't edit
+// the content kind in the locale its arguments name.
+func UserKeyIfActorCanEditContentKind(ctx gqlclient.KAContext, contentKind, kaLocale string) (*string, error) {
+	resp, err := genqlient.Users_UserKeyIfActorCanEditContentKind(ctx, ctx.GraphQL().AsUser(), contentKind, kaLocale)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.User.HasContentPermission {
+		return nil, nil
+	}
+	return &resp.User.Key, nil
+}

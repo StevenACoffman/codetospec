@@ -206,7 +206,7 @@
     "attrs": {
       "form": "marked",
       "name": "_canEditDrafts",
-      "paths": "[{\"condition\":\"{\\\"all\\\":[{\\\"var\\\":\\\"caller.loggedIn\\\",\\\"op\\\":\\\"equal\\\",\\\"value\\\":true},{\\\"var\\\":\\\"caller.hasPermission.CanEditDrafts\\\",\\\"op\\\":\\\"equal\\\",\\\"value\\\":true}]}\",\"lines\":\"153-153\",\"checks\":[{\"check\":\"acl.IsLoggedIn\",\"var\":\"caller.loggedIn\",\"means\":\"login\"},{\"check\":\"acl.ActorHasPermission\",\"var\":\"caller.hasPermission.CanEditDrafts\",\"means\":\"capability\",\"scope\":\"any\",\"capability\":\"CanEditDrafts\",\"matcher\":\"acl.AnyScope\"}]}]"
+      "paths": "[{\"condition\":\"{\\\"var\\\":\\\"caller.loggedIn\\\",\\\"op\\\":\\\"equal\\\",\\\"value\\\":true}\",\"lines\":\"153-153\",\"checks\":[{\"check\":\"acl.IsLoggedIn\",\"var\":\"caller.loggedIn\",\"means\":\"login\"}]}]"
     },
     "source": {
       "path": "resolvers/guards.go",

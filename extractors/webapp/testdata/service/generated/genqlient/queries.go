@@ -52,3 +52,12 @@ query Users_ActorCanMapStandards ($capability: String!) {
 	}
 }
 `
+
+const Users_UserKeyIfActorCanEditContentKind_Operation = `
+query Users_UserKeyIfActorCanEditContentKind ($contentKind: ContentKind!, $kaLocale: String!) {
+	user {
+		key
+		hasContentPermission(name: "CAN_EDIT_CONTENT", contentScope: {kaLocale: $kaLocale, contentKind: $contentKind})
+	}
+}
+`

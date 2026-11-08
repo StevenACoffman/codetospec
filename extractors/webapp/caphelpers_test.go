@@ -12,7 +12,8 @@ import (
 
 // TestCapabilityHelpers: a function whose decision is admin's
 // hasPermission for one capability is a capability check: its scope from
-// the query's enum, its capability the Go name of a literal, or the
+// the query's enum (hasContentPermission's: the call's locale and content
+// kind), its capability the Go name of a literal, or the
 // argument its variable is bound to; a function combining two is none.
 func TestCapabilityHelpers(t *testing.T) {
 	in := &Inputs{
@@ -34,6 +35,10 @@ func TestCapabilityHelpers(t *testing.T) {
 		},
 		"cross_service.UserKAIDIfActorHasCapability": {
 			capabilityArg: 1, scope: scopeLocale, results: checker{nilDenies: true},
+		},
+		"cross_service.UserKeyIfActorCanEditContentKind": {
+			capability: "CanEditContent", capabilityArg: -1, scope: scopeContentArgs,
+			results: checker{nilDenies: true},
 		},
 	}
 	if !reflect.DeepEqual(got, want) {

@@ -41,8 +41,12 @@ func (cc *checkCall) withHelper(h capHelper, call *ast.CallExpr) {
 	}
 }
 
-// hasPermissionField is admin's capability field.
-const hasPermissionField = "hasPermission"
+// Admin's capability fields: hasPermission on a Scope enum value,
+// hasContentPermission on a locale and content kind (contentScope).
+const (
+	hasPermissionField        = "hasPermission"
+	hasContentPermissionField = "hasContentPermission"
+)
 
 // capabilitiesFile is where webapp keeps every capability's Go name and
 // stored name, generated from admin's registrations.
@@ -108,7 +112,9 @@ func helperOf(
 		return capHelper{}, false
 	}
 	scope := scopeAny
-	if arg := field.Arguments.ForName("scope"); arg != nil {
+	if field.Name == hasContentPermissionField {
+		scope = scopeContentArgs
+	} else if arg := field.Arguments.ForName("scope"); arg != nil {
 		if scope, ok = permissionScopes()[arg.Value.Raw]; !ok {
 			return capHelper{}, false
 		}
@@ -188,8 +194,8 @@ func decidingField(fn *ast.FuncDecl, fields []*gqlast.Field) (*gqlast.Field, boo
 	return nil, false
 }
 
-// permissionFields lists the hasPermission fields a selection set holds,
-// at any depth.
+// permissionFields lists the hasPermission and hasContentPermission
+// fields a selection set holds, at any depth.
 func permissionFields(set gqlast.SelectionSet) []*gqlast.Field {
 	var out []*gqlast.Field
 	for _, sel := range set {
@@ -197,7 +203,7 @@ func permissionFields(set gqlast.SelectionSet) []*gqlast.Field {
 		if !ok {
 			continue
 		}
-		if f.Name == hasPermissionField {
+		if f.Name == hasPermissionField || f.Name == hasContentPermissionField {
 			out = append(out, f)
 		}
 		out = append(out, permissionFields(f.SelectionSet)...)

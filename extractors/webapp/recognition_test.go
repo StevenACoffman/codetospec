@@ -576,6 +576,39 @@ func filter(ctx context.Context) ([]string, error) {
 	return nil, nil
 }
 
+func filterWithBool(ctx context.Context) ([]string, bool, error) {
+	if ctx.RequestIsServiceAdminQuery() {
+		return nil, true, nil
+	}
+	return nil, false, nil
+}
+
+func withheld(ctx context.Context, kaid string) (*bool, error) {
+	if !acl.IsCurrentUser(ctx, kaid) {
+		return nil, nil
+	}
+	v := true
+	return &v, nil
+}
+
+func isSelfOrAdmin(ctx context.Context, kaid string) (isSelf bool, err error) {
+	isSelf = acl.IsCurrentUser(ctx, kaid)
+	if !isSelf && !ctx.RequestIsServiceAdminQuery() {
+		return false, errors.Unauthorized()
+	}
+	return isSelf, nil
+}
+
+func boolDenies(ctx context.Context, kaid string) (bool, error) {
+	if ctx.RequestIsServiceAdminQuery() {
+		return true, nil
+	}
+	if kaid == "" {
+		return false, errors.Unauthorized()
+	}
+	return false, nil
+}
+
 func looping(ctx context.Context, kaids []string) bool {
 	for _, k := range kaids {
 		if acl.IsCurrentUser(ctx, k) {
@@ -617,6 +650,15 @@ func TestAllowingPaths(t *testing.T) {
 			`{"all":[{"not":` + isServiceAdminCond + `},` +
 				`{"var":"validate.fails","op":"equal","value":false}]}`,
 		},
+		// return nil, nil from a pointer result withholds the value: a deny.
+		"withheld": {`{"var":"acl.IsCurrentUser","op":"equal","value":true}`},
+		// The error decides; the bool is data its callers read.
+		"isSelfOrAdmin": {
+			`{"not":{"all":[{"not":{"var":"acl.IsCurrentUser","op":"equal","value":true}},` +
+				`{"not":` + isServiceAdminCond + `}]}}`,
+		},
+		// false beside a nil error denies by the bool: the bool decides.
+		"boolDenies": {isServiceAdminCond},
 	}
 	for name, paths := range want {
 		if strings.Join(got[name], "\n") != strings.Join(paths, "\n") || reasons[name] != "" {
@@ -628,7 +670,10 @@ func TestAllowingPaths(t *testing.T) {
 		t.Errorf("invalid: paths %v, reason %q; want none: every return builds an error",
 			got["invalid"], reasons["invalid"])
 	}
-	for name, reason := range map[string]string{"looping": "loop", "filter": "filter"} {
+	const isFilter = "filter" // the reason names a filter
+	for name, reason := range map[string]string{
+		"looping": "loop", "filter": isFilter, "filterWithBool": isFilter,
+	} {
 		if len(got[name]) != 0 || !strings.Contains(reasons[name], reason) {
 			t.Errorf(
 				"%s: paths %v, reason %q; want none, %q",

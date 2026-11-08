@@ -238,7 +238,10 @@ bin/codetospec run --src /path/to/legacy-repo --out /path/to/spec-graph
 
 On an interactive terminal, `run` shows a full-screen dashboard (files
 parsed, facts, map/reduce progress, failures, live token counts; `q` stops
-cleanly and the run resumes later). Use `--no-tui` for plain logs (CI).
+cleanly and the run resumes later). Use `--no-tui` for plain logs (CI):
+every LLM phase logs a progress line per unit (map every 25 chunks;
+reduce, crosscheck and acceptance each domain or rule; quality each
+batch), so a log that stays quiet for minutes is a stall.
 An output directory belongs to one source: `run` refuses an `--out` whose
 `.codetospec/state.json` records another `--src`, before writing anything.
 When the endpoint throttles (429, or a 5xx naming a wait), every call

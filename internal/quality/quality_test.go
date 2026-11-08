@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -73,7 +74,8 @@ func nodes() []graph.Node {
 // TestRun: the technical and business rules are asked about in one
 // labelled batch, the presentation ones never; a
 // reply naming no listed attribute, or skipping a label, is corrected; a
-// failed batch leaves its rules out without failing the run.
+// failed batch leaves its rules out without failing the run. Each run
+// reports its one batch done, answered or failed.
 func TestRun(t *testing.T) {
 	cases := map[string]struct {
 		replies   []string
@@ -116,7 +118,12 @@ func TestRun(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			model := &script{replies: tc.replies}
-			got, err := classifier(t, model, t.TempDir()).Run(t.Context(), nodes())
+			c := classifier(t, model, t.TempDir())
+			var progress [][2]int
+			c.OnBatch = func(done, total int, _ llm.Usage) {
+				progress = append(progress, [2]int{done, total})
+			}
+			got, err := c.Run(t.Context(), nodes())
 			if err != nil {
 				t.Fatalf("Run: %v", err)
 			}
@@ -125,6 +132,9 @@ func TestRun(t *testing.T) {
 			}
 			if len(model.prompts) != tc.wantCalls {
 				t.Fatalf("calls = %d, want %d", len(model.prompts), tc.wantCalls)
+			}
+			if want := [][2]int{{1, 1}}; !slices.Equal(progress, want) {
+				t.Errorf("progress = %v, want %v", progress, want)
 			}
 			if prompt := model.prompts[0]; strings.Contains(prompt, "bold") ||
 				!strings.Contains(prompt, "R1. "+signedRule) ||

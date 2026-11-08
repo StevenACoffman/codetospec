@@ -164,10 +164,11 @@ func (p *pipeline) quality(ctx context.Context, nodes []graph.Node) ([]graph.Nod
 		Model:     p.cfg.Model,
 		Workers:   p.cfg.Workers,
 		CachePath: filepath.Join(p.cfg.Out, ".codetospec", "quality.json"),
-		OnBatch: func(usage llm.Usage) {
+		OnBatch: func(done, total int, usage llm.Usage) {
 			p.record(ctx, func(s *state.State) {
 				s.AddTokens("quality", usage.PromptTokens, usage.CompletionTokens)
 			})
+			p.sink.Emit(ui.QualityBatch{Done: done, Total: total, Usage: usage})
 		},
 	}
 	attributes, err := classifier.Run(ctx, nodes)
@@ -204,9 +205,15 @@ func (p *pipeline) acceptance(
 		Grounding: groundingOpts,
 		TestsFor:  testsFor,
 		Review:    p.cfg.Crosscheck,
-		OnUnit: func(usage llm.Usage) {
+		OnUnit: func(ruleID string, done, total int, usage llm.Usage) {
 			p.record(ctx, func(s *state.State) {
 				s.AddTokens("acceptance", usage.PromptTokens, usage.CompletionTokens)
+			})
+			p.sink.Emit(ui.AcceptanceUnit{
+				RuleID: ruleID,
+				Done:   done,
+				Total:  total,
+				Usage:  usage,
 			})
 		},
 	}

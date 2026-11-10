@@ -53,6 +53,17 @@ func Statement(pin *Checker, reg Registry, t *locale.Text) string {
 	return out
 }
 
+// LeafPhrase is check l in words, as Statement words a pinned leaf: a
+// capability by goName, its Go name ("" when unknown: the stored name),
+// a relation or attribute by reg's phrase.
+func LeafPhrase(l *Leaf, goName string, reg Registry, t *locale.Text) string {
+	c := Checker{
+		Means: l.Kind, Capability: cmp.Or(goName, l.Capability), Scope: l.Scope,
+		ContentKind: l.ContentKind, Relation: l.Relation, Of: l.Holder, Attribute: l.Attribute,
+	}
+	return statement{reg: reg, t: t}.leaf(&c)
+}
+
 // statement renders the parts of one pin.
 type statement struct {
 	reg Registry
@@ -115,7 +126,7 @@ func (s statement) leaf(c *Checker) string {
 		if c.Capability == "" {
 			return fmt.Sprintf(t.CapabilityFromCallFmt, s.scope(c))
 		}
-		return fmt.Sprintf(t.CapabilityFmt, capabilityWords(goName(c.Capability)), s.scope(c))
+		return fmt.Sprintf(t.CapabilityFmt, CapabilityWords(goName(c.Capability)), s.scope(c))
 	case MeansRelation:
 		if phrase, ok := s.reg.phrase(c.Relation, s.t.Lang); ok {
 			return fmt.Sprintf(t.RelationFmt, phrase)
@@ -148,10 +159,10 @@ func (s statement) scope(c *Checker) string {
 	}[c.Scope]
 }
 
-// capabilityWords spells a capability's Go name as words: its "Can"
+// CapabilityWords spells a capability's Go name as words: its "Can"
 // prefix dropped, camel case split, every word but the first and the
 // acronyms lowercased (CanViewCDIReports → "View CDI reports").
-func capabilityWords(name string) string {
+func CapabilityWords(name string) string {
 	name = strings.TrimPrefix(name, "Can")
 	var words []string
 	runes := []rune(name)

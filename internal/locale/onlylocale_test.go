@@ -17,8 +17,8 @@ var prose = regexp.MustCompile(`\p{Ll}{3,}[ ,:;'’]+\p{Ll}{2,}`)
 
 // TestOutputStringsInLocale enforces the AGENTS.md rule that every fixed
 // string of the spec output lives in this package, FR and EN side by side:
-// the writers of the output (render, questions, the domain-model files)
-// hold no prose literal of their own, so --lang reaches every line.
+// the writers of the output (render, questions, the domain-model files,
+// the access views) hold no prose literal of their own, so --lang reaches every line.
 //
 // Not checked: error and log messages (for the operator, not the spec),
 // struct tags, and llms.txt (render/llms.go: an index for agents, kept in
@@ -27,7 +27,7 @@ var prose = regexp.MustCompile(`\p{Ll}{3,}[ ,:;'’]+\p{Ll}{2,}`)
 func TestOutputStringsInLocale(t *testing.T) {
 	exempt := map[string]bool{"llms.go": true}
 	var found []string
-	for _, dir := range []string{"../render", "../questions", "../domainmodel"} {
+	for _, dir := range []string{"../render", "../questions", "../domainmodel", "../policyview"} {
 		files, err := filepath.Glob(filepath.Join(dir, "*.go"))
 		if err != nil {
 			t.Fatal(err)

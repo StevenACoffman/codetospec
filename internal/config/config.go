@@ -418,6 +418,9 @@ const (
 	// named in full: CEDAR is also Khan's analytics pipeline.
 	ExportCedarPolicy = "cedar-policy"
 	ExportKiro        = "kiro" // Kiro specs (internal/kiro)
+	// ExportViews is the access views (internal/policyview): an access
+	// matrix page and a decision diagram per guarded operation.
+	ExportViews = "views"
 )
 
 // d2RendererFlag declares --d2-renderer, shared by the commands that draw.
@@ -442,15 +445,15 @@ func ParseExport(args []string) (*Config, error) {
 		&cfg.Format,
 		"format",
 		ExportQuire,
-		"spec format: quire, kiro, cerbos or cedar-policy",
+		"spec format: quire, kiro, cerbos, cedar-policy or views",
 	)
 	d2RendererFlag(flags, cfg)
 	flags.StringVar(&cfg.CapabilitiesFrom, "capabilities-from", "",
-		"cerbos, cedar-policy: graph whose capability and role facts to join (admin's)")
+		"cerbos, cedar-policy, views: graph whose capability and role facts to join (admin's)")
 	flags.Var(
 		(*stringList)(&cfg.Checkers),
 		"checkers",
-		"cerbos, cedar-policy: file (JSON or YAML) pinning what unknown checks mean (repeatable; files merge)",
+		"cerbos, cedar-policy, views: file (JSON or YAML) pinning what unknown checks mean (repeatable; files merge)",
 	)
 	flags.Var(
 		(*stringList)(&cfg.Joins),
@@ -459,9 +462,14 @@ func ParseExport(args []string) (*Config, error) {
 			"and its checkers file, for checks calling its operations (repeatable)",
 	)
 	flags.StringVar(&cfg.Registry, "registry", "",
-		"cerbos, cedar-policy: registry the checkers' relations must be declared in")
-	flags.StringVar(&cfg.Src, "src", "",
-		"cerbos, cedar-policy: repository the checks are cited in, to tell stale pins (optional)")
+		"cerbos, cedar-policy, views: registry the checkers' relations must be declared in")
+	flags.StringVar(
+		&cfg.Src,
+		"src",
+		"",
+		"cerbos, cedar-policy, views: repository the checks are cited in, to tell stale pins (optional)",
+	)
+	flags.StringVar(&cfg.Lang, "lang", "en", "views: language of the page and diagrams (en or fr)")
 	registerRefRoots(flags, cfg)
 	flags.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
 	if err := flags.Parse(args); err != nil {
@@ -470,12 +478,13 @@ func ParseExport(args []string) (*Config, error) {
 	if cfg.Out == "" || cfg.To == "" {
 		return nil, errors.New("export requires --out and --to")
 	}
-	if !slices.Contains(
-		[]string{ExportQuire, ExportKiro, ExportCerbos, ExportCedarPolicy},
-		cfg.Format,
-	) {
-		return nil, fmt.Errorf("--format %q must be %s, %s, %s or %s",
-			cfg.Format, ExportQuire, ExportKiro, ExportCerbos, ExportCedarPolicy)
+	formats := []string{ExportQuire, ExportKiro, ExportCerbos, ExportCedarPolicy, ExportViews}
+	if !slices.Contains(formats, cfg.Format) {
+		return nil, fmt.Errorf(
+			"--format %q must be one of %s",
+			cfg.Format,
+			strings.Join(formats, ", "),
+		)
 	}
 	return cfg, nil
 }

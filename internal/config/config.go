@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StevenACoffman/codetospec/internal/d2"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"gopkg.in/yaml.v3"
 )
@@ -106,6 +107,9 @@ type Config struct {
 	// Registry is the policies command's registry file (--registry): the
 	// PIP's properties and relations, each mapped to its sources.
 	Registry string
+	// D2Renderer is the codetospec-d2 binary that draws diagrams
+	// (--d2-renderer; see d2.FindRenderer).
+	D2Renderer string
 	// CapabilitiesFrom is the graph whose capability and role facts a
 	// policy export joins (--capabilities-from): admin's, for a service
 	// that names capabilities it doesn't register.
@@ -258,6 +262,7 @@ func ParseRun(args []string) (*Config, error) {
 		"human modelith model (*.modelith.yaml) to compare the graph with (repeatable)")
 	flags.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
 	flags.BoolVar(&cfg.NoTUI, "no-tui", false, "disable the full-screen dashboard, log to stderr")
+	d2RendererFlag(flags, cfg)
 	registerPassFlags(flags, cfg)
 	flags.IntVar(
 		&cfg.DomainDepth,
@@ -415,6 +420,13 @@ const (
 	ExportKiro        = "kiro" // Kiro specs (internal/kiro)
 )
 
+// d2RendererFlag declares --d2-renderer, shared by the commands that draw.
+func d2RendererFlag(flags *flag.FlagSet, cfg *Config) {
+	flags.StringVar(&cfg.D2Renderer, "d2-renderer", d2.RendererName,
+		"codetospec-d2 binary drawing diagrams as SVG: a path, or a name looked up beside "+
+			"codetospec then on PATH (none found: diagrams are written as D2 sources)")
+}
+
 // ParseExport resolves the export command configuration.
 func ParseExport(args []string) (*Config, error) {
 	flags := flag.NewFlagSet("export", flag.ContinueOnError)
@@ -432,6 +444,7 @@ func ParseExport(args []string) (*Config, error) {
 		ExportQuire,
 		"spec format: quire, kiro, cerbos or cedar-policy",
 	)
+	d2RendererFlag(flags, cfg)
 	flags.StringVar(&cfg.CapabilitiesFrom, "capabilities-from", "",
 		"cerbos, cedar-policy: graph whose capability and role facts to join (admin's)")
 	flags.Var(

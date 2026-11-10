@@ -133,7 +133,7 @@ func checkNodes(t *testing.T, out fs.FS, cfg *config.Config, nodes []graph.Node)
 	}
 }
 
-// checkReadme: the README has the Mermaid domain graph, the coverage and
+// checkReadme: the README has the D2 domain map, the coverage and
 // crosscheck sections, and lists the planted wrong threshold for review.
 func checkReadme(t *testing.T, out fs.FS) {
 	t.Helper()
@@ -142,7 +142,7 @@ func checkReadme(t *testing.T, out fs.FS) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"```mermaid", "## Couverture", "Contre-vérification adversariale",
+		"```d2", "## Couverture", "Contre-vérification adversariale",
 		"## Règles non ancrées", ": 15\n",
 	} {
 		if !strings.Contains(string(readme), want) {

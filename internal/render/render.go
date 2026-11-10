@@ -19,9 +19,9 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/communities"
 	"github.com/StevenACoffman/codetospec/internal/concept"
 	"github.com/StevenACoffman/codetospec/internal/consistency"
+	"github.com/StevenACoffman/codetospec/internal/d2"
 	"github.com/StevenACoffman/codetospec/internal/domainmodel"
 	"github.com/StevenACoffman/codetospec/internal/ears"
-	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/locale"
 	"github.com/StevenACoffman/codetospec/internal/position"
@@ -55,6 +55,9 @@ type Meta struct {
 	// DomainGroups maps each domain split out of an ambiguous namespace to
 	// that namespace (cmd-seedroster → main): the README draws them together.
 	DomainGroups map[string]string
+	// DomainMap is DomainMap drawn (d2.Renderer.Draw, named DomainMapName);
+	// nil writes its source alone.
+	DomainMap *d2.Picture
 	// Near-duplicate rule pairs (deterministic consistency check).
 	DuplicatePairs []consistency.DuplicatePair
 	// RuleFactsRejected counts extractor rule facts dropped as malformed.
@@ -95,8 +98,11 @@ type Meta struct {
 	Actors map[string]string
 }
 
-// Write renders the whole graph into outDir: nodes/, graph.json, README.md
-// and llms.txt. nodes/ is built aside and swapped in, and each top-level
+// DomainMapName is the domain map's file name under diagrams/.
+const DomainMapName = "domains"
+
+// Write renders the whole graph into outDir: nodes/, graph.json, README.md,
+// llms.txt and diagrams/ (the domain map). nodes/ is built aside and swapped in, and each top-level
 // file is written by rename, so an interrupted render leaves the previous
 // output readable, never half of it; .codetospec/ is never touched.
 func Write(outDir string, nodes []graph.Node, meta *Meta) error {
@@ -111,6 +117,11 @@ func Write(outDir string, nodes []graph.Node, meta *Meta) error {
 	}
 	ledger := questions.Apply(questions.List(nodes, meta.CoverageGaps), meta.Resolutions)
 	if err = writeQuestions(outDir, &ledger); err != nil {
+		return err
+	}
+	if err = atomicfs.ReplaceDir(
+		filepath.Join(outDir, diagramsDir), meta.domainMap(nodes, text).Files(),
+	); err != nil {
 		return err
 	}
 	if err = atomicfs.WriteFile(
@@ -638,22 +649,81 @@ func readme(nodes []graph.Node, meta *Meta, ledger *questions.Ledger, text *loca
 	b.WriteString(modelFilesSection(meta.ModelFiles, meta.ModelUndefined, text))
 
 	b.WriteString("\n" + text.DomainsHeading + "\n\n")
-	b.WriteString(domainDiagram(nodes, meta.DomainGroups))
+	b.WriteString(
+		meta.domainMap(nodes, text).Markdown(diagramsDir, text.DomainMapAlt, text.DomainMapSource),
+	)
 	return b.String()
 }
 
-// domainDiagram draws the domain map as mermaid. Domains split out of one
-// namespace (groups: domain → namespace, e.g. every cmd-<tool> out of Go's
-// "main") share a subgraph, and their dependencies are drawn once per
-// group, so a tree of commands does not bury the map in arrows.
-func domainDiagram(nodes []graph.Node, groups map[string]string) string {
+// diagramsDir is where the output's diagrams are written: their D2
+// sources, and their SVGs when a renderer drew them.
+const diagramsDir = "diagrams"
+
+// domainMap is the run's drawn domain map, or, when the run drew none,
+// the map's source alone.
+func (m *Meta) domainMap(nodes []graph.Node, text *locale.Text) *d2.Picture {
+	if m.DomainMap != nil {
+		return m.DomainMap
+	}
+	light := d2.Light()
+	return &d2.Picture{
+		Name:   DomainMapName,
+		Source: d2.Source(DomainMap(nodes, m.DomainGroups, text.DomainsIsolated), &light),
+	}
+}
+
+// DomainMap is the domain map: each domain, and the depends_on edges
+// between them (external services are nodes of their own). Domains split
+// out of one namespace (groups: domain → namespace, e.g. every
+// cmd-<tool> out of Go's "main") share a container, and their
+// dependencies are drawn once per group, none within it, so a tree of
+// commands does not bury the map in arrows.
+//
+// Domains no edge touches go into one grid container labelled
+// isolatedLabel: laid out by their edges, ELK would put them all in one
+// row as wide as the map (60 such domains in a webapp service).
+func DomainMap(nodes []graph.Node, groups map[string]string, isolatedLabel string) *d2.Diagram {
 	dm := newDomainMap(nodes, groups)
-	var b strings.Builder
-	b.WriteString("```mermaid\ngraph TD\n")
-	dm.writeNodes(&b, nodes)
-	dm.writeArrows(&b, nodes)
-	b.WriteString("```\n")
-	return b.String()
+	d := &d2.Diagram{Nodes: dm.nodes(nodes), Edges: dm.edges(nodes)}
+	return withIsolatedGrid(d, isolatedLabel)
+}
+
+// minIsolated is the fewest domains no edge touches that get a grid
+// container: one alone already fits wherever ELK puts it.
+const minIsolated = 2
+
+// isolatedID is the node id of the container of the domains no edge
+// touches, apart from domain slugs and group ids.
+const isolatedID = "isolated:"
+
+// withIsolatedGrid moves d's top-level nodes no edge touches into one
+// container laid out as a square-ish grid; d unchanged when there are
+// fewer than minIsolated.
+func withIsolatedGrid(d *d2.Diagram, label string) *d2.Diagram {
+	touched := map[string]bool{}
+	for _, e := range d.Edges {
+		touched[e.From], touched[e.To] = true, true
+	}
+	isolated := 0
+	for _, n := range d.Nodes {
+		if n.In == "" && n.Class != d2.ClassGroup && !touched[n.ID] {
+			isolated++
+		}
+	}
+	if isolated < minIsolated {
+		return d
+	}
+	columns := int(math.Ceil(math.Sqrt(float64(isolated))))
+	out := &d2.Diagram{Edges: d.Edges, Nodes: []d2.Node{
+		{ID: isolatedID, Label: label, Class: d2.ClassGroup, Columns: columns},
+	}}
+	for _, n := range d.Nodes {
+		if n.In == "" && n.Class != d2.ClassGroup && !touched[n.ID] {
+			n.In = isolatedID
+		}
+		out.Nodes = append(out.Nodes, n)
+	}
+	return out
 }
 
 // domainMap knows which domains are drawn together.
@@ -673,7 +743,7 @@ func newDomainMap(nodes []graph.Node, groups map[string]string) domainMap {
 	return domainMap{groups: groups, members: members}
 }
 
-// groupOf is the namespace whose subgraph holds a domain; "" when the
+// groupOf is the namespace whose container holds a domain; "" when the
 // domain is drawn alone (no group, or a group of one).
 func (dm domainMap) groupOf(slug string) string {
 	if ns := dm.groups[slug]; len(dm.members[ns]) > 1 {
@@ -682,40 +752,42 @@ func (dm domainMap) groupOf(slug string) string {
 	return ""
 }
 
-// writeNodes writes each domain, a group's members inside its subgraph.
-func (dm domainMap) writeNodes(b *strings.Builder, nodes []graph.Node) {
-	drawn := make(map[string]bool) // subgraphs written
-	for _, n := range nodes {
-		if n.Type != graph.TypeDomain {
-			continue
-		}
-		slug := strings.TrimPrefix(n.ID, "domain.")
-		switch ns := dm.groupOf(slug); {
-		case ns == "":
-			fmt.Fprintf(b, "  %s[\"%s\"]\n", mermaidID(slug), slug)
-		case !drawn[ns]:
-			drawn[ns] = true
-			fmt.Fprintf(b, "  subgraph %s[\"%s\"]\n", groupID(ns), ns)
-			for _, m := range dm.members[ns] {
-				fmt.Fprintf(b, "    %s[\"%s\"]\n", mermaidID(m), m)
-			}
-			b.WriteString("  end\n")
-		}
-	}
-}
-
-// writeArrows writes the depends_on edges between domains (external
-// services are listed as nodes of their own), a group's once from its
-// subgraph, none within a group.
-func (dm domainMap) writeArrows(b *strings.Builder, nodes []graph.Node) {
-	seen := make(map[string]bool)
+// nodes are the domains in node order, a group's container before its
+// first member.
+func (dm domainMap) nodes(nodes []graph.Node) []d2.Node {
+	var out []d2.Node
+	drawn := make(map[string]bool) // containers declared
 	for _, n := range nodes {
 		if n.Type != graph.TypeDomain {
 			continue
 		}
 		slug := strings.TrimPrefix(n.ID, "domain.")
 		ns := dm.groupOf(slug)
-		from := mermaidID(slug)
+		if ns != "" && !drawn[ns] {
+			drawn[ns] = true
+			out = append(out, d2.Node{ID: groupID(ns), Label: ns, Class: d2.ClassGroup})
+		}
+		in := ""
+		if ns != "" {
+			in = groupID(ns)
+		}
+		out = append(out, d2.Node{ID: slug, Label: slug, In: in})
+	}
+	return out
+}
+
+// edges are the depends_on edges between domains, a group's once from its
+// container, none within a group.
+func (dm domainMap) edges(nodes []graph.Node) []d2.Edge {
+	var out []d2.Edge
+	seen := make(map[d2.Edge]bool)
+	for _, n := range nodes {
+		if n.Type != graph.TypeDomain {
+			continue
+		}
+		slug := strings.TrimPrefix(n.ID, "domain.")
+		ns := dm.groupOf(slug)
+		from := slug
 		if ns != "" {
 			from = groupID(ns)
 		}
@@ -724,17 +796,19 @@ func (dm domainMap) writeArrows(b *strings.Builder, nodes []graph.Node) {
 			if e.Type != graph.EdgeDependsOn || to == e.To || ns != "" && dm.groupOf(to) == ns {
 				continue
 			}
-			if arrow := fmt.Sprintf("  %s --> %s\n", from, mermaidID(to)); !seen[arrow] {
-				seen[arrow] = true
-				b.WriteString(arrow)
+			if edge := (d2.Edge{From: from, To: to}); !seen[edge] {
+				seen[edge] = true
+				out = append(out, edge)
 			}
 		}
 	}
+	return out
 }
 
-// groupID is the mermaid id of a namespace's subgraph, apart from domain ids.
+// groupID is the node id of a namespace's container, apart from domain
+// slugs (a namespace may be named like one of its domains).
 func groupID(namespace string) string {
-	return "group_" + mermaidID(extract.Slugify(namespace))
+	return "group:" + namespace
 }
 
 // maxListed caps how many entries a README review list shows.
@@ -817,11 +891,6 @@ func gapsSection(all []graph.CoverageGap, ledger *questions.Ledger, text *locale
 		fmt.Fprintf(&b, text.AndMoreFmt+"\n", len(gaps)-maxListed)
 	}
 	return b.String()
-}
-
-// mermaidID makes a slug safe as a Mermaid node identifier.
-func mermaidID(slug string) string {
-	return strings.ReplaceAll(slug, "-", "_")
 }
 
 // domainsByRule maps each rule id to the domain it belongs to: its

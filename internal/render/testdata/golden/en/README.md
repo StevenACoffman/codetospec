@@ -38,9 +38,15 @@ Knowledge graph of business rules, extracted from the source code by codetospec.
 
 ## Domains
 
-```mermaid
-graph TD
-  billing["billing"]
-  crm["crm"]
-  billing --> crm
+```d2
+vars: {d2-config: {layout-engine: elk}}
+direction: down
+style: {fill: "#f5f5f5"}
+classes: {
+  step: {style: {fill: "#ffffff"; stroke: "#2d3142"; font-color: "#2d3142"; border-radius: 6; stroke-width: 1; font-size: 12}}
+}
+(** -> **)[*].style: {stroke: "#4f5d75"; stroke-width: 1; font-color: "#7a8399"; font-size: 12}
+"billing": "billing" {class: step}
+"crm": "crm" {class: step}
+"billing" -> "crm"
 ```

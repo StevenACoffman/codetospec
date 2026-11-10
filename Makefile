@@ -1,15 +1,17 @@
-# The extractors are separate Go modules with their own dependency sets
-# (AGENTS.md), so ./... from the root never reaches them: check and test
-# loop over every module instead.
-MODULES := . extractors/go extractors/scip extractors/webapp
+# The extractors and the D2 renderer are separate Go modules with their
+# own dependency sets (AGENTS.md), so ./... from the root never reaches
+# them: check and test loop over every module instead.
+MODULES := . extractors/go extractors/scip extractors/webapp renderers/d2
 
 GOLANGCI_LINT ?= golangci-lint
 GOVULNCHECK ?= govulncheck
 
 .PHONY: build test run-fixture check lint race tidy vuln corpus
 
+# bin/codetospec finds bin/codetospec-d2 beside itself to draw diagrams.
 build:
 	go build -o bin/codetospec ./cmd/codetospec
+	cd renderers/d2 && go build -o ../../bin/codetospec-d2 .
 
 test:
 	@set -e; for m in $(MODULES); do \

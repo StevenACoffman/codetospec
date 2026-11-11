@@ -110,10 +110,10 @@ func (ph phraser) grantScope(scope string) string {
 	}[scope]
 }
 
-// diagram lays out op's decision: from the request, each guard in rule
+// decisionDiagram lays out op's decision: from the request, each guard in rule
 // order asks its checks (a guard denies when its expression holds), and
 // the request reaches Allowed only past every guard.
-func (ph phraser) diagram(op *policy.Operation, label string) *d2.Diagram {
+func decisionDiagram(ph phraser, op *policy.Operation, label string) *d2.Diagram {
 	b := diagramBuilder{ph: ph}
 	allowedLabel := ph.t.DiagramAllowed
 	if len(op.Obligations) > 0 {

@@ -100,7 +100,7 @@ func Build(in *Input) *Views {
 		row := Row{Label: label, Limited: op.ObligationText()}
 		if len(op.Denies) > 0 {
 			row.Diagram = "operations/" + uniqueSlug(action, slugs)
-			v.Diagrams[row.Diagram] = ph.diagram(op, label)
+			v.Diagrams[row.Diagram] = decisionDiagram(ph, op, label)
 			v.Names = append(v.Names, row.Diagram)
 		}
 		decided := make([]Cell, len(personas))

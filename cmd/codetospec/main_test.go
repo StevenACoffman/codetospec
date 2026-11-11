@@ -7,7 +7,6 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
-	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -21,7 +20,6 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/grounding"
 	"github.com/StevenACoffman/codetospec/internal/render"
-	"github.com/StevenACoffman/codetospec/internal/sitter"
 	"github.com/StevenACoffman/codetospec/internal/state"
 	"github.com/StevenACoffman/codetospec/internal/ui"
 	"github.com/StevenACoffman/codetospec/internal/verify"
@@ -133,7 +131,7 @@ func checkNodes(t *testing.T, out fs.FS, cfg *config.Config, nodes []graph.Node)
 	}
 }
 
-// checkReadme: the README has the D2 domain map, the coverage and
+// checkReadme: the README has the package map (D2), the coverage and
 // crosscheck sections, and lists the planted wrong threshold for review.
 func checkReadme(t *testing.T, out fs.FS) {
 	t.Helper()
@@ -144,6 +142,8 @@ func checkReadme(t *testing.T, out fs.FS) {
 	for _, want := range []string{
 		"```d2", "## Couverture", "Contre-vérification adversariale",
 		"## Règles non ancrées", ": 15\n",
+		// The package dependencies, drawn from the import facts.
+		"## Dépendances des paquets",
 	} {
 		if !strings.Contains(string(readme), want) {
 			t.Errorf("README.md lacks %q:\n%s", want, readme)
@@ -638,28 +638,6 @@ func TestAllowedListsHandlerPath(t *testing.T) {
 	if got := byPath["resolvers/add_auth_email.go"]; len(got) != 1 ||
 		got[0] != "endpoint.mutation-addauthemail" {
 		t.Fatalf("endpoints for the handler file = %v", got)
-	}
-}
-
-func TestDomainGroups(t *testing.T) {
-	chunk := func(path, namespace, domain string) sitter.Chunk {
-		return sitter.Chunk{Path: path, StartLine: 1, Namespace: namespace, Domain: domain}
-	}
-	hints := extract.NewDomainHints([]extract.Fact{{
-		Kind: extract.KindDomain, Attrs: map[string]string{extract.AttrDomain: "auth"},
-		Source: extract.Ref{Path: "cmd/login/main.go", Lines: "1-9"},
-	}})
-	chunks := []sitter.Chunk{
-		chunk("cmd/seed/main.go", "main", "cmd-seed"),
-		chunk("cmd/login/main.go", "main", "auth"), // an extractor hint decided
-		chunk("models/user.go", "models", "models"),
-		chunk("x/a.go", "main", "x"), // reached from two ambiguous namespaces
-		chunk("x/b.go", "util", "x"),
-	}
-	got := domainGroups(chunks, map[string]bool{"main": true, "util": true}, &hints)
-	want := map[string]string{"cmd-seed": "main"}
-	if !maps.Equal(got, want) {
-		t.Fatalf("domainGroups = %v, want %v", got, want)
 	}
 }
 

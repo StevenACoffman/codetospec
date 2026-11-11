@@ -35,18 +35,3 @@ Graphe de connaissances des règles métier, extrait du code source par codetosp
 1 morceaux de code de 1 domaines n'ont produit aucune règle (fichier généré, appel map ou reduce en échec) : ces domaines sont `coverage: partial`, l'absence d'une règle n'y prouve rien :
 
 - `billing` : map-failed app/Services/Billing/Refunds.php:1-40
-
-## Domaines
-
-```d2
-vars: {d2-config: {layout-engine: elk}}
-direction: down
-style: {fill: "#f5f5f5"}
-classes: {
-  step: {style: {fill: "#ffffff"; stroke: "#2d3142"; font-color: "#2d3142"; border-radius: 6; stroke-width: 1; font-size: 12}}
-}
-(** -> **)[*].style: {stroke: "#4f5d75"; stroke-width: 1; font-color: "#7a8399"; font-size: 12}
-"billing": "billing" {class: step}
-"crm": "crm" {class: step}
-"billing" -> "crm"
-```

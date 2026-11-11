@@ -187,3 +187,35 @@ func TestRendererTestdata(t *testing.T) {
 		}
 	}
 }
+
+// TestGridIsolated: the nodes no edge touches share one grid container,
+// square-ish and first; the connected ones, and containers, stay put.
+func TestGridIsolated(t *testing.T) {
+	const api, store = "api", "store"
+	d := &d2.Diagram{Edges: []d2.Edge{{From: api, To: store}}}
+	for _, id := range []string{api, store, "a", "b", "c", "d", "e"} {
+		d.Nodes = append(d.Nodes, d2.Node{ID: id, Label: id})
+	}
+	got := d2.GridIsolated(d, "No dependencies")
+	grid := got.Nodes[0]
+	if grid.Class != d2.ClassGroup || grid.Label != "No dependencies" || grid.Columns != 3 {
+		t.Fatalf("first node = %+v, want the grid container of 3 columns", grid)
+	}
+	for _, n := range got.Nodes[1:] {
+		connected := n.ID == api || n.ID == store
+		if (n.In == grid.ID) == connected {
+			t.Errorf("%s in %q", n.ID, n.In)
+		}
+	}
+	if d.Nodes[2].In != "" {
+		t.Error("GridIsolated modified its input")
+	}
+	if one := d2.GridIsolated(
+		&d2.Diagram{Nodes: d.Nodes[:3], Edges: d.Edges},
+		"x",
+	); len(
+		one.Nodes,
+	) != 3 {
+		t.Error("a single unconnected node got a container")
+	}
+}

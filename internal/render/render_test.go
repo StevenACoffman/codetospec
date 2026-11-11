@@ -374,7 +374,7 @@ func TestWriteEnglish(t *testing.T) {
 			file: "README.md",
 			want: []string{
 				"# Generated specification", "## Coverage", "- Adversarial crosscheck:",
-				", 1 unchecked", "## Ungrounded rules", "## Domains",
+				", 1 unchecked", "## Ungrounded rules",
 				"## Scattered domains", "- `main`: 6 files in 2 communities",
 				"## Shared entities", "- `Invoice` (`entity.invoice`): `billing`, `tax`",
 				"## Layers", "| layer | nature | rules | disagree | questions |",
@@ -482,98 +482,21 @@ func TestParseNodeKeepsInheritedFrom(t *testing.T) {
 	}
 }
 
-func TestDomainDiagramGroupsSplitNamespaces(t *testing.T) {
-	const goMain = "main" // Go's command package, split by directory
-	domain := func(slug string, dependsOn ...string) graph.Node {
-		n := graph.Node{ID: "domain." + slug, Type: graph.TypeDomain}
-		for _, d := range dependsOn {
-			n.Edges = append(n.Edges, graph.Edge{Type: graph.EdgeDependsOn, To: "domain." + d})
+// TestReadmeDiagrams: each drawn diagram is shown as its SVG, the dark
+// one for a dark theme, linked to its source, all under diagrams/; an
+// absent diagram has no section.
+func TestReadmeDiagrams(t *testing.T) {
+	picture := func(name string) *d2.Picture {
+		return &d2.Picture{
+			Name: name, Source: name + " -> b\n",
+			SVG: []byte("<svg>" + name + "</svg>"), DarkSVG: []byte("<svg>dark</svg>"),
 		}
-		return n
 	}
-	nodes := []graph.Node{
-		domain("cmd-backfill", "models", "cmd-seed"),
-		domain("cmd-seed", "models"),
-		domain("models", "cmd-seed"),
-		domain("tasks-main", "models"), // a group of one: drawn plain
-	}
-	groups := map[string]string{"cmd-backfill": goMain, "cmd-seed": goMain, "tasks-main": "tasks"}
 	outDir := t.TempDir()
-	if err := render.Write(
-		outDir,
-		nodes,
-		&render.Meta{DomainGroups: groups, Lang: "en"},
-	); err != nil {
-		t.Fatal(err)
+	meta := render.Meta{
+		Lang:       "en",
+		PackageMap: picture(render.PackageMapName),
 	}
-	readme, err := fs.ReadFile(os.DirFS(outDir), "README.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := string(readme)
-	for _, want := range []string{
-		"\"group:main\": \"main\" {class: group\n  \"cmd-backfill\": \"cmd-backfill\" {class: step}\n" +
-			"  \"cmd-seed\": \"cmd-seed\" {class: step}\n}\n",
-		"\"group:main\" -> \"models\"\n",
-		"\"models\" -> \"group:main\".\"cmd-seed\"\n",
-		"\"tasks-main\": \"tasks-main\" {class: step}\n",
-		"\"tasks-main\" -> \"models\"\n",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("diagram lacks %q:\n%s", want, got)
-		}
-	}
-	if n := strings.Count(got, "\"group:main\" -> \"models\""); n != 1 {
-		t.Errorf("group arrow drawn %d times, want once:\n%s", n, got)
-	}
-	if strings.Contains(got, "\"group:main\" -> \"group:main\".\"cmd-seed\"") {
-		t.Errorf("arrow within the group drawn:\n%s", got)
-	}
-	source, err := fs.ReadFile(os.DirFS(outDir), "diagrams/domains.d2")
-	if err != nil || !strings.Contains(got, string(source)) {
-		t.Errorf("diagrams/domains.d2 = %q, %v; want the README's source", source, err)
-	}
-}
-
-// TestDomainMapIsolatedGrid: domains no edge touches share one grid
-// container, square-ish; the others, and groups, stay where they are.
-func TestDomainMapIsolatedGrid(t *testing.T) {
-	nodes := []graph.Node{
-		{ID: "domain.api", Type: graph.TypeDomain, Edges: []graph.Edge{
-			{Type: graph.EdgeDependsOn, To: "domain.store"},
-		}},
-		{ID: "domain.store", Type: graph.TypeDomain},
-	}
-	for _, slug := range []string{"a", "b", "c", "d", "e"} {
-		nodes = append(nodes, graph.Node{ID: "domain." + slug, Type: graph.TypeDomain})
-	}
-	d := render.DomainMap(nodes, nil, "No dependencies")
-	grid := d.Nodes[0]
-	if grid.Class != d2.ClassGroup || grid.Label != "No dependencies" || grid.Columns != 3 {
-		t.Fatalf("first node = %+v, want the grid container of 3 columns", grid)
-	}
-	in := map[string]string{}
-	for _, n := range d.Nodes[1:] {
-		in[n.ID] = n.In
-	}
-	for _, slug := range []string{"a", "b", "c", "d", "e"} {
-		if in[slug] != grid.ID {
-			t.Errorf("%s is in %q, want the grid", slug, in[slug])
-		}
-	}
-	if in["api"] != "" || in["store"] != "" {
-		t.Errorf("connected domains moved: %v", in)
-	}
-}
-
-// TestReadmeDrawnDomainMap: a drawn map is shown as its SVG, the dark one
-// for a dark theme, linked to its source, all three under diagrams/.
-func TestReadmeDrawnDomainMap(t *testing.T) {
-	outDir := t.TempDir()
-	meta := render.Meta{Lang: "en", DomainMap: &d2.Picture{
-		Name: render.DomainMapName, Source: "a -> b\n",
-		SVG: []byte("<svg>light</svg>"), DarkSVG: []byte("<svg>dark</svg>"),
-	}}
 	if err := render.Write(outDir, nil, &meta); err != nil {
 		t.Fatal(err)
 	}
@@ -582,21 +505,28 @@ func TestReadmeDrawnDomainMap(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`<source media="(prefers-color-scheme: dark)" srcset="diagrams/domains-dark.svg">`,
-		`<img alt="Map of the domains and their dependencies" src="diagrams/domains.svg">`,
-		"[D2 source](diagrams/domains.d2)",
+		"## Package dependencies",
+		`<source media="(prefers-color-scheme: dark)" srcset="diagrams/packages-dark.svg">`,
+		`<img alt="The code&#39;s packages and their imports" src="diagrams/packages.svg">`,
+		"[D2 source](diagrams/packages.d2)",
 	} {
 		if !strings.Contains(string(readme), want) {
 			t.Errorf("README lacks %q:\n%s", want, readme)
 		}
 	}
-	for name, want := range map[string]string{
-		"domains.d2": "a -> b\n", "domains.svg": "<svg>light</svg>", "domains-dark.svg": "<svg>dark</svg>",
-	} {
-		got, readErr := fs.ReadFile(os.DirFS(outDir), "diagrams/"+name)
-		if readErr != nil || string(got) != want {
-			t.Errorf("diagrams/%s = %q, %v; want %q", name, got, readErr, want)
+	for _, name := range []string{"packages.d2", "packages.svg", "packages-dark.svg"} {
+		if _, readErr := fs.ReadFile(os.DirFS(outDir), "diagrams/"+name); readErr != nil {
+			t.Errorf("diagrams/%s: %v", name, readErr)
 		}
+	}
+
+	bare := t.TempDir()
+	if err = render.Write(bare, nil, &render.Meta{Lang: "en"}); err != nil {
+		t.Fatal(err)
+	}
+	if readme, err = fs.ReadFile(os.DirFS(bare), "README.md"); err != nil ||
+		strings.Contains(string(readme), "## Package dependencies") {
+		t.Errorf("README without diagrams = %q, %v; want no diagram section", readme, err)
 	}
 }
 

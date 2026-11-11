@@ -30,6 +30,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/llm"
 	"github.com/StevenACoffman/codetospec/internal/locale"
 	"github.com/StevenACoffman/codetospec/internal/mapper"
+	"github.com/StevenACoffman/codetospec/internal/packagemap"
 	"github.com/StevenACoffman/codetospec/internal/position"
 	"github.com/StevenACoffman/codetospec/internal/reducer"
 	"github.com/StevenACoffman/codetospec/internal/render"
@@ -169,7 +170,6 @@ func (p *pipeline) run(ctx context.Context) error {
 	meta := buildMeta(cfg, &ext, &metaInputs{
 		chunks:   chunks,
 		gaps:     gaps,
-		groups:   domainGroups(chunks, resolver.Ambiguous, &hints),
 		nodes:    nodes,
 		tally:    tally,
 		snapshot: &snapshot,
@@ -183,30 +183,34 @@ func (p *pipeline) run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return p.finish(ctx, nodes, &meta, &written, &snapshot)
+	diagrams := map[string]*d2.Diagram{
+		render.PackageMapName: packagemap.Build(ext.facts, locale.For(cfg.Lang).PackagesIsolated),
+	}
+	return p.finish(ctx, nodes, diagrams, &meta, &written, &snapshot)
 }
 
-// drawDomainMap draws the README's domain map with --d2-renderer; without
-// one, or when it fails, the map is its source alone (said once), never
-// a failed run.
-func (p *pipeline) drawDomainMap(
+// drawDiagrams draws the README's diagrams (by name) with --d2-renderer;
+// without one, or when one fails, a diagram is its source alone (said
+// once), never a failed run.
+func (p *pipeline) drawDiagrams(
 	ctx context.Context,
-	nodes []graph.Node,
-	groups map[string]string,
-) *d2.Picture {
+	ds map[string]*d2.Diagram,
+) map[string]*d2.Picture {
 	renderer := d2.FindRenderer(p.cfg.D2Renderer)
 	if renderer.Cmd == "" {
-		p.logger.InfoContext(ctx, "no D2 renderer: the domain map is written as its source",
+		p.logger.InfoContext(ctx, "no D2 renderer: the diagrams are written as their sources",
 			"renderer", p.cfg.D2Renderer)
 	}
-	name := render.DomainMapName
-	pictures, err := renderer.Draw(ctx, []string{name},
-		map[string]*d2.Diagram{name: render.DomainMap(nodes, groups,
-			locale.For(p.cfg.Lang).DomainsIsolated)})
+	names := slices.Sorted(maps.Keys(ds))
+	pictures, err := renderer.Draw(ctx, names, ds)
 	if err != nil {
-		p.logger.WarnContext(ctx, "cannot draw the domain map", "err", err)
+		p.logger.WarnContext(ctx, "cannot draw every diagram", "err", err)
 	}
-	return &pictures[0]
+	out := make(map[string]*d2.Picture, len(pictures))
+	for i := range pictures {
+		out[pictures[i].Name] = &pictures[i]
+	}
+	return out
 }
 
 // finish renders the graph and the domain models, closes the state and
@@ -214,6 +218,7 @@ func (p *pipeline) drawDomainMap(
 func (p *pipeline) finish(
 	ctx context.Context,
 	nodes []graph.Node,
+	diagrams map[string]*d2.Diagram,
 	meta *render.Meta,
 	written *domainmodel.Enhanced,
 	snapshot *state.State,
@@ -223,7 +228,7 @@ func (p *pipeline) finish(
 	}
 	meta.ModelUndefined = written.Undefined
 	p.sink.Emit(ui.PhaseChanged{Phase: "render"})
-	meta.DomainMap = p.drawDomainMap(ctx, nodes, meta.DomainGroups)
+	meta.PackageMap = p.drawDiagrams(ctx, diagrams)[render.PackageMapName]
 	if err := render.Write(p.cfg.Out, nodes, meta); err != nil {
 		return err
 	}
@@ -669,7 +674,6 @@ func (p *pipeline) verify(ctx context.Context, nodes []graph.Node) error {
 type metaInputs struct {
 	chunks   []sitter.Chunk
 	gaps     []graph.CoverageGap // generated files and failed map or reduce units
-	groups   map[string]string
 	nodes    []graph.Node
 	tally    crosscheck.Tally
 	snapshot *state.State
@@ -681,7 +685,6 @@ type metaInputs struct {
 func buildMeta(cfg *config.Config, ext *extraction, in *metaInputs) render.Meta {
 	meta := render.Meta{
 		DomainSplits:          communities.Splits(codeFiles(in.chunks), importsOf(ext.facts)),
-		DomainGroups:          in.groups,
 		Coverage:              graph.ComputeCoverage(in.nodes),
 		ChunksFailed:          in.snapshot.ChunksFailed,
 		ChunksTotal:           in.snapshot.ChunksTotal,
@@ -800,31 +803,6 @@ func importsOf(facts []extract.Fact) []communities.Import {
 		}
 	}
 	return imports
-}
-
-// domainGroups maps each domain that chunks of an ambiguous namespace
-// resolved to by directory (no extractor hint) to that namespace; a domain
-// reached from two such namespaces belongs to neither.
-func domainGroups(
-	chunks []sitter.Chunk,
-	ambiguous map[string]bool,
-	hints *extract.DomainHints,
-) map[string]string {
-	groups := make(map[string]string)
-	mixed := make(map[string]bool)
-	for _, c := range chunks {
-		if !ambiguous[c.Namespace] || hints.At(c.Path, c.StartLine) != "" {
-			continue
-		}
-		if ns, ok := groups[c.Domain]; ok && ns != c.Namespace {
-			mixed[c.Domain] = true
-		}
-		groups[c.Domain] = c.Namespace
-	}
-	for domain := range mixed {
-		delete(groups, domain)
-	}
-	return groups
 }
 
 // domainModel builds the modelith models to write when

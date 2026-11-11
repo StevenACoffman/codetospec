@@ -179,12 +179,9 @@ func (p *pipeline) run(ctx context.Context) error {
 	meta.Reviewed = reviewedFiles
 	meta.Resolutions = prior.Resolutions
 	meta.UnusedTargets = result.unusedTargets
-	written, err := p.domainModel(models, nodes, ext.facts)
+	written, diagrams, err := p.modelsAndDiagrams(ctx, models, nodes, ext.facts, &meta)
 	if err != nil {
 		return err
-	}
-	diagrams := map[string]*d2.Diagram{
-		render.PackageMapName: packagemap.Build(ext.facts, locale.For(cfg.Lang).PackagesIsolated),
 	}
 	return p.finish(ctx, nodes, diagrams, &meta, &written, &snapshot)
 }
@@ -228,7 +225,8 @@ func (p *pipeline) finish(
 	}
 	meta.ModelUndefined = written.Undefined
 	p.sink.Emit(ui.PhaseChanged{Phase: "render"})
-	meta.PackageMap = p.drawDiagrams(ctx, diagrams)[render.PackageMapName]
+	drawn := p.drawDiagrams(ctx, diagrams)
+	meta.PackageMap, meta.ConceptMap = drawn[render.PackageMapName], drawn[render.ConceptMapName]
 	if err := render.Write(p.cfg.Out, nodes, meta); err != nil {
 		return err
 	}
@@ -805,16 +803,47 @@ func importsOf(facts []extract.Fact) []communities.Import {
 	return imports
 }
 
-// domainModel builds the modelith models to write when
-// --write-domain-model is set; without it, nothing (no files).
+// modelsAndDiagrams is what the run writes beside the graph: the models
+// to write under models/ (none without --write-domain-model), and the
+// README's diagrams by name, the package map and the concept map (meta
+// says whether that is a proposal).
+func (p *pipeline) modelsAndDiagrams(
+	ctx context.Context,
+	models *domainmodel.Set,
+	nodes []graph.Node,
+	facts []extract.Fact,
+	meta *render.Meta,
+) (domainmodel.Enhanced, map[string]*d2.Diagram, error) {
+	enhanced, err := p.domainModel(ctx, models, nodes, facts)
+	if err != nil {
+		return domainmodel.Enhanced{}, nil, err
+	}
+	text := locale.For(p.cfg.Lang)
+	diagrams := map[string]*d2.Diagram{
+		render.PackageMapName: packagemap.Build(facts, text.PackagesIsolated),
+	}
+	concepts, proposed := p.conceptMap(ctx, models, &enhanced, nodes, text)
+	if concepts != nil {
+		diagrams[render.ConceptMapName] = concepts
+		meta.ConceptMapProposed = proposed
+	}
+	if !p.cfg.WriteDomainModel {
+		enhanced = domainmodel.Enhanced{}
+	}
+	return enhanced, diagrams, nil
+}
+
+// domainModel builds the modelith models for the graph (domainmodel.
+// Enhance): the human models enhanced and the proposed concepts. They are
+// written only with --write-domain-model, but the proposal also draws the
+// concept map when no --domain-model is given, so without that flag a
+// model the schema rejects is logged, never a failed run.
 func (p *pipeline) domainModel(
+	ctx context.Context,
 	models *domainmodel.Set,
 	nodes []graph.Node,
 	facts []extract.Fact,
 ) (domainmodel.Enhanced, error) {
-	if !p.cfg.WriteDomainModel {
-		return domainmodel.Enhanced{}, nil
-	}
 	written, err := domainmodel.Enhance(&domainmodel.EnhanceInput{
 		Set:        models,
 		Nodes:      nodes,
@@ -825,10 +854,44 @@ func (p *pipeline) domainModel(
 		Options:    domainmodel.Options{Entities: p.cfg.DomainModelEntities},
 		MirrorPath: mirrorPath(p.cfg.Src),
 	})
-	if err != nil {
+	if err != nil && p.cfg.WriteDomainModel {
 		return domainmodel.Enhanced{}, err
 	}
+	if err != nil {
+		p.logger.WarnContext(ctx, "cannot propose the concepts", "err", err)
+		return domainmodel.Enhanced{}, nil
+	}
 	return *written, nil
+}
+
+// conceptMap is the concept map of the confirmed models, each concept
+// with the rules placed in it, or, with none, of the proposed concepts
+// (true); nil when there is neither.
+func (p *pipeline) conceptMap(
+	ctx context.Context,
+	models *domainmodel.Set,
+	enhanced *domainmodel.Enhanced,
+	nodes []graph.Node,
+	text *locale.Text,
+) (*d2.Diagram, bool) {
+	if models != nil {
+		placed := map[string]int{}
+		for i := range nodes {
+			if c := nodes[i].Extra[concept.ExtraConcept]; nodes[i].Type == graph.TypeRule &&
+				c != "" {
+				placed[c]++
+			}
+		}
+		return domainmodel.ConceptMap(models.Models, false, placed, text), false
+	}
+	proposal, ok, err := domainmodel.Proposal(enhanced)
+	if err != nil {
+		p.logger.WarnContext(ctx, "cannot read the proposed concepts", "err", err)
+	}
+	if !ok {
+		return nil, false
+	}
+	return domainmodel.ConceptMap([]domainmodel.Model{*proposal}, true, nil, text), true
 }
 
 // placement is where the rules' code and evidence place them: each layer

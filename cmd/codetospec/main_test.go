@@ -131,7 +131,7 @@ func checkNodes(t *testing.T, out fs.FS, cfg *config.Config, nodes []graph.Node)
 	}
 }
 
-// checkReadme: the README has the package map (D2), the coverage and
+// checkReadme: the README has the package and concept maps (D2), the coverage and
 // crosscheck sections, and lists the planted wrong threshold for review.
 func checkReadme(t *testing.T, out fs.FS) {
 	t.Helper()
@@ -142,8 +142,9 @@ func checkReadme(t *testing.T, out fs.FS) {
 	for _, want := range []string{
 		"```d2", "## Couverture", "Contre-vérification adversariale",
 		"## Règles non ancrées", ": 15\n",
-		// The package dependencies, drawn from the import facts.
-		"## Dépendances des paquets",
+		// The diagrams: the packages, and the concepts the code proposes
+		// (no --domain-model).
+		"## Dépendances des paquets", "## Carte des concepts\n\n**Proposition, non confirmée**",
 	} {
 		if !strings.Contains(string(readme), want) {
 			t.Errorf("README.md lacks %q:\n%s", want, readme)
@@ -350,6 +351,8 @@ entities:
 		"- `billing.Customer`",
 		// The placed rules regrouped into the model's context domain.
 		"Rules moved, by context domain:\n\n- `domain.billing`: 5",
+		// The concept map is the confirmed model's.
+		"## Concept map\n\nThe concepts of the confirmed models",
 	} {
 		if !strings.Contains(string(readme), want) {
 			t.Errorf("README lacks %q:\n%s", want, readme)

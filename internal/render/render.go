@@ -55,6 +55,11 @@ type Meta struct {
 	// PackageMap is the package dependency diagram (packagemap.Build) as
 	// the run drew it, named PackageMapName; nil for none.
 	PackageMap *d2.Picture
+	// ConceptMap is the concept map (domainmodel.ConceptMap), named
+	// ConceptMapName, of the confirmed models, or of the proposal when
+	// ConceptMapProposed (no --domain-model); nil for none.
+	ConceptMap         *d2.Picture
+	ConceptMapProposed bool
 	// Near-duplicate rule pairs (deterministic consistency check).
 	DuplicatePairs []consistency.DuplicatePair
 	// RuleFactsRejected counts extractor rule facts dropped as malformed.
@@ -95,11 +100,14 @@ type Meta struct {
 	Actors map[string]string
 }
 
-// PackageMapName is the package map's file name under diagrams/.
-const PackageMapName = "packages"
+// The diagrams' file names under diagrams/.
+const (
+	PackageMapName = "packages"
+	ConceptMapName = "concepts"
+)
 
 // Write renders the whole graph into outDir: nodes/, graph.json, README.md,
-// llms.txt and diagrams/ (the package map). nodes/ is built aside and swapped in, and each top-level
+// llms.txt and diagrams/ (the package and concept maps). nodes/ is built aside and swapped in, and each top-level
 // file is written by rename, so an interrupted render leaves the previous
 // output readable, never half of it; .codetospec/ is never touched.
 func Write(outDir string, nodes []graph.Node, meta *Meta) error {
@@ -647,6 +655,12 @@ func readme(nodes []graph.Node, meta *Meta, ledger *questions.Ledger, text *loca
 
 	b.WriteString(diagramSection(meta.PackageMap, text.PackagesHeading, text.PackagesIntro,
 		text.PackagesAlt, text))
+	conceptsIntro := text.ConceptMapIntro
+	if meta.ConceptMapProposed {
+		conceptsIntro = text.ConceptMapProposedIntro
+	}
+	b.WriteString(diagramSection(meta.ConceptMap, text.ConceptMapHeading, conceptsIntro,
+		text.ConceptMapAlt, text))
 	return b.String()
 }
 
@@ -666,7 +680,7 @@ func diagramSection(p *d2.Picture, heading, intro, alt string, text *locale.Text
 // diagramFiles are the files of the run's diagrams under diagramsDir.
 func (m *Meta) diagramFiles() map[string][]byte {
 	files := map[string][]byte{}
-	for _, p := range []*d2.Picture{m.PackageMap} {
+	for _, p := range []*d2.Picture{m.PackageMap, m.ConceptMap} {
 		if p != nil {
 			maps.Copy(files, p.Files())
 		}

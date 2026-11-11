@@ -483,8 +483,9 @@ func TestParseNodeKeepsInheritedFrom(t *testing.T) {
 }
 
 // TestReadmeDiagrams: each drawn diagram is shown as its SVG, the dark
-// one for a dark theme, linked to its source, all under diagrams/; an
-// absent diagram has no section.
+// one for a dark theme, linked to its source, all under diagrams/; the
+// concept map says when it is a proposal; an absent diagram has no
+// section.
 func TestReadmeDiagrams(t *testing.T) {
 	picture := func(name string) *d2.Picture {
 		return &d2.Picture{
@@ -495,7 +496,8 @@ func TestReadmeDiagrams(t *testing.T) {
 	outDir := t.TempDir()
 	meta := render.Meta{
 		Lang:       "en",
-		PackageMap: picture(render.PackageMapName),
+		PackageMap: picture(render.PackageMapName), ConceptMap: picture(render.ConceptMapName),
+		ConceptMapProposed: true,
 	}
 	if err := render.Write(outDir, nil, &meta); err != nil {
 		t.Fatal(err)
@@ -509,12 +511,14 @@ func TestReadmeDiagrams(t *testing.T) {
 		`<source media="(prefers-color-scheme: dark)" srcset="diagrams/packages-dark.svg">`,
 		`<img alt="The code&#39;s packages and their imports" src="diagrams/packages.svg">`,
 		"[D2 source](diagrams/packages.d2)",
+		"## Concept map\n\n**Proposal, not confirmed**",
+		`src="diagrams/concepts.svg"`,
 	} {
 		if !strings.Contains(string(readme), want) {
 			t.Errorf("README lacks %q:\n%s", want, readme)
 		}
 	}
-	for _, name := range []string{"packages.d2", "packages.svg", "packages-dark.svg"} {
+	for _, name := range []string{"packages.d2", "packages.svg", "concepts-dark.svg"} {
 		if _, readErr := fs.ReadFile(os.DirFS(outDir), "diagrams/"+name); readErr != nil {
 			t.Errorf("diagrams/%s: %v", name, readErr)
 		}

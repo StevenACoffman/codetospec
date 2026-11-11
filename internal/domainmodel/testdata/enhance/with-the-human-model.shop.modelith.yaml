@@ -20,4 +20,4 @@ entities:
       - id: shop-order-total
         statement: The system shall keep an order total equal to the sum of its lines.
   Coupon:
-    definition: A discount code a customer applies at checkout.
+    definition: 'Draft, from the code''s documentation: A discount code a customer applies at checkout.'

@@ -348,45 +348,66 @@ func routeFacts(
 	return facts
 }
 
-// tableFacts scans SQL files for CREATE TABLE statements; the first file
-// (in walk order) declaring a table name wins.
+// tableFacts reads the SQL files in walk order (migrations run in name
+// order) as one schema, rollbacks (.down.sql) left out: each table as its
+// statements leave it.
 func tableFacts(root, sqlGlob string, log logf) []Fact {
-	var facts []Fact
-	seen := map[string]bool{}
+	s := newSchema()
 	for _, rel := range sqlFiles(root, sqlGlob, log) {
+		if strings.HasSuffix(strings.ToLower(rel), ".down.sql") {
+			continue
+		}
 		data, err := os.ReadFile(filepath.Clean(filepath.Join(root, filepath.FromSlash(rel))))
 		if err != nil {
 			log("read %s: %v", rel, err)
 			continue
 		}
-		for _, t := range ParseTables(string(data)) {
-			if seen[t.Name] {
-				continue
-			}
-			seen[t.Name] = true
-			attrs := map[string]string{
-				attrName:  t.Name,
-				"columns": strings.Join(t.Columns, ", "),
-			}
-			if len(t.References) > 0 {
-				refs := make([]string, len(t.References))
-				for i, r := range t.References {
-					refs[i] = r.String()
-				}
-				attrs[attrReferences] = strings.Join(refs, ", ")
-			}
-			facts = append(facts, Fact{
-				Kind:      "table",
-				ID:        "table." + t.Name,
-				Attrs:     attrs,
-				Source:    Ref{Path: rel, Lines: itoa(t.Line) + "-" + itoa(t.Line)},
-				Origin:    origin,
-				Certainty: certain,
-			})
-		}
+		s.apply(rel, string(data))
+	}
+	tables := s.list()
+	facts := make([]Fact, 0, len(tables))
+	for i := range tables {
+		facts = append(facts, tableFact(&tables[i], log))
 	}
 	log("%d table(s)", len(facts))
 	return facts
+}
+
+// tableFact is the table fact of t.
+func tableFact(t *Table, log logf) Fact {
+	attrs := map[string]string{
+		attrName:  t.Name,
+		"columns": strings.Join(t.Columns, ", "),
+	}
+	if len(t.References) > 0 {
+		refs := make([]string, len(t.References))
+		for i, r := range t.References {
+			refs[i] = r.String()
+		}
+		attrs[attrReferences] = strings.Join(refs, ", ")
+	}
+	if len(t.PrimaryKey) > 0 {
+		attrs[attrPrimaryKey] = strings.Join(t.PrimaryKey, "+")
+	}
+	if t.Description != "" {
+		attrs[attrDescription] = t.Description
+	}
+	if len(t.ColumnDescriptions) > 0 {
+		data, err := json.Marshal(t.ColumnDescriptions) // sorted keys
+		if err != nil {
+			log("table %s: column descriptions: %v", t.Name, err)
+		} else {
+			attrs[attrColumnDescriptions] = string(data)
+		}
+	}
+	return Fact{
+		Kind:      "table",
+		ID:        "table." + t.Name,
+		Attrs:     attrs,
+		Source:    Ref{Path: t.File, Lines: itoa(t.Line) + "-" + itoa(t.Line)},
+		Origin:    origin,
+		Certainty: certain,
+	}
 }
 
 // sqlFiles lists the .sql files under root, relative and slash-separated,

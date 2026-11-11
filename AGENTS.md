@@ -10,13 +10,13 @@ rules (EARS), cited line by line and verified. For the what/why, see
 go build -o bin/codetospec ./cmd/codetospec   # ALWAYS rebuild before a real run
 make build                                     # also bin/codetospec-d2 (renderers/d2), the diagram renderer
 make test                                      # go vet + go test, all modules
-make check                                     # lint + test + race + tidy + vuln (= CI)
+make check                                     # lint + test + race + tidy + vuln (CI runs each)
 make corpus                                    # real graphs vs baselines, no LLM
 make run-fixture                               # real run on testdata/fixture (needs LLM_BASE_URL)
 scripts/remap.sh                               # remap every ~/spec-graphs output + its measurements (DRY_RUN=1 first)
 ```
 
-- Lint: the repo's `.golangci.yml` (copy of `~/Documents/git/.golangci.yml`),
+- Lint: the repo's `.golangci.yaml` (copy of `~/Documents/git/.golangci.yml`),
   golangci-lint v2.15.0, pinned in `mise.toml` and CI (2.13 cannot read
   Go 1.27.3 export data). Never
   relax it; a `//nolint:<linter> // <reason>` only when the code is correct
@@ -523,7 +523,12 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   `render.LoadPrior`, an invalid entry stops the run before any LLM call. A
   resolved question is no longer listed in the README; a resolution
   without a question is counted. The render does not know the ids
-  (`Ledger.ResolvedRule`, `ResolvedGap`).
+  (`Ledger.ResolvedRule`, `ResolvedGap`, `ResolvedDivergence`,
+  `ResolvedLink`). `List` takes a `Findings` (nodes, gaps, divergent
+  pairs, column links). `column_link` (`extract.ColumnLinks`, pure over
+  table facts): a column outside its table's keys named as the single
+  column of a foreign key another table declares, "T.c → U", never
+  asserted; listed under the README's model files; id without digest.
 - `graph.AnnotateCoverage` — `coverage: complete | partial` per domain,
   with `coverage_gaps` (generated file, failed map chunk, failed reduce),
   computed by `coverageGaps` in `pipeline.go`; "Code without rules" section
@@ -536,7 +541,7 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   then swapped; no files = no dir); an interrupted render leaves the
   previous output intact. `onlywriter_test.go` parses every non-test Go
   file of every module and fails on any other `os` call that writes,
-  renames or removes (the shared `.golangci.yml` stays untouched).
+  renames or removes (the shared `.golangci.yaml` stays untouched).
 - `internal/locale` — all fixed output strings, FR and EN side by side
   (`tr(fr, en)`), including the EARS templates of the prompts. Writers take
   `locale.For(--lang)`; parsers (`graph.RuleRequirement`,
@@ -588,8 +593,14 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   crosscheck, the render never writes `extracted_by` for it.
 - `internal/communities` — "scattered" domains: communities of the import
   graph (gonum's Louvain + connected components, fixed seed), section of
-  the output README. gonum is pinned: a version bump can change the
-  communities.
+  the output README. `Of` is the partition (file → community, numbered
+  by smallest file), `Splits` reads it, so the alignment shares one run.
+  gonum is pinned: a version bump can change the communities. Pitfall:
+  gonum walks the graph's nodes and neighbours in the order the graph
+  gives, and a `simple` graph gives its maps' order: ties broke
+  differently on each call (assignments: 9 or 10 communities from one
+  input). `sortedGraph` iterates by id; `TestOfDeterministic` fails
+  without it.
 - `internal/inherit` — inherits from a spec of shared code (`--inherit
   name=graph`, requires `--ref-root name=dir`): each LLM rule with a single
   citation falling in reached code (`reach` facts, emitted by an extractor,
@@ -659,6 +670,29 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   the EARS subject of the rules of its concepts (`graph.WithSubject`
   re-renders the sentence; reviewed rules untouched; runs after the
   crosscheck, which judged the sentence as the reduce wrote it).
+  `concept.ConflictSets` (in `Report.Sets`): the conflicts' concept sets
+  in the greedy order that settles the most soonest (answering a set
+  settles every conflict whose concepts it contains), listed in the
+  README's "Concepts" section.
+- `internal/alignment` — with `--domain-model`, `alignment.Measure` (in
+  `buildMeta`, pure, one entry point) compares the confirmed models with
+  the code, no LLM: each unordered pair of concepts (a model relationship
+  is structure, not a call direction) converges, diverges (a
+  `concept_divergence` question, id without digest: about the model),
+  is absent, or unobservable (one concept with neither placed rules nor
+  a table: unknown, not absent). Evidence from facts only: a foreign key
+  between the concepts' tables, a direct call (`extract.DirectCalls`, no
+  interface dispatch) from code one concept's placed rules cite into
+  code another's cite; imports left out (a package serves most
+  concepts). Also scattering (per concept, the directories its rules
+  cite) and tangling (per directory, the concepts), rule counts beside
+  them (size), and `Recovery`, the adjusted Rand index of the
+  communities against each file's majority concept. Declared relations:
+  `domainmodel.Relations` (every relationship and is-a link, qualified).
+  README "Concepts and code"
+  (`docs/verification/concept-alignment-2026-11-11.md`). The placement
+  itself rests on `touches` (reduce) and condition variables: the report
+  is deterministic given it.
 - `graph.SharedEntities` — entities touched by rules of several domains
   (`touches` links from the reduce), "Shared entities" section of the
   output README: shared kernel or misplaced boundary.
@@ -681,7 +715,19 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   tables and owned `api_type`s no model names, `owned` relationships from
   NOT NULL foreign keys to a single parent (DOMAIN_PLAN.md rec. 1, 2, 10;
   never one model per current domain), plus `provenance.json`. A written model read back as human does
-  not change (round-trip test).
+  not change (round-trip test). Table entities singular (`singular`, the
+  inverse of `plurals`, so they match back; API types and enums keep
+  their names); an owned key equal to the child's `primary_key` is
+  `1:0..1`; a type implementing exactly one owned interface gets
+  `subtypeOf`; a column whose code type names an `enum` fact (bare name
+  in the table's directory, or `pkg.Type`) is typed by it, written under
+  `enums:`; `column_descriptions` describe attributes; `stored_by` names
+  the Go type in a kind's placeholder. Definitions from the code's
+  documentation are drafts (`locale.DraftPrefix`, `isDraft`), kept as
+  written. `Entity.Unreviewed`/`Report.UnreviewedEntities`: a
+  `--domain-model` model still holding placeholders or drafts is flagged
+  (WARN, README "Concepts"), never refused
+  (`docs/verification/proposal-from-code-2026-11-11.md`).
 - `cmd/codetospec/main.go` — the full sequence.
 
 ## Extractors and the D2 renderer = SEPARATE Go modules
@@ -714,9 +760,18 @@ packages it imports: what the package map resolves imports by), plus
 `tags` on struct facts (`docs/verification/check-inputs-2026-11-06.md`).
 
 `api_type` (webapp: federated `@key` types, `owned` or extended,
-`deprecated`) and the `table` facts' `references` (Go extractor: foreign
-keys, `not_null` = composition evidence) are concept seeds
-(DOMAIN_PLAN.md rec. 7, 10).
+`deprecated`, `description` from the docstring, `implements`; plus the
+interfaces an owned type implements, `interface: true`) and the `table`
+facts' `references` (Go extractor: foreign keys, `not_null` = composition
+evidence), `primary_key`, `description`, `column_descriptions` (SQL
+comments; webapp: Datastore field comments) and `stored_by` (webapp: the
+Go type of a kind named otherwise) are concept seeds (DOMAIN_PLAN.md rec.
+7, 10). The Go extractor reads the `.sql` files in walk (name) order as
+one schema (`extractors/go/sql.go`, regexp-based on purpose: dialects and
+comments): ALTER TABLE (columns added, dropped, renamed, retyped, NOT
+NULL set or dropped, keys added), RENAME TO, DROP TABLE; `.down.sql`
+files and goose/dbmate down sections never run; a table cites the file
+creating it.
 `constant` facts (grounding: `400` ↔ `http.StatusBadRequest`), `doc`
 (`SCHEMA_DOCS` section of the map), `dependency` (`service` nodes +
 `depends_on`; `as` = `service-admin` | `user`, the authority of the call)

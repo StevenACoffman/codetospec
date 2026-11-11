@@ -16,6 +16,7 @@ import (
 
 	"gonum.org/v1/gonum/graph"
 	"gonum.org/v1/gonum/graph/community"
+	"gonum.org/v1/gonum/graph/iterator"
 	"gonum.org/v1/gonum/graph/simple"
 	"gonum.org/v1/gonum/graph/topo"
 )
@@ -50,30 +51,41 @@ const (
 	seed2 uint64 = 0x636f6d6d756e6974 // "communist"
 )
 
-// Splits returns the domains whose files fall into several communities of
-// the import graph, most split first.
+// Of is the community of each file of the import graph, by path.
 //
 // Requires: file paths are unique.
 // Ensures:  deterministic for a given set of files and imports and a gonum
 // version, whatever their order: edge weights are float sums, so imports
-// are summed in a fixed order.
-func Splits(files []File, imports []Import) []Split {
+// are summed in a fixed order; communities are numbered from 0.
+func Of(files []File, imports []Import) map[string]int {
 	sorted := slices.Clone(files)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Path < sorted[j].Path })
 	ordered := slices.Clone(imports)
 	slices.SortFunc(ordered, func(a, b Import) int {
 		return cmp.Or(cmp.Compare(a.From, b.From), cmp.Compare(a.Target, b.Target))
 	})
-	g := importGraph(sorted, ordered)
-	of := communityOf(g)
+	of := communityOf(importGraph(sorted, ordered))
+	byPath := make(map[string]int, len(sorted))
+	for i, f := range sorted {
+		byPath[f.Path] = of[int64(i)]
+	}
+	return byPath
+}
+
+// Splits returns the domains whose files fall into several communities of
+// of (see Of), most split first.
+//
+// Requires: of = Of(files, …).
+// Ensures:  sorted by communities then domain.
+func Splits(files []File, of map[string]int) []Split {
 	held := make(map[string]map[int]int) // domain → community → files
 	size := make(map[string]int)
-	for i, f := range sorted {
+	for _, f := range files {
 		for _, d := range f.Domains {
 			if held[d] == nil {
 				held[d] = make(map[int]int)
 			}
-			held[d][of[int64(i)]]++
+			held[d][of[f.Path]]++
 			size[d]++
 		}
 	}
@@ -211,20 +223,50 @@ func (idx *fileIndex) resolve(target string) []int64 {
 
 // communityOf assigns each node a community: Louvain's, split into
 // connected parts so no community joins unconnected files (the guarantee
-// Leiden adds over Louvain).
+// Leiden adds over Louvain), numbered by their smallest node.
 func communityOf(g *simple.WeightedUndirectedGraph) map[int64]int {
-	reduced := community.Modularize(g, 1, rand.NewPCG(seed1, seed2))
-	of := make(map[int64]int)
-	next := 0
+	reduced := community.Modularize(sortedGraph{g}, 1, rand.NewPCG(seed1, seed2))
+	var parts [][]int64
 	for _, members := range reduced.Communities() {
 		for _, part := range topo.ConnectedComponents(induced(g, members)) {
-			for _, n := range part {
-				of[n.ID()] = next
+			ids := make([]int64, len(part))
+			for i, n := range part {
+				ids[i] = n.ID()
 			}
-			next++
+			slices.Sort(ids)
+			parts = append(parts, ids)
+		}
+	}
+	slices.SortFunc(parts, func(a, b []int64) int { return cmp.Compare(a[0], b[0]) })
+	of := make(map[int64]int)
+	for i, part := range parts {
+		for _, id := range part {
+			of[id] = i
 		}
 	}
 	return of
+}
+
+// sortedGraph is a graph whose nodes and neighbours iterate by id. gonum's
+// Louvain walks them in the order the graph gives, and a simple graph
+// gives its maps' order: ties then broke differently on every call (on
+// assignments, 9 or 10 communities from one input).
+type sortedGraph struct {
+	*simple.WeightedUndirectedGraph
+}
+
+func (g sortedGraph) Nodes() graph.Nodes {
+	return byID(g.WeightedUndirectedGraph.Nodes())
+}
+
+func (g sortedGraph) From(id int64) graph.Nodes {
+	return byID(g.WeightedUndirectedGraph.From(id))
+}
+
+func byID(it graph.Nodes) graph.Nodes {
+	nodes := graph.NodesOf(it)
+	slices.SortFunc(nodes, func(a, b graph.Node) int { return cmp.Compare(a.ID(), b.ID()) })
+	return iterator.NewOrderedNodes(nodes)
 }
 
 // induced is the subgraph of g on members.

@@ -1,6 +1,12 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:recommended"
-  ]
+  "description": "Only mise.toml: Dependabot keeps the Go modules and GitHub Actions current.",
+  "enabledManagers": ["mise"],
+  "schedule": ["* 0-5 * * 1"],
+  "minimumReleaseAge": "7 days",
+  "dependencyDashboard": { "enabled": false },
+  "semanticCommits": "disabled",
+  "commitMessagePrefix": "mise:",
+  "commitMessageAction": "update",
+  "commitMessageTopic": "{{depName}}"
 }

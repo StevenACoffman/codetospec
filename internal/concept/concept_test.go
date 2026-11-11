@@ -153,6 +153,9 @@ func TestAssignReport(t *testing.T) {
 		},
 		Conflicts: 1,
 		Unplaced:  1,
+		Sets: []concept.ConflictSet{
+			{Concepts: []string{"a.Config", "c.Classroom"}, Rules: 1, Settles: 1},
+		},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("report = %+v\nwant     %+v", got, want)

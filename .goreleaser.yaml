@@ -1,0 +1,127 @@
+# Make sure to check the documentation at https://goreleaser.com
+
+# The lines below are called `modelines`. See `:help modeline`
+# Feel free to remove those if you don't want/need to use them.
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# vim: set ts=2 sw=2 tw=0 fo=cnqoj
+#
+# Two binaries ship together: codetospec (./cmd/codetospec) and the diagram
+# renderer codetospec-d2 (renderers/d2, its own module), which codetospec finds
+# beside itself. Each archive also carries an SBOM (syft); a checksum file
+# covers every artifact, and a keyless cosign signature covers the checksum.
+#
+# codetospec needs cgo (tree-sitter), so it builds for Linux only: amd64 with
+# the runner's gcc, arm64 with gcc-aarch64-linux-gnu (release.yaml installs it).
+# A macOS build would need a macOS runner per release; until then, macOS users
+# build from source (README). The renderer is pure Go and builds for the same
+# targets, so every archive holds both.
+#
+# Local test:  goreleaser release --snapshot --clean --skip=sign  (needs syft and
+#              gcc-aarch64-linux-gnu on PATH, so: on Linux). --skip=sign is
+#              required: snapshot mode does NOT skip the signs block, and keyless
+#              cosign then blocks on an interactive OIDC device flow.
+# CI:          release.yaml installs syft, cosign and the cross compiler and
+#              grants `id-token: write` for keyless signing.
+version: 2
+project_name: codetospec
+
+before:
+  hooks:
+  - go mod tidy -diff
+builds:
+- id: codetospec
+  binary: codetospec
+  main: ./cmd/codetospec
+  env:
+  - CGO_ENABLED=1
+  goos: [linux]
+  goarch: [amd64, arm64]
+  overrides:
+  - goos: linux
+    goarch: arm64
+    env:
+    - CC=aarch64-linux-gnu-gcc
+  flags: [-trimpath]
+  ldflags: [-s -w]
+  # Pin the binary mtime to the commit so repeated builds of one tag are
+  # byte-identical.
+  mod_timestamp: "{{ .CommitTimestamp }}"
+- id: codetospec-d2
+  binary: codetospec-d2
+  dir: renderers/d2
+  main: .
+  env:
+  - CGO_ENABLED=0
+  goos: [linux]
+  goarch: [amd64, arm64]
+  flags: [-trimpath]
+  ldflags: [-s -w]
+  mod_timestamp: "{{ .CommitTimestamp }}"
+archives:
+- formats: [tar.gz]
+  # this name template makes the OS and Arch compatible with the results of `uname`.
+  name_template: >-
+    {{ .ProjectName }}_ {{- title .Os }}_ {{- if eq .Arch "amd64" }}x86_64 {{- else if eq .Arch "386" }}i386 {{- else }}{{ .Arch }}{{ end }} {{- if .Arm }}v{{ .Arm }}{{ end }}
+# No gomod.proxy: it builds a module from the proxy, which cannot build the
+# renderer from its own sub-module directory.
+# The source tarball ships beside the binaries so the release is auditable
+# without a clone.
+source:
+  enabled: true
+  name_template: "{{ .ProjectName }}_{{ .Version }}_source"
+# SBOMs via syft (goreleaser's default SBOM generator): one per binary archive,
+# capturing what each shipped artifact actually contains, plus one for the
+# source tree's full module dependency graph.
+sboms:
+- id: archive
+  artifacts: archive
+- id: source
+  artifacts: source
+# checksums.txt covers every artifact — archives, SBOMs and source tarball.
+checksum:
+  name_template: "checksums.txt"
+# Keyless cosign signature over the checksum. Because the checksum covers the
+# archives, SBOMs and the source tarball, this one signature makes all of them
+# verifiable. Runs only on real releases (skipped by --snapshot); needs cosign +
+# id-token.
+signs:
+- cmd: cosign
+  signature: "${artifact}.sigstore.json"
+  args:
+  - sign-blob
+  - "--bundle=${signature}"
+  - "${artifact}"
+  - "--yes"
+  artifacts: checksum
+  output: true
+changelog:
+  sort: asc
+  filters:
+    exclude:
+    - "^docs:"
+    - "^test:"
+release:
+  footer: |
+    ## Verifying this release
+
+    ```bash
+    # 1. cosign signature over the checksum file (identity = the release workflow).
+    cosign verify-blob \
+      --bundle checksums.txt.sigstore.json \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+      --certificate-identity 'https://github.com/{{ .Env.GITHUB_REPOSITORY }}/.github/workflows/release.yaml@refs/tags/{{ .Tag }}' \
+      checksums.txt
+
+    # 2. hash every downloaded artifact against the now-trusted checksums.
+    shasum -a 256 --ignore-missing -c checksums.txt
+
+    # 3. GitHub build provenance (repeat --repo for whichever archive you pulled).
+    gh attestation verify {{ .ProjectName }}_Linux_x86_64.tar.gz --repo {{ .Env.GITHUB_REPOSITORY }}
+    gh attestation verify {{ .ProjectName }}_{{ .Version }}_source.tar.gz --repo {{ .Env.GITHUB_REPOSITORY }}
+    ```
+
+    Each archive ships an SBOM alongside it (`<archive>.sbom.json`, SPDX-2.3); the
+    source tree's is `{{ .ProjectName }}_{{ .Version }}_source.tar.gz.sbom.json`.
+
+    ---
+    Released by [GoReleaser](https://github.com/goreleaser/goreleaser).

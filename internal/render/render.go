@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/alignment"
 	"github.com/StevenACoffman/codetospec/internal/atomicfs"
 	"github.com/StevenACoffman/codetospec/internal/communities"
 	"github.com/StevenACoffman/codetospec/internal/concept"
@@ -22,6 +23,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/d2"
 	"github.com/StevenACoffman/codetospec/internal/domainmodel"
 	"github.com/StevenACoffman/codetospec/internal/ears"
+	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/locale"
 	"github.com/StevenACoffman/codetospec/internal/position"
@@ -78,6 +80,12 @@ type Meta struct {
 	// Concepts is how the rules fall into the confirmed models' concepts
 	// (concept.Assign); nil without --domain-model.
 	Concepts *concept.Report
+	// Alignment compares the confirmed models' concepts with the code
+	// (alignment.Measure); nil without --domain-model.
+	Alignment *alignment.Report
+	// ColumnLinks are the columns named like a foreign key elsewhere that
+	// no key declares (extract.ColumnLinks): questions for the models.
+	ColumnLinks []extract.ColumnLink
 	// DomainModel compares the graph with human modelith models; nil when
 	// none was given (--domain-model).
 	DomainModel *domainmodel.Report
@@ -120,7 +128,13 @@ func Write(outDir string, nodes []graph.Node, meta *Meta) error {
 	if err = writeGraphJSON(outDir, nodes, files, meta.Actors); err != nil {
 		return err
 	}
-	ledger := questions.Apply(questions.List(nodes, meta.CoverageGaps), meta.Resolutions)
+	ledger := questions.Apply(
+		questions.List(&questions.Findings{
+			Nodes: nodes, Gaps: meta.CoverageGaps, Pairs: alignedPairs(meta.Alignment),
+			Links: meta.ColumnLinks,
+		}),
+		meta.Resolutions,
+	)
 	if err = writeQuestions(outDir, &ledger); err != nil {
 		return err
 	}
@@ -621,7 +635,8 @@ func readme(nodes []graph.Node, meta *Meta, ledger *questions.Ledger, text *loca
 	b.WriteString(sharedSection(meta.SharedEntities, text))
 	b.WriteString(layersSection(meta.Layers, text))
 	b.WriteString(evidenceSection(nodes, text))
-	b.WriteString(conceptsSection(meta.Concepts, text))
+	b.WriteString(conceptsSection(meta.Concepts, meta.DomainModel, text))
+	b.WriteString(alignmentSection(meta.Alignment, ledger, text))
 
 	if len(meta.DuplicatePairs) > 0 {
 		domains := domainsByRule(nodes)
@@ -651,7 +666,7 @@ func readme(nodes []graph.Node, meta *Meta, ledger *questions.Ledger, text *loca
 	}
 
 	b.WriteString(modelSection(meta.DomainModel, text))
-	b.WriteString(modelFilesSection(meta.ModelFiles, meta.ModelUndefined, text))
+	b.WriteString(modelFilesSection(meta, ledger, text))
 
 	b.WriteString(diagramSection(meta.PackageMap, text.PackagesHeading, text.PackagesIntro,
 		text.PackagesAlt, text))
@@ -903,23 +918,29 @@ func modelSection(r *domainmodel.Report, text *locale.Text) string {
 	return b.String()
 }
 
-// modelFilesSection lists the model files written and the entities still
-// awaiting a definition.
-func modelFilesSection(files []string, undefined map[string][]string, text *locale.Text) string {
-	if len(files) == 0 {
+// modelFilesSection lists the model files written, the entities still
+// awaiting a definition, and the unresolved column links.
+func modelFilesSection(meta *Meta, ledger *questions.Ledger, text *locale.Text) string {
+	if len(meta.ModelFiles) == 0 {
 		return ""
 	}
-	listed := make([]string, len(files))
-	var pending []string
-	for i, file := range files {
+	listed := make([]string, len(meta.ModelFiles))
+	var pending, links []string
+	for i, file := range meta.ModelFiles {
 		listed[i] = "`" + file + "`"
-		for _, entity := range undefined[file] {
+		for _, entity := range meta.ModelUndefined[file] {
 			pending = append(pending, fmt.Sprintf("`%s` (`%s`)", entity, file))
+		}
+	}
+	for _, l := range meta.ColumnLinks {
+		if !ledger.ResolvedLink(l) {
+			links = append(links, "`"+l.String()+"`")
 		}
 	}
 	return "\n" + text.ModelFilesHeading + "\n" +
 		itemList(text.ModelFilesIntroFmt, listed, text) +
-		itemList(text.ModelUndefinedFmt, pending, text)
+		itemList(text.ModelUndefinedFmt, pending, text) +
+		itemList(text.ModelLinksFmt, links, text)
 }
 
 // itemList writes a counted intro and its items, capped at maxListed; ""
@@ -1028,13 +1049,23 @@ func evidenceSection(nodes []graph.Node, text *locale.Text) string {
 
 // conceptsSection tables the confirmed models' concepts with the rules
 // their evidence places in each and the domains those rules sit in now:
-// the size of the regrouping a person decides on; "" without models.
-func conceptsSection(report *concept.Report, text *locale.Text) string {
+// the size of the regrouping a person decides on, flagged when models
+// still hold definitions codetospec wrote; "" without models.
+func conceptsSection(
+	report *concept.Report,
+	models *domainmodel.Report,
+	text *locale.Text,
+) string {
 	if report == nil {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("\n" + text.ConceptsHeading + "\n\n")
+	if models != nil {
+		if n := models.UnreviewedEntities(); n > 0 {
+			fmt.Fprintf(&b, text.ConceptsUnreviewedFmt+"\n\n", n, len(models.Entities))
+		}
+	}
 	fmt.Fprintf(&b, text.ConceptsIntroFmt+"\n", report.Conflicts, report.Unplaced)
 	if len(report.Regrouped) > 0 {
 		b.WriteString("\n" + text.ConceptsRegroupedLead + "\n\n")
@@ -1042,12 +1073,143 @@ func conceptsSection(report *concept.Report, text *locale.Text) string {
 			fmt.Fprintf(&b, "- `domain.%s`: %d\n", slug, report.Regrouped[slug])
 		}
 	}
-	if len(report.Concepts) == 0 {
-		return b.String()
+	if len(report.Concepts) > 0 {
+		b.WriteString("\n" + text.ConceptsColumns + "\n")
 	}
-	b.WriteString("\n" + text.ConceptsColumns + "\n")
 	for _, c := range report.Concepts {
 		fmt.Fprintf(&b, "| `%s` | %d | %s |\n", c.Concept, c.Rules, strings.Join(c.Domains, ", "))
+	}
+	if len(report.Sets) > 0 {
+		fmt.Fprintf(&b, "\n"+text.ConceptSetsLeadFmt+"\n\n", len(report.Sets), report.Conflicts)
+		for _, set := range report.Sets {
+			fmt.Fprintf(&b, "1. `%s`: "+text.ConceptSetFmt+"\n",
+				strings.Join(set.Concepts, "`, `"), set.Settles)
+		}
+	}
+	return b.String()
+}
+
+// alignedPairs are report's pairs; nil without one.
+func alignedPairs(report *alignment.Report) []alignment.Pair {
+	if report == nil {
+		return nil
+	}
+	return report.Pairs
+}
+
+// alignmentSection compares the confirmed models with the code: the pairs
+// by outcome, the divergent (unresolved) and absent ones, the recovery
+// by the import graph's communities, and the scattering and tangling
+// tables; "" without models.
+func alignmentSection(
+	report *alignment.Report,
+	ledger *questions.Ledger,
+	text *locale.Text,
+) string {
+	if report == nil {
+		return ""
+	}
+	byOutcome := make(map[alignment.Outcome][]*alignment.Pair)
+	for i := range report.Pairs {
+		p := &report.Pairs[i]
+		byOutcome[p.Outcome] = append(byOutcome[p.Outcome], p)
+	}
+	var b strings.Builder
+	b.WriteString("\n" + text.AlignmentHeading + "\n\n")
+	fmt.Fprintf(&b, text.AlignmentIntroFmt+"\n", len(byOutcome[alignment.Converges]),
+		len(byOutcome[alignment.Diverges]), len(byOutcome[alignment.Absent]),
+		len(byOutcome[alignment.Unobservable]))
+	var open []string
+	for _, p := range byOutcome[alignment.Diverges] {
+		if !ledger.ResolvedDivergence(p) {
+			open = append(
+				open,
+				fmt.Sprintf("`%s`: %s", questions.PairSubject(p), divergenceEvidence(p)),
+			)
+		}
+	}
+	b.WriteString(bullets(text.AlignmentDivergentLead, open, text))
+	var absent []string
+	for _, p := range byOutcome[alignment.Absent] {
+		absent = append(absent, "`"+questions.PairSubject(p)+"`")
+	}
+	b.WriteString(bullets(text.AlignmentAbsentLead, absent, text))
+	if r := report.Recovery; r.Defined {
+		fmt.Fprintf(
+			&b,
+			"\n"+text.AlignmentRecoveryFmt+"\n",
+			twoPlaces(r.ARI),
+			r.Files,
+			r.Concepts,
+			r.Communities,
+		)
+	} else {
+		fmt.Fprintf(&b, "\n"+text.AlignmentNoRecoveryFmt+"\n", r.Files)
+	}
+	b.WriteString(spreadTable(text.AlignmentScatteringColumns, report.Scattering, text))
+	b.WriteString(spreadTable(text.AlignmentTanglingColumns, report.Tangling, text))
+	return b.String()
+}
+
+// twoPlaces writes f with two decimals, a value that rounds to zero as
+// "0.00" whatever its sign.
+func twoPlaces(f float64) string {
+	if s := fmt.Sprintf("%.2f", f); s != "-0.00" {
+		return s
+	}
+	return "0.00"
+}
+
+// divergenceEvidence is a divergent pair's first evidence line, and how
+// many more there are.
+func divergenceEvidence(p *alignment.Pair) string {
+	if len(p.Evidence) == 0 {
+		return ""
+	}
+	first := p.Evidence[0]
+	if more := len(p.Evidence) - 1; more > 0 {
+		first += fmt.Sprintf(" (+%d)", more)
+	}
+	return first
+}
+
+// bullets writes lead and up to maxListed items, counting the rest; ""
+// for no items.
+func bullets(lead string, items []string, text *locale.Text) string {
+	if len(items) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n" + lead + "\n\n")
+	for _, item := range items[:min(len(items), maxListed)] {
+		b.WriteString("- " + item + "\n")
+	}
+	if more := len(items) - maxListed; more > 0 {
+		fmt.Fprintf(&b, text.AndMoreFmt+"\n", more)
+	}
+	return b.String()
+}
+
+// spreadTable tables the first maxListed spreads under columns.
+func spreadTable(columns string, spreads []alignment.Spread, text *locale.Text) string {
+	if len(spreads) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n" + columns + "\n")
+	for _, s := range spreads[:min(len(spreads), maxListed)] {
+		fmt.Fprintf(
+			&b,
+			"| `%s` | %d | %d | `%s` (%d) |\n",
+			s.Name,
+			s.Rules,
+			s.Places,
+			s.Top,
+			s.TopRules,
+		)
+	}
+	if more := len(spreads) - maxListed; more > 0 {
+		fmt.Fprintf(&b, "\n"+text.AndMoreFmt+"\n", more)
 	}
 	return b.String()
 }

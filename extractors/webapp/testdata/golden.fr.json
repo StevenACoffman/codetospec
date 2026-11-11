@@ -249,13 +249,31 @@
     "kind": "api_type",
     "id": "api_type.AIProfile",
     "attrs": {
+      "description": "A profile the AI keeps for a learner.",
+      "implements": "Profile",
       "key": "id",
       "name": "AIProfile",
       "owned": "true"
     },
     "source": {
       "path": "federation.graphql",
-      "lines": "1-1"
+      "lines": "4-4"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "api_type",
+    "id": "api_type.Profile",
+    "attrs": {
+      "description": "Anything that describes a learner.",
+      "interface": "true",
+      "name": "Profile",
+      "owned": "true"
+    },
+    "source": {
+      "path": "federation.graphql",
+      "lines": "10-10"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -270,7 +288,7 @@
     },
     "source": {
       "path": "federation.graphql",
-      "lines": "6-6"
+      "lines": "14-14"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -1243,7 +1261,7 @@
     },
     "source": {
       "path": "federation.graphql",
-      "lines": "1-1"
+      "lines": "4-4"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -1260,7 +1278,7 @@
     },
     "source": {
       "path": "federation.graphql",
-      "lines": "1-1"
+      "lines": "4-4"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -1277,7 +1295,7 @@
     },
     "source": {
       "path": "federation.graphql",
-      "lines": "1-1"
+      "lines": "4-4"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -1294,7 +1312,7 @@
     },
     "source": {
       "path": "federation.graphql",
-      "lines": "6-6"
+      "lines": "14-14"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -1311,7 +1329,7 @@
     },
     "source": {
       "path": "federation.graphql",
-      "lines": "12-12"
+      "lines": "20-20"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -1328,7 +1346,7 @@
     },
     "source": {
       "path": "federation.graphql",
-      "lines": "13-13"
+      "lines": "21-21"
     },
     "origin": "webapp",
     "certainty": "static"
@@ -2636,13 +2654,30 @@
     "kind": "table",
     "id": "table.webapp.UserNonce",
     "attrs": {
+      "column_descriptions": "{\"Kind\":\"what the nonce is for\",\"expires\":\"Expires is when the nonce stops working.\"}",
       "columns": "value:string, Kind:string, expires:time.Time, A:int64, B:int64",
       "description": "UserNonce is a typed, per-user nonce.",
       "name": "UserNonce"
     },
     "source": {
       "path": "models/nonce.go",
-      "lines": "8-17"
+      "lines": "8-19"
+    },
+    "origin": "webapp",
+    "certainty": "static"
+  },
+  {
+    "kind": "table",
+    "id": "table.webapp.LoginSession",
+    "attrs": {
+      "columns": "started:time.Time",
+      "description": "Session is stored under another kind name.",
+      "name": "LoginSession",
+      "stored_by": "Session"
+    },
+    "source": {
+      "path": "models/nonce.go",
+      "lines": "24-26"
     },
     "origin": "webapp",
     "certainty": "static"

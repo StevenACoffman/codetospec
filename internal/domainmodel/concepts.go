@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/alignment"
 	"github.com/StevenACoffman/codetospec/internal/concept"
 	"github.com/StevenACoffman/indomain/pkg/model"
 )
@@ -64,6 +65,37 @@ func Contexts(set *Set) []concept.Context {
 	return contexts
 }
 
+// Relations are every relationship the models declare between two
+// entities, owned or not, and each is-a link, both ends qualified (a name
+// without a scope is in its declaring model).
+//
+// Ensures: in model, entity and relationship order; nil for a nil set.
+func Relations(set *Set) []alignment.Relation {
+	if set == nil {
+		return nil
+	}
+	var relations []alignment.Relation
+	for _, m := range set.Models {
+		for _, name := range m.Model.EntityNames() {
+			e := m.Model.Entities[name]
+			from := m.Scope + "." + name
+			for _, rel := range e.Relationships {
+				relations = append(
+					relations,
+					alignment.Relation{From: from, To: qualify(m.Scope, rel.Entity)},
+				)
+			}
+			if e.SubtypeOf != "" {
+				relations = append(
+					relations,
+					alignment.Relation{From: from, To: qualify(m.Scope, e.SubtypeOf)},
+				)
+			}
+		}
+	}
+	return relations
+}
+
 // owners maps each owned entity to the entity owning it, both qualified;
 // an entity owned by several keeps the first owner by name.
 func owners(set *Set) map[string]string {
@@ -74,10 +106,7 @@ func owners(set *Set) map[string]string {
 				if rel.Ownership != ownershipOwned {
 					continue
 				}
-				owned := rel.Entity
-				if !strings.Contains(owned, ".") {
-					owned = m.Scope + "." + owned
-				}
+				owned := qualify(m.Scope, rel.Entity)
 				if prior, seen := owner[owned]; !seen || m.Scope+"."+name < prior {
 					owner[owned] = m.Scope + "." + name
 				}

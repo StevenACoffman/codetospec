@@ -528,7 +528,8 @@ consistency check, split into intra- and cross-domain) for a reviewer to
 reconcile; two extractor rules are never paired, since they come from one
 template and name different operations. It also lists **scattered domains**:
 domains whose files fall into several communities of the import graph
-(gonum's Louvain, split into connected parts, fixed seed), a sign a domain
+(gonum's Louvain over a graph iterated by id, split into connected parts,
+fixed seed), a sign a domain
 lumps unrelated code together (every Go `main` package, a catch-all schema
 file). It also lists **shared entities**: entities that rules of several
 domains touch, either a shared kernel to name as such or a sign a domain
@@ -699,8 +700,8 @@ writes modelith models under `<out>/models/`, never into the source tree:
 
 - each human model, copied at its path relative to `--src`, with what the
   code adds. Human definitions, comments and order are kept. A placeholder
-  definition is replaced by the entity's authored description when there is
-  one. Columns the entity lacks become attributes. Single-entity ubiquitous
+  definition is replaced by a draft of the entity's authored description
+  when there is one. Columns the entity lacks become attributes. Single-entity ubiquitous
   rules that no invariant states become invariants.
 - one proposed concepts model, `generated/concepts.modelith.yaml`, for the
   concepts no human model names: code tables, and the API entity types the
@@ -710,8 +711,17 @@ writes modelith models under `<out>/models/`, never into the source tree:
   concepts) and deprecated ones are named in its description, never
   defined. One model for the whole output, not one per domain: today's
   domains are code layers, and a proposal must not carry them into the
-  concepts. An entity is defined by its description or, failing that, a
-  placeholder; the README lists those placeholders as questions.
+  concepts. Table entities are named in the singular (`assignments` →
+  `Assignment`). An owned key that is the child's whole primary key is
+  `1:0..1`. A GraphQL type implementing exactly one interface the code
+  owns is its `subtypeOf`. A column whose code type is an enumeration
+  takes it as its type. An entity is defined by a draft of the code's own
+  documentation (a schema comment, a doc comment, a GraphQL docstring,
+  opening with "Draft, from the code's documentation:") or, failing that,
+  a placeholder; the README lists those placeholders as questions.
+  Column comments describe the attributes. A column named like a
+  foreign key elsewhere that no key declares (a document store's
+  `assignment_id`) is a `column_link` question, never a relationship.
 - `models/provenance.json`, which says where each field codetospec decided
   comes from (human, description, placeholder, column or rule).
 
@@ -729,12 +739,31 @@ there under its concept; a rule a person reviewed stays where it is, and
 rule ids don't change. The output README's "Concepts" section says how
 many rules each context took and where they came from. Only a model
 you pass with `--domain-model` moves rules: the proposal codetospec
-draws from the code is shown, never applied. An actor of
-`codetospec.yaml` that `owns` concepts (`owns: [assignments.Assignments]`,
+draws from the code is shown, never applied. A model passed while it
+still holds definitions codetospec wrote (placeholders or drafts) is
+flagged there as unreviewed. An actor of
+`codetospec.yaml` that `owns` concepts (`owns: [assignments.Assignment]`,
 or a whole model by its scope) becomes the EARS subject of the rules
 placed in them, the sentence rewritten from its components without an
 LLM; a reviewed rule keeps its own. An owned concept no model declares
 stops the run before any LLM call.
+
+**Concepts and code.** With `--domain-model`, the output README also
+compares the models with the code, from facts alone. Each pair of concepts
+either converges (the model relates them and the code shows it), diverges
+(the code relates them and the model doesn't: a `concept_divergence`
+question with its evidence), is absent (declared and not shown), or is
+unobservable (one concept has neither placed rules nor a table, so
+nothing could show it). The code shows a relationship through a foreign
+key between the concepts' tables, or a direct call from code one concept's
+rules cite into code another's cite. It also lists how many directories
+each concept's rules come from and how many concepts each directory
+serves, with rule counts beside them (a large concept reaches more
+directories by size alone), and how far the import graph's communities
+recover the concepts (adjusted Rand index). The concept conflicts become
+the fewest questions that settle them all: answering whether some
+concepts share an owner settles every conflict among them. These are
+descriptions, not quality scores.
 
 ## Output
 
@@ -808,7 +837,13 @@ extractors:
 `proved` > extractor > tree-sitter, so a runtime-proved route overrides a
 statically guessed one. A failing extractor is a warning, not a fatal error.
 A `table` fact may carry `description`, the entity's authored description
-(a struct's doc comment, on one line); the entity page shows it.
+(a struct's doc comment, a schema comment, on one line); the entity page
+shows it. Also `primary_key` (columns joined by `+`), `column_descriptions`
+(a JSON object, column → comment) and `stored_by` (the code type its rows
+are stored as, when named otherwise): the proposed model reads them. The Go
+extractor reads `.sql` files in name order as one schema, as a database
+running them as migrations would: later `ALTER TABLE`, `DROP TABLE` and
+renames apply, rollbacks (`.down.sql`, goose or dbmate down sections) don't.
 
 Arguments may use `{src}` (the analyzed root) and `{lang}` (`--lang`).
 Two more kinds let an extractor contribute beyond structure (contract in
@@ -921,9 +956,14 @@ make check    # lint, test, race, go mod tidy -diff, govulncheck — every modul
 make corpus   # re-check real rendered graphs against baselines (no LLM)
 ```
 
-`make check` is what CI runs. The extractors are separate Go modules, so
-every target loops over the root and `extractors/{go,scip,webapp}`. Lint
-uses the repository's `.golangci.yml`; do not relax it. `make corpus`
+CI runs the same targets, one job each (`.github/workflows/ci.yml`, lint in
+`lint.yaml`), plus an anarch-lint architecture check that does not gate yet.
+The extractors and the renderer are separate Go modules, so every target
+loops over the root, `extractors/{go,scip,webapp}` and `renderers/d2`.
+Releases (`bin/release.sh vX.Y.Z` from a clean, pushed `main`) ship
+`codetospec` and `codetospec-d2` for Linux amd64 and arm64; tree-sitter
+needs cgo, so elsewhere build from source. Lint
+uses the repository's `.golangci.yaml`; do not relax it. `make corpus`
 re-runs grounding, verify and drift over the graphs listed in
 `internal/corpus/testdata/corpus.json` and fails on any count worse than its
 baseline; entries absent from the machine, or whose source moved off the

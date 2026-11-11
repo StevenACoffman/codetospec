@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"cmp"
+	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/printer"
@@ -24,12 +26,15 @@ type structDecl struct {
 	start, end  int
 	columns     []string // "name:type"
 	description string   // its doc comment on one line; "" when none
+	// columnDescriptions are its fields' doc comments, by column.
+	columnDescriptions map[string]string
 }
 
 // entityFacts turns every Datastore kind the service registers into a
 // "table" fact: name = the kind, columns = the registered struct's fields as
-// Datastore stores them, description = the struct's doc comment, source =
-// the struct declaration.
+// Datastore stores them, description = the struct's doc comment, column
+// descriptions = its fields', stored by = the struct when named otherwise,
+// source = the struct declaration.
 func entityFacts(sources []source) ([]Fact, []string) {
 	var (
 		warnings []string
@@ -66,6 +71,14 @@ func entityFacts(sources []source) ([]Fact, []string) {
 		}
 		if decl.description != "" {
 			attrs[attrDescription] = decl.description
+		}
+		if r.typeName != r.kind {
+			attrs[attrStoredBy] = r.typeName
+		}
+		if len(decl.columnDescriptions) > 0 {
+			if data, err := json.Marshal(decl.columnDescriptions); err == nil { // sorted keys
+				attrs[attrColumnDescriptions] = string(data)
+			}
 		}
 		facts = append(facts, Fact{
 			Kind:      kindTable,
@@ -124,12 +137,14 @@ func structDecls(fset *token.FileSet, file *ast.File, name string) map[string]st
 			if !isStruct {
 				continue
 			}
+			columns, descriptions := datastoreColumns(fset, st)
 			decls[ts.Name.Name] = structDecl{
-				file:        name,
-				start:       fset.Position(ts.Pos()).Line,
-				end:         fset.Position(ts.End()).Line,
-				columns:     datastoreColumns(fset, st),
-				description: typeDoc(gen, ts),
+				file:               name,
+				start:              fset.Position(ts.Pos()).Line,
+				end:                fset.Position(ts.End()).Line,
+				columns:            columns,
+				description:        typeDoc(gen, ts),
+				columnDescriptions: descriptions,
 			}
 		}
 	}
@@ -151,16 +166,14 @@ func typeDoc(gen *ast.GenDecl, ts *ast.TypeSpec) string {
 
 // datastoreColumns lists the fields Datastore stores: the `datastore:"name"`
 // tag name, else the exported field name; "-" and unexported fields are
-// skipped, and so are embedded fields (their columns live elsewhere).
-func datastoreColumns(fset *token.FileSet, st *ast.StructType) []string {
+// skipped, and so are embedded fields (their columns live elsewhere). It
+// also returns their doc comments (else their line comments), by column,
+// each on one line.
+func datastoreColumns(fset *token.FileSet, st *ast.StructType) ([]string, map[string]string) {
 	var columns []string
+	descriptions := map[string]string{}
 	for _, field := range st.Fields.List {
-		tagName := ""
-		if field.Tag != nil {
-			if tag, err := strconv.Unquote(field.Tag.Value); err == nil {
-				tagName, _, _ = strings.Cut(reflect.StructTag(tag).Get("datastore"), ",")
-			}
-		}
+		tagName := datastoreTag(field)
 		if tagName == "-" {
 			continue
 		}
@@ -168,18 +181,45 @@ func datastoreColumns(fset *token.FileSet, st *ast.StructType) []string {
 		if err := printer.Fprint(&typ, fset, field.Type); err != nil {
 			continue
 		}
+		doc := structFieldDoc(field)
 		for _, ident := range field.Names {
 			if !ident.IsExported() {
 				continue
 			}
-			column := ident.Name
-			if tagName != "" {
-				column = tagName
-			}
+			column := cmp.Or(tagName, ident.Name)
 			columns = append(columns, column+":"+typ.String())
+			if doc != "" {
+				descriptions[column] = doc
+			}
 		}
 	}
-	return columns
+	return columns, descriptions
+}
+
+// datastoreTag is the name a field's `datastore` tag gives it; "" when
+// none.
+func datastoreTag(field *ast.Field) string {
+	if field.Tag == nil {
+		return ""
+	}
+	tag, err := strconv.Unquote(field.Tag.Value)
+	if err != nil {
+		return ""
+	}
+	name, _, _ := strings.Cut(reflect.StructTag(tag).Get("datastore"), ",")
+	return name
+}
+
+// structFieldDoc is a field's doc comment, else its line comment, on one line.
+func structFieldDoc(field *ast.Field) string {
+	group := field.Doc
+	if group == nil {
+		group = field.Comment
+	}
+	if group == nil {
+		return ""
+	}
+	return strings.Join(strings.Fields(group.Text()), " ")
 }
 
 // isSelector reports whether e is pkg.name.

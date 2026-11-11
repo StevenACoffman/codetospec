@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/StevenACoffman/codetospec/internal/alignment"
 	"github.com/StevenACoffman/codetospec/internal/concept"
 	"github.com/StevenACoffman/codetospec/internal/domainmodel"
 	"github.com/StevenACoffman/codetospec/internal/graph"
@@ -18,8 +19,10 @@ const (
 )
 
 // TestConcepts: each model entity with the code entity it matched, its
-// table and the entity owning it by an owned relationship.
+// table and the entity owning it by an owned relationship; and every
+// relationship and is-a link, qualified (Relations).
 func TestConcepts(t *testing.T) {
+	const shopCoupon = "shop.Coupon"
 	path := filepath.Join(t.TempDir(), "shop.modelith.yaml")
 	model := `kind: DomainModel
 version: v1
@@ -38,6 +41,9 @@ entities:
     definition: One item of an order.
   Coupon:
     definition: A discount code.
+  GiftCoupon:
+    definition: A coupon bought as a gift.
+    subtypeOf: Coupon
 `
 	if err := os.WriteFile(path, []byte(model), 0o600); err != nil {
 		t.Fatal(err)
@@ -50,12 +56,21 @@ entities:
 	report := domainmodel.Compare(set, nodes, domainmodel.Options{})
 	got := domainmodel.Concepts(set, &report)
 	want := []concept.Concept{
-		{Name: "shop.Coupon"},
+		{Name: shopCoupon},
+		{Name: "shop.GiftCoupon"},
 		{Name: "shop.Line", Entity: "entity.lines", Table: "lines", Owner: shopOrder},
 		{Name: shopOrder, Entity: "entity.orders", Table: "orders"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("concepts = %+v\nwant       %+v", got, want)
+	}
+	relations := []alignment.Relation{
+		{From: "shop.GiftCoupon", To: shopCoupon},
+		{From: shopOrder, To: "shop.Line"},
+		{From: shopOrder, To: shopCoupon},
+	}
+	if got := domainmodel.Relations(set); !reflect.DeepEqual(got, relations) {
+		t.Errorf("relations = %+v\nwant        %+v", got, relations)
 	}
 }
 

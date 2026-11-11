@@ -69,10 +69,16 @@ const (
 	// description: its struct's doc comment (codetospec's
 	// extract.AttrDescription).
 	attrDescription = "description"
-	attrText        = "text"
-	attrService     = "service"
-	attrOperation   = "operation"
-	attrAs          = "as" // a dependency's authority: asServiceAdmin, asUser
+	// attrStoredBy, on a table fact, is the Go type a Datastore kind is
+	// registered with when it is named otherwise; attrColumnDescriptions,
+	// its fields' doc comments as a JSON object, column → text
+	// (codetospec's extract.AttrStoredBy, AttrColumnDescriptions).
+	attrStoredBy           = "stored_by"
+	attrColumnDescriptions = "column_descriptions"
+	attrText               = "text"
+	attrService            = "service"
+	attrOperation          = "operation"
+	attrAs                 = "as" // a dependency's authority: asServiceAdmin, asUser
 )
 
 // Values of attrAs (codetospec's extract.AsServiceAdmin, extract.AsUser).

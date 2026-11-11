@@ -6,25 +6,68 @@ kind: DomainModel
 version: v1
 title: shop
 description: 'Concepts codetospec proposes for shop from its code (tables and API entity types no human model names, ownership from NOT NULL foreign keys): a proposal, to confirm or correct before it groups rules. Concepts it references, owned elsewhere: Store. Deprecated API types, left out (still needed?): Legacy.'
+enums:
+  Kind:
+    values:
+      - name: KindPaper
+      - name: KindEmail
+  OtherReceiptState:
+    values:
+      - name: GONE
+  ReceiptState:
+    values:
+      - name: OPEN
+      - name: CLOSED
 entities:
+  CardPayment:
+    definition: 'Draft, from the code''s documentation: A payment by card.'
+    subtypeOf: Payment
   Customer:
     definition: 'Not yet defined. codetospec found it as the API type Customer (customer.graphql:1-1): say what it is, and what it is not.'
-  InvoiceLines:
+  GiftPayment:
+    definition: 'Not yet defined. codetospec found it as the API type GiftPayment (pay.graphql:13-13): say what it is, and what it is not.'
+  Invoice:
+    definition: 'Not yet defined. codetospec found it as the table invoices (db/billing.sql:1-4): say what it is, and what it is not.'
+    attributes:
+      - name: number
+        type: string
+    relationships:
+      - entity: InvoiceLine
+        cardinality: 1:n
+        ownership: owned
+      - entity: InvoiceNote
+        cardinality: 1:0..1
+        ownership: owned
+    invariants:
+      - id: billing-invoice-number
+        statement: The system shall number invoices without gaps.
+  InvoiceLine:
     definition: 'Not yet defined. codetospec found it as the table invoice_lines (db/billing.sql:6-10): say what it is, and what it is not.'
     attributes:
       - name: invoice_id
         type: integer
       - name: coupon_id
         type: integer
-  Invoices:
-    definition: 'Not yet defined. codetospec found it as the table invoices (db/billing.sql:1-4): say what it is, and what it is not.'
+  InvoiceNote:
+    definition: 'Not yet defined. codetospec found it as the table invoice_notes (db/billing.sql:12-15): say what it is, and what it is not.'
     attributes:
-      - name: number
+      - name: invoice_id
+        type: integer
+      - name: text
         type: string
-    relationships:
-      - entity: InvoiceLines
-        cardinality: 1:n
-        ownership: owned
-    invariants:
-      - id: billing-invoice-number
-        statement: The system shall number invoices without gaps.
+        description: What the clerk wrote.
+  Payment:
+    definition: 'Draft, from the code''s documentation: A way a customer pays.'
+  Receipt:
+    definition: 'Not yet defined. codetospec found it as the table Receipt, stored by the code type PaperReceipt (receipts/receipt.go:3-9): say what it is, and what it is not.'
+    attributes:
+      - name: total
+        type: integer
+      - name: state
+        type: ReceiptState
+      - name: kind
+        type: Kind
+      - name: old_state
+        type: OtherReceiptState
+  Refundable:
+    definition: 'Not yet defined. codetospec found it as the API type Refundable (pay.graphql:5-5): say what it is, and what it is not.'

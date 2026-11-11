@@ -448,7 +448,7 @@ holds the rest.
     an anarch-lint `calls` rule forbidding `os.WriteFile`, `os.Create`,
     `os.Rename` and the like outside `internal/atomicfs`, with one model per
     module because the extractors are separate modules. A forbidigo pattern
-    would also work; `.golangci.yml` is a shared copy that is never relaxed,
+    would also work; `.golangci.yaml` is a shared copy that is never relaxed,
     so check whether a local tightening is allowed.
   - "All fixed output strings live in `internal/locale`"
     (`AGENTS.md:242-245`): neither anarch-lint nor golangci-lint sees string
@@ -456,7 +456,7 @@ holds the rest.
   - Done: `internal/atomicfs/onlywriter_test.go` (all modules; atomicfs on
     renameio/v2, `ReplaceDir(dir, files)`) and
     `internal/locale/onlylocale_test.go` (spec writers; llms.txt and the
-    pinned export formats exempt). The shared `.golangci.yml` is
+    pinned export formats exempt). The shared `.golangci.yaml` is
     untouched.
 
 - [ ] Propose structural rules to anarch-lint. When a technical rule states a

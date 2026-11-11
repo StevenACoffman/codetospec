@@ -956,9 +956,14 @@ make check    # lint, test, race, go mod tidy -diff, govulncheck — every modul
 make corpus   # re-check real rendered graphs against baselines (no LLM)
 ```
 
-`make check` is what CI runs. The extractors are separate Go modules, so
-every target loops over the root and `extractors/{go,scip,webapp}`. Lint
-uses the repository's `.golangci.yml`; do not relax it. `make corpus`
+CI runs the same targets, one job each (`.github/workflows/ci.yml`, lint in
+`lint.yaml`), plus an anarch-lint architecture check that does not gate yet.
+The extractors and the renderer are separate Go modules, so every target
+loops over the root, `extractors/{go,scip,webapp}` and `renderers/d2`.
+Releases (`bin/release.sh vX.Y.Z` from a clean, pushed `main`) ship
+`codetospec` and `codetospec-d2` for Linux amd64 and arm64; tree-sitter
+needs cgo, so elsewhere build from source. Lint
+uses the repository's `.golangci.yaml`; do not relax it. `make corpus`
 re-runs grounding, verify and drift over the graphs listed in
 `internal/corpus/testdata/corpus.json` and fails on any count worse than its
 baseline; entries absent from the machine, or whose source moved off the

@@ -10,13 +10,13 @@ rules (EARS), cited line by line and verified. For the what/why, see
 go build -o bin/codetospec ./cmd/codetospec   # ALWAYS rebuild before a real run
 make build                                     # also bin/codetospec-d2 (renderers/d2), the diagram renderer
 make test                                      # go vet + go test, all modules
-make check                                     # lint + test + race + tidy + vuln (= CI)
+make check                                     # lint + test + race + tidy + vuln (CI runs each)
 make corpus                                    # real graphs vs baselines, no LLM
 make run-fixture                               # real run on testdata/fixture (needs LLM_BASE_URL)
 scripts/remap.sh                               # remap every ~/spec-graphs output + its measurements (DRY_RUN=1 first)
 ```
 
-- Lint: the repo's `.golangci.yml` (copy of `~/Documents/git/.golangci.yml`),
+- Lint: the repo's `.golangci.yaml` (copy of `~/Documents/git/.golangci.yml`),
   golangci-lint v2.15.0, pinned in `mise.toml` and CI (2.13 cannot read
   Go 1.27.3 export data). Never
   relax it; a `//nolint:<linter> // <reason>` only when the code is correct
@@ -541,7 +541,7 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   then swapped; no files = no dir); an interrupted render leaves the
   previous output intact. `onlywriter_test.go` parses every non-test Go
   file of every module and fails on any other `os` call that writes,
-  renames or removes (the shared `.golangci.yml` stays untouched).
+  renames or removes (the shared `.golangci.yaml` stays untouched).
 - `internal/locale` — all fixed output strings, FR and EN side by side
   (`tr(fr, en)`), including the EARS templates of the prompts. Writers take
   `locale.For(--lang)`; parsers (`graph.RuleRequirement`,

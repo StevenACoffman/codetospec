@@ -158,6 +158,13 @@ const (
 	// definition calls (AttrCalledMethod, "pkg.Type.Method", by the type
 	// declaring it): a registry entry may be built from one.
 	KindCallsMethod = "calls_method"
+	// KindWrites fact names a field of the module's structs that holds one
+	// of its enumerations and that the definition at Source writes
+	// (assignment, increment, keyed literal), as anarch-lint counts writes:
+	// AttrField ("pkg.Type.Field"), AttrFieldPackage (the struct's import
+	// path) and AttrEnum (the enum fact's ID). A method's writes of its own
+	// receiver's type are left out. One fact per definition and field.
+	KindWrites = "writes"
 	// KindCapability is a capability the code registers, at its
 	// declaration: AttrName its name in code (what checks and role
 	// definitions name), AttrValue its stored name (what a grant holds),
@@ -258,6 +265,7 @@ const (
 	// and, AttrTags, of a struct fact: each stored field's datastore name,
 	// "Field:name" comma-separated.
 	AttrField         = "field"
+	AttrFieldPackage  = "field_package"
 	AttrCalledMethod  = "called_method"
 	AttrType          = "type"
 	AttrDatastoreKind = "datastore_kind"
@@ -321,7 +329,8 @@ const (
 	// AttrExecuted and AttrUnexecuted, on an executed fact.
 	AttrExecuted   = "executed"
 	AttrUnexecuted = "unexecuted"
-	// AttrEnum, AttrFrom and AttrTo, on enum_value and transition facts.
+	// AttrEnum, AttrFrom and AttrTo, on enum_value and transition facts;
+	// AttrEnum also on writes facts.
 	AttrEnum = "enum"
 	AttrFrom = "from"
 	AttrTo   = "to"

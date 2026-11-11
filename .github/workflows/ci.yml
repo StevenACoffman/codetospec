@@ -71,10 +71,8 @@ jobs:
     name: Architecture gate and rendering
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Not gating yet: anarch-baseline.json (2026-11-02) predates later work, and
-    # the check reports new findings and metric regressions against it. Drop this
-    # line once a person has reviewed them and re-recorded the baseline.
-    continue-on-error: true
+    # The gate refuses a baseline loosened in the same change as code: re-record
+    # anarch-baseline.json in a pull request of its own, after review.
     permissions:
       contents: read
     env:

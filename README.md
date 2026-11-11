@@ -957,7 +957,8 @@ make corpus   # re-check real rendered graphs against baselines (no LLM)
 ```
 
 CI runs the same targets, one job each (`.github/workflows/ci.yml`, lint in
-`lint.yaml`), plus an anarch-lint architecture check that does not gate yet.
+`lint.yaml`), plus the anarch-lint architecture gate (`anarch.json`, against
+`anarch-baseline.json`; re-record the baseline in a change of its own).
 The extractors and the renderer are separate Go modules, so every target
 loops over the root, `extractors/{go,scip,webapp}` and `renderers/d2`.
 Releases (`bin/release.sh vX.Y.Z` from a clean, pushed `main`) ship

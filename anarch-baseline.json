@@ -1,6 +1,6 @@
 {
   "schema": "anarch-lint.baseline.v1",
-  "modelHash": "0720a2adbe351a3dc24b8ecad1706d27fb11a2b811695ecb8131e8784c2db7ef",
+  "modelHash": "9baf32338db32cef6fe173c31bf8e6265bf5ac0c3cec34c84b665a5983da98c5",
   "findings": [
     {
       "fingerprint": "257ed69ac399609e",
@@ -575,7 +575,7 @@
     },
     {
       "name": "types.relativeCyclicity",
-      "value": 0.005666,
+      "value": 0.005556,
       "higherIsBetter": false
     },
     {
@@ -610,7 +610,7 @@
     },
     {
       "name": "fitness.nccd.packages",
-      "value": 2.6,
+      "value": 2.597403,
       "higherIsBetter": false
     },
     {

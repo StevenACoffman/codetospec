@@ -29,10 +29,10 @@
       "lang": "en",
       "commit": "c55b04b0090e6d0f2df471bef5f37a8a78b58883",
       "baseline": {
-        "rules": 1195,
-        "grounded": 255,
+        "rules": 1200,
+        "grounded": 257,
         "ungrounded": 10,
-        "proven": 250,
+        "proven": 251,
         "partial_domains": 0,
         "violations": 0,
         "drifted": 0,

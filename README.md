@@ -606,8 +606,7 @@ once —
 lives under one root namespace into `core-controller`, `core-server`… instead
 of one mega-domain; a namespace declared in several directories, such as
 Go's `main` for every `cmd/<tool>`, is never one domain: each file takes its
-directory's, `cmd-seedroster`, and the README's domain map draws those
-together in one box), `--reground` (give cached map outputs with ungrounded
+directory's, `cmd-seedroster`), `--reground` (give cached map outputs with ungrounded
 rules one correction exchange), `--workers N` (map
 parallelism), `--max-tokens N` (raise it if a large domain truncates its
 reduce output), `--lang fr|en` (output language: EARS requirements, node labels, README and
@@ -724,9 +723,13 @@ is placed in a concept of the models: the entity whose table it touches or
 whose columns its condition reads (`concept`, `concept_evidence`). A rule
 touching several goes to their nearest common owner (an `owned`
 relationship); concepts with none in common are a `concept_conflict`
-question listing each with its evidence. The output README's "Concepts"
-table gives each concept's rules and the domains they sit in today: the
-size of a regrouping by concept, which is not applied yet. An actor of
+question listing each with its evidence. Each placed rule then moves
+into its model's context domain (named after the model's scope), listed
+there under its concept; a rule a person reviewed stays where it is, and
+rule ids don't change. The output README's "Concepts" section says how
+many rules each context took and where they came from. Only a model
+you pass with `--domain-model` moves rules: the proposal codetospec
+draws from the code is shown, never applied. An actor of
 `codetospec.yaml` that `owns` concepts (`owns: [assignments.Assignments]`,
 or a whole model by its scope) becomes the EARS subject of the rules
 placed in them, the sentence rewritten from its components without an
@@ -738,8 +741,8 @@ stops the run before any LLM call.
 ```
 <out>/
 ├── llms.txt          # navigation guide for agents
-├── README.md         # summary, coverage report, domain map
-├── diagrams/         # domains.d2, and its light and dark SVGs when drawn
+├── README.md         # summary, coverage report, package and concept maps
+├── diagrams/         # packages.d2, concepts.d2, and their light and dark SVGs when drawn
 ├── graph.json        # whole graph, machine format
 ├── questions.json    # findings to review, with their ids
 ├── resolutions.yaml  # yours: answers to questions (never written by codetospec)
@@ -752,8 +755,14 @@ stops the run before any LLM call.
 ```
 
 Domain `depends_on` edges are computed from import facts crossing domain
-boundaries — never by the LLM. On the domain map, domains no edge
-touches share one grid, so they don't stretch the map into one row. The output README reports coverage: endpoints
+boundaries — never by the LLM. The README draws two diagrams. The
+package dependencies come from the import facts alone (a Go import
+resolves to its exact import path; packages of a shared tree the code
+imports are drawn apart; labels drop the prefix all packages share):
+the code's structure, not its business domains. The concept map draws
+the concepts of the `--domain-model` models and their relationships,
+each with its rules; without a model, it draws codetospec's proposal,
+marked as one. The output README reports coverage: endpoints
 referenced by at least one rule, entities touched, failed chunks/domains,
 files without a grammar.
 

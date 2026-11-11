@@ -139,16 +139,13 @@ holds the rest.
       (recommendations 3, 12, 15;
       `docs/verification/concept-assignment-2026-11-04.md`).
 - [x] Actors that own concepts are the EARS subject (recommendation 23).
-- [ ] Apply the concept regrouping: move each rule with a `concept` into
-      its model's context (domain), on a person-confirmed model. TT-RecS
-      (`nlp4re-tools.md` item 10) is a reference for scoring candidate
-      concepts with a person confirming. Measure
-      first on the assignments pilot: coverage, conflicts, and id churn
-      with cross-domain matching
-      (`docs/verification/concept-assignment-2026-11-04.md`: 625 of 794
-      business rules placed, `Assignments` 494 from ~20 domains). A domain
-      node carries the reduce summary, coverage, `depends_on` and the
-      per-domain exports: all must follow the move.
+- [x] Apply the concept regrouping: with `--domain-model`, each placed
+      rule moves into its model's context domain, under its concept
+      (`concept.Regroup`, `graph.Move`); the README's domain map became a
+      package dependency map and a concept map (confirmed, else the
+      proposal, marked)
+      (`docs/verification/concept-regrouping-2026-11-10.md`: assignments,
+      786 rules into one context on its proposal taken as confirmed).
 - [ ] Variants (`DOMAIN_PLAN.md` recommendation 17): revisit when a
       confirmed model names the dimension; code enums find 8 of 67 pairs
       (`docs/verification/enum-variants-2026-11-04.md`).

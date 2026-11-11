@@ -23,6 +23,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/d2"
 	"github.com/StevenACoffman/codetospec/internal/domainmodel"
 	"github.com/StevenACoffman/codetospec/internal/ears"
+	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/locale"
 	"github.com/StevenACoffman/codetospec/internal/position"
@@ -82,6 +83,9 @@ type Meta struct {
 	// Alignment compares the confirmed models' concepts with the code
 	// (alignment.Measure); nil without --domain-model.
 	Alignment *alignment.Report
+	// ColumnLinks are the columns named like a foreign key elsewhere that
+	// no key declares (extract.ColumnLinks): questions for the models.
+	ColumnLinks []extract.ColumnLink
 	// DomainModel compares the graph with human modelith models; nil when
 	// none was given (--domain-model).
 	DomainModel *domainmodel.Report
@@ -125,7 +129,10 @@ func Write(outDir string, nodes []graph.Node, meta *Meta) error {
 		return err
 	}
 	ledger := questions.Apply(
-		questions.List(nodes, meta.CoverageGaps, alignedPairs(meta.Alignment)),
+		questions.List(&questions.Findings{
+			Nodes: nodes, Gaps: meta.CoverageGaps, Pairs: alignedPairs(meta.Alignment),
+			Links: meta.ColumnLinks,
+		}),
 		meta.Resolutions,
 	)
 	if err = writeQuestions(outDir, &ledger); err != nil {
@@ -628,7 +635,7 @@ func readme(nodes []graph.Node, meta *Meta, ledger *questions.Ledger, text *loca
 	b.WriteString(sharedSection(meta.SharedEntities, text))
 	b.WriteString(layersSection(meta.Layers, text))
 	b.WriteString(evidenceSection(nodes, text))
-	b.WriteString(conceptsSection(meta.Concepts, text))
+	b.WriteString(conceptsSection(meta.Concepts, meta.DomainModel, text))
 	b.WriteString(alignmentSection(meta.Alignment, ledger, text))
 
 	if len(meta.DuplicatePairs) > 0 {
@@ -659,7 +666,7 @@ func readme(nodes []graph.Node, meta *Meta, ledger *questions.Ledger, text *loca
 	}
 
 	b.WriteString(modelSection(meta.DomainModel, text))
-	b.WriteString(modelFilesSection(meta.ModelFiles, meta.ModelUndefined, text))
+	b.WriteString(modelFilesSection(meta, ledger, text))
 
 	b.WriteString(diagramSection(meta.PackageMap, text.PackagesHeading, text.PackagesIntro,
 		text.PackagesAlt, text))
@@ -911,23 +918,29 @@ func modelSection(r *domainmodel.Report, text *locale.Text) string {
 	return b.String()
 }
 
-// modelFilesSection lists the model files written and the entities still
-// awaiting a definition.
-func modelFilesSection(files []string, undefined map[string][]string, text *locale.Text) string {
-	if len(files) == 0 {
+// modelFilesSection lists the model files written, the entities still
+// awaiting a definition, and the unresolved column links.
+func modelFilesSection(meta *Meta, ledger *questions.Ledger, text *locale.Text) string {
+	if len(meta.ModelFiles) == 0 {
 		return ""
 	}
-	listed := make([]string, len(files))
-	var pending []string
-	for i, file := range files {
+	listed := make([]string, len(meta.ModelFiles))
+	var pending, links []string
+	for i, file := range meta.ModelFiles {
 		listed[i] = "`" + file + "`"
-		for _, entity := range undefined[file] {
+		for _, entity := range meta.ModelUndefined[file] {
 			pending = append(pending, fmt.Sprintf("`%s` (`%s`)", entity, file))
+		}
+	}
+	for _, l := range meta.ColumnLinks {
+		if !ledger.ResolvedLink(l) {
+			links = append(links, "`"+l.String()+"`")
 		}
 	}
 	return "\n" + text.ModelFilesHeading + "\n" +
 		itemList(text.ModelFilesIntroFmt, listed, text) +
-		itemList(text.ModelUndefinedFmt, pending, text)
+		itemList(text.ModelUndefinedFmt, pending, text) +
+		itemList(text.ModelLinksFmt, links, text)
 }
 
 // itemList writes a counted intro and its items, capped at maxListed; ""
@@ -1036,13 +1049,23 @@ func evidenceSection(nodes []graph.Node, text *locale.Text) string {
 
 // conceptsSection tables the confirmed models' concepts with the rules
 // their evidence places in each and the domains those rules sit in now:
-// the size of the regrouping a person decides on; "" without models.
-func conceptsSection(report *concept.Report, text *locale.Text) string {
+// the size of the regrouping a person decides on, flagged when models
+// still hold definitions codetospec wrote; "" without models.
+func conceptsSection(
+	report *concept.Report,
+	models *domainmodel.Report,
+	text *locale.Text,
+) string {
 	if report == nil {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("\n" + text.ConceptsHeading + "\n\n")
+	if models != nil {
+		if n := models.UnreviewedEntities(); n > 0 {
+			fmt.Fprintf(&b, text.ConceptsUnreviewedFmt+"\n\n", n, len(models.Entities))
+		}
+	}
 	fmt.Fprintf(&b, text.ConceptsIntroFmt+"\n", report.Conflicts, report.Unplaced)
 	if len(report.Regrouped) > 0 {
 		b.WriteString("\n" + text.ConceptsRegroupedLead + "\n\n")

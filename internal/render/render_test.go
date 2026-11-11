@@ -778,6 +778,89 @@ func TestReadmeAlignmentSection(t *testing.T) {
 	}
 }
 
+// TestReadmeUnreviewedModels: models still holding definitions
+// codetospec wrote are flagged in the Concepts section, and only those.
+func TestReadmeUnreviewedModels(t *testing.T) {
+	const unreviewed = "**Unreviewed models**: 1 of the 2 entities"
+	meta := &render.Meta{
+		Lang:     "en",
+		Concepts: &concept.Report{},
+		DomainModel: &domainmodel.Report{Entities: []domainmodel.Entity{
+			{Name: conceptAssignment, Unreviewed: true}, {Name: "a.Config"},
+		}},
+	}
+	cases := map[string]struct {
+		models *domainmodel.Report
+		want   bool
+	}{
+		"unreviewed entity": {meta.DomainModel, true},
+		"reviewed throughout": {
+			&domainmodel.Report{Entities: []domainmodel.Entity{{Name: "a.Config"}}},
+			false,
+		},
+		"no model report": {nil, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			meta.DomainModel = tc.models
+			outDir := t.TempDir()
+			if err := render.Write(outDir, nil, meta); err != nil {
+				t.Fatal(err)
+			}
+			data, err := fs.ReadFile(os.DirFS(outDir), "README.md")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Contains(string(data), "**Unreviewed models**"); got != tc.want {
+				t.Errorf("flagged = %v, want %v:\n%s", got, tc.want, data)
+			}
+			if tc.want && !strings.Contains(string(data), unreviewed) {
+				t.Errorf("README lacks %q:\n%s", unreviewed, data)
+			}
+		})
+	}
+}
+
+// TestReadmeModelFiles: the model files written, the entities still
+// undefined, and the column links no resolution closed.
+func TestReadmeModelFiles(t *testing.T) {
+	open := extract.ColumnLink{Table: "ChangeEvent", Column: "assignment_id", Target: "assignments"}
+	closed := extract.ColumnLink{Table: "Note", Column: "assignment_id", Target: "assignments"}
+	meta := &render.Meta{
+		Lang:           "en",
+		ModelFiles:     []string{"generated/concepts.modelith.yaml"},
+		ModelUndefined: map[string][]string{"generated/concepts.modelith.yaml": {"Receipt"}},
+		ColumnLinks:    []extract.ColumnLink{open, closed},
+		Resolutions: map[string]questions.Resolution{
+			questions.ID(questions.KindColumnLink, closed.String(), closed.String(), ""): {
+				Disposition: questions.Verified, Reason: "no link",
+			},
+		},
+	}
+	outDir := t.TempDir()
+	if err := render.Write(outDir, nil, meta); err != nil {
+		t.Fatal(err)
+	}
+	data, err := fs.ReadFile(os.DirFS(outDir), "README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	for _, want := range []string{
+		"- `generated/concepts.modelith.yaml`\n",
+		"- `Receipt` (`generated/concepts.modelith.yaml`)\n",
+		"1 columns are named like a foreign key elsewhere",
+		"- `ChangeEvent.assignment_id → assignments`\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("README lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, closed.String()) {
+		t.Errorf("a resolved link is listed:\n%s", got)
+	}
+}
+
 // conceptAssignment is a concept of the tests' confirmed model.
 const conceptAssignment = "a.Assignment"
 

@@ -17,7 +17,9 @@
 // whose observable the review refuted (KindObservableRefuted), one
 // whose target a person set for code that has changed since
 // (KindStaleTarget), and code of a domain that produced no rule
-// (KindCoverageGap). Pair findings (near-duplicates) and the domain-model
+// (KindCoverageGap); about the models, two concepts the code relates and
+// the models don't (KindConceptDivergence), and a column named like a
+// foreign key elsewhere that no key declares (KindColumnLink). Pair findings (near-duplicates) and the domain-model
 // gaps are not questions yet. A target (KindNFRTarget's answer) is set in
 // targets.yaml (package nfrtarget), not resolved here: it closes the
 // question by setting the threshold.
@@ -34,6 +36,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/alignment"
 	"github.com/StevenACoffman/codetospec/internal/concept"
 	"github.com/StevenACoffman/codetospec/internal/crosscheck"
+	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/position"
 	"github.com/StevenACoffman/codetospec/internal/quality"
@@ -75,7 +78,12 @@ const (
 	// digest: it is about the model, which only a person changes, so new
 	// evidence for the same pair keeps the question.
 	KindConceptDivergence = "concept_divergence"
-	KindCoverageGap       = "coverage_gap"
+	// KindColumnLink: a column no foreign key declares, named as one that
+	// references another table elsewhere (extract.ColumnLinks): a link a
+	// model may hold, which the code never states. No digest, as for a
+	// divergence.
+	KindColumnLink  = "column_link"
+	KindCoverageGap = "coverage_gap"
 )
 
 // shownEvidence is how many evidence lines a divergence's detail quotes.
@@ -92,13 +100,20 @@ type Question struct {
 	finding    string      // what Ledger.ResolvedRule and ResolvedGap look up
 }
 
-// List lists the questions the nodes and coverage gaps raise.
+// Findings are what List asks about.
+type Findings struct {
+	Nodes []graph.Node        // as the run renders them (verdicts, grounding and digests set)
+	Gaps  []graph.CoverageGap // from graph.AnnotateCoverage
+	Pairs []alignment.Pair    // from alignment.Measure
+	Links []extract.ColumnLink
+}
+
+// List lists the questions the findings raise.
 //
-// Requires: nodes as the run renders them (verdicts, grounding and digests
-// set); gaps from graph.AnnotateCoverage; pairs from alignment.Measure.
-// Ensures:  sorted by id, unresolved; the same findings on the same cited
+// Ensures: sorted by id, unresolved; the same findings on the same cited
 // code give the same ids.
-func List(nodes []graph.Node, gaps []graph.CoverageGap, pairs []alignment.Pair) []Question {
+func List(in *Findings) []Question {
+	nodes, gaps, pairs := in.Nodes, in.Gaps, in.Pairs
 	var qs []Question
 	add := func(kind, subject, detail, key, digest string) {
 		qs = append(qs, Question{
@@ -128,6 +143,9 @@ func List(nodes []graph.Node, gaps []graph.CoverageGap, pairs []alignment.Pair) 
 			subject := PairSubject(p)
 			add(KindConceptDivergence, subject, divergenceDetail(p), subject, "")
 		}
+	}
+	for _, l := range in.Links {
+		add(KindColumnLink, l.String(), l.String(), l.String(), "")
 	}
 	slices.SortFunc(qs, func(a, b Question) int { return cmp.Compare(a.ID, b.ID) })
 	return qs

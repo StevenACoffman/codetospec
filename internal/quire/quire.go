@@ -330,7 +330,7 @@ func targetOf(nfrTargets map[string]nfrtarget.Target, id string) *nfrtarget.Targ
 
 // questionOf is the id of rule's question of kind, "" when it raises none.
 func questionOf(rule *graph.Node, kind string) string {
-	for _, q := range questions.List([]graph.Node{*rule}, nil, nil) {
+	for _, q := range questions.List(&questions.Findings{Nodes: []graph.Node{*rule}}) {
 		if q.Kind == kind {
 			return q.ID
 		}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/StevenACoffman/codetospec/internal/alignment"
 	"github.com/StevenACoffman/codetospec/internal/concept"
+	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/questions"
 )
@@ -40,7 +41,7 @@ func ungrounded(where, digest string) graph.Node {
 // only is the one question of nodes.
 func only(t *testing.T, nodes []graph.Node) questions.Question {
 	t.Helper()
-	qs := questions.List(nodes, nil, nil)
+	qs := questions.List(&questions.Findings{Nodes: nodes})
 	if len(qs) != 1 {
 		t.Fatalf("questions = %+v, want one", qs)
 	}
@@ -67,7 +68,7 @@ func TestList(t *testing.T) {
 		{Domain: "billing", Reason: graph.GapMapFailed, Path: "a.php", Lines: "1-9"},
 	}
 	var kinds []string
-	for _, q := range questions.List(nodes, gaps, nil) {
+	for _, q := range questions.List(&questions.Findings{Nodes: nodes, Gaps: gaps}) {
 		kinds = append(kinds, q.Kind+" "+q.Subject)
 	}
 	slices.Sort(kinds)
@@ -100,10 +101,13 @@ func TestApply(t *testing.T) {
 		Disposition: questions.Verified,
 		Reason:      "the 30 is the contract's",
 	}
-	ledger := questions.Apply(questions.List(nodes, nil, nil), map[string]questions.Resolution{
-		q.ID:             resolution,
-		"q-000000000000": resolution,
-	})
+	ledger := questions.Apply(
+		questions.List(&questions.Findings{Nodes: nodes}),
+		map[string]questions.Resolution{
+			q.ID:             resolution,
+			"q-000000000000": resolution,
+		},
+	)
 	if got := ledger.Questions[0].Resolution; got == nil || *got != resolution {
 		t.Errorf("resolution = %v", got)
 	}
@@ -115,7 +119,7 @@ func TestApply(t *testing.T) {
 	}
 
 	gaps := []graph.CoverageGap{gap("a.php"), gap("b.php")}
-	listed := questions.List(nil, gaps, nil)
+	listed := questions.List(&questions.Findings{Gaps: gaps})
 	ledger = questions.Apply(listed, map[string]questions.Resolution{listed[0].ID: resolution})
 	resolvedGap := slices.IndexFunc(gaps, func(g graph.CoverageGap) bool {
 		return g.String() == listed[0].Detail
@@ -227,8 +231,9 @@ func TestListNFRTarget(t *testing.T) {
 				extra[graph.ExtraQuantity] = tc.quantity
 			}
 			var got []string
-			for _, q := range questions.List(
-				[]graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}}, nil, nil) {
+			for _, q := range questions.List(&questions.Findings{
+				Nodes: []graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}},
+			}) {
 				got = append(got, q.Kind+" "+q.Detail)
 			}
 			if !slices.Equal(got, tc.want) {
@@ -258,8 +263,9 @@ func TestListConditionMismatch(t *testing.T) {
 				extra[graph.ExtraConditionDisagreement] = tc.disagreement
 			}
 			var got []string
-			for _, q := range questions.List(
-				[]graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}}, nil, nil) {
+			for _, q := range questions.List(&questions.Findings{
+				Nodes: []graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}},
+			}) {
 				got = append(got, q.Kind+" "+q.Detail)
 			}
 			if !slices.Equal(got, tc.want) {
@@ -292,8 +298,9 @@ func TestListStaleTarget(t *testing.T) {
 			}
 			maps.Copy(extra, tc.extra)
 			var got []string
-			for _, q := range questions.List(
-				[]graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}}, nil, nil) {
+			for _, q := range questions.List(&questions.Findings{
+				Nodes: []graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}},
+			}) {
 				got = append(got, q.Kind+" "+q.Detail)
 			}
 			if !slices.Equal(got, tc.want) {
@@ -326,8 +333,9 @@ func TestListNatureMismatch(t *testing.T) {
 				extra[graph.ExtraNatureEvidence] = tc.evidence
 			}
 			var got []string
-			for _, q := range questions.List(
-				[]graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}}, nil, nil) {
+			for _, q := range questions.List(&questions.Findings{
+				Nodes: []graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}},
+			}) {
 				got = append(got, q.Kind+" "+q.Detail)
 			}
 			if !slices.Equal(got, tc.want) {
@@ -343,10 +351,10 @@ func TestListNatureMismatch(t *testing.T) {
 func TestListConceptConflict(t *testing.T) {
 	ask := func(options string) questions.Question {
 		t.Helper()
-		got := questions.List([]graph.Node{{
+		got := questions.List(&questions.Findings{Nodes: []graph.Node{{
 			ID: ruleID, Type: graph.TypeRule,
 			Extra: map[string]string{concept.ExtraConceptConflict: options},
-		}}, nil, nil)
+		}}})
 		if len(got) != 1 || got[0].Kind != questions.KindConceptConflict {
 			t.Fatalf("questions = %+v, want one concept_conflict", got)
 		}
@@ -394,7 +402,7 @@ func TestListConceptDivergence(t *testing.T) {
 	ids := map[string]bool{}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := questions.List(nil, nil, []alignment.Pair{tc.pair})
+			got := questions.List(&questions.Findings{Pairs: []alignment.Pair{tc.pair}})
 			if tc.wantDetail == "" {
 				if len(got) != 0 {
 					t.Fatalf("questions = %+v, want none", got)
@@ -416,5 +424,35 @@ func TestListConceptDivergence(t *testing.T) {
 	}
 	if len(ids) != 1 {
 		t.Errorf("ids = %v, want one: more evidence keeps the question", ids)
+	}
+}
+
+// TestListColumnLinks: each column link is a question named after it,
+// whose id depends on the link alone; a resolution hides it.
+func TestListColumnLinks(t *testing.T) {
+	link := extract.ColumnLink{Table: "ChangeEvent", Column: "assignment_id", Target: "assignments"}
+	got := questions.List(&questions.Findings{Links: []extract.ColumnLink{link}})
+	if len(got) != 1 || got[0].Kind != questions.KindColumnLink ||
+		got[0].Subject != link.String() {
+		t.Fatalf("questions = %+v, want one link", got)
+	}
+	if want := questions.ID(
+		questions.KindColumnLink,
+		link.String(),
+		link.String(),
+		"",
+	); got[0].ID != want {
+		t.Errorf("id = %s, want %s", got[0].ID, want)
+	}
+	ledger := questions.Apply(got, map[string]questions.Resolution{
+		got[0].ID: {Disposition: questions.OutOfScope, Reason: "a course mastery id"},
+	})
+	if !ledger.ResolvedLink(link) {
+		t.Error("resolved link not reported resolved")
+	}
+	if other := (extract.ColumnLink{Table: "Other", Column: "assignment_id", Target: "assignments"}); ledger.ResolvedLink(
+		other,
+	) {
+		t.Error("another link reported resolved")
 	}
 }

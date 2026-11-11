@@ -106,7 +106,7 @@ func Measure(nodes []graph.Node, violations int, report drift.Report) Measures {
 			}
 		}
 	}
-	for _, q := range questions.List(nodes, nil, nil) {
+	for _, q := range questions.List(&questions.Findings{Nodes: nodes}) {
 		switch q.Kind {
 		case questions.KindNFRTarget:
 			m.NFRTargets++

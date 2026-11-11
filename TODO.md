@@ -154,6 +154,20 @@ holds the rest.
       communities against the concepts) and `concept.ConflictSets`
       (`docs/verification/concept-alignment-2026-11-11.md`: assignments,
       16 divergent pairs, 11 conflicts settled by 4 questions, index 0.00).
+- [x] A proposal from more of the code: schema migrations replayed
+      (ALTER TABLE, rollbacks skipped), primary keys (`1:0..1`), drafts
+      from SQL comments, field comments and GraphQL docstrings, GraphQL
+      interfaces as `subtypeOf`, enums from `enum` facts, singular names,
+      `column_link` questions, and unreviewed models flagged
+      (`docs/verification/proposal-from-code-2026-11-11.md`: assignments,
+      placeholders 28 → 14, 5 `1:0..1`, 12 `subtypeOf`, 3 enums, 3 links).
+- [ ] Link a SQL column to the Go enum it holds (`assignments.assignment_type`
+      ↔ `models.AssignmentType`): needs a struct ↔ table mapping no fact
+      gives yet.
+- [ ] Concepts from API types touch no rule (rules touch tables), so the
+      alignment calls their relationships unobservable: place rules on
+      them through the endpoint journeys of the types they resolve
+      (recommendation 12 below).
 - [ ] Must and may graphs across services (`beyond_static_analysis` idea
       5): reachability and propagation cost as an interval, direct imports
       and calls against those plus interface dispatch, `callee_var` and
@@ -180,10 +194,11 @@ holds the rest.
 - [ ] Declared vs computed (recommendation 16): let a person declare the
       concept of a file or a rule, and ask when the computed one
       disagrees. No place to declare it yet (modelith has none).
-- [ ] Taxonomy (recommendation 8): the proposal does not mark is-kind-of
-      (the six platform assignment types under Assignment); propose it
-      from an assignment-type enum or `BaseAssignment` embedding, as a
-      QUESTION for a person.
+- [ ] Taxonomy (recommendation 8): GraphQL interfaces now give
+      `subtypeOf` (the six platform assignment types under
+      `BaseAssignment`); still unmarked: whether the SQL `Assignment`
+      table is those types' storage, readable from its `assignment_type`
+      values, as a QUESTION for a person.
 - [ ] Terminology checks (recommendation 9): one concept under several
       domain names (`content-assignment` / `content-assignments`), one
       name for several concepts. The concept table shows the first;

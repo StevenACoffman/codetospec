@@ -523,7 +523,12 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   `render.LoadPrior`, an invalid entry stops the run before any LLM call. A
   resolved question is no longer listed in the README; a resolution
   without a question is counted. The render does not know the ids
-  (`Ledger.ResolvedRule`, `ResolvedGap`).
+  (`Ledger.ResolvedRule`, `ResolvedGap`, `ResolvedDivergence`,
+  `ResolvedLink`). `List` takes a `Findings` (nodes, gaps, divergent
+  pairs, column links). `column_link` (`extract.ColumnLinks`, pure over
+  table facts): a column outside its table's keys named as the single
+  column of a foreign key another table declares, "T.c → U", never
+  asserted; listed under the README's model files; id without digest.
 - `graph.AnnotateCoverage` — `coverage: complete | partial` per domain,
   with `coverage_gaps` (generated file, failed map chunk, failed reduce),
   computed by `coverageGaps` in `pipeline.go`; "Code without rules" section
@@ -710,7 +715,19 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   tables and owned `api_type`s no model names, `owned` relationships from
   NOT NULL foreign keys to a single parent (DOMAIN_PLAN.md rec. 1, 2, 10;
   never one model per current domain), plus `provenance.json`. A written model read back as human does
-  not change (round-trip test).
+  not change (round-trip test). Table entities singular (`singular`, the
+  inverse of `plurals`, so they match back; API types and enums keep
+  their names); an owned key equal to the child's `primary_key` is
+  `1:0..1`; a type implementing exactly one owned interface gets
+  `subtypeOf`; a column whose code type names an `enum` fact (bare name
+  in the table's directory, or `pkg.Type`) is typed by it, written under
+  `enums:`; `column_descriptions` describe attributes; `stored_by` names
+  the Go type in a kind's placeholder. Definitions from the code's
+  documentation are drafts (`locale.DraftPrefix`, `isDraft`), kept as
+  written. `Entity.Unreviewed`/`Report.UnreviewedEntities`: a
+  `--domain-model` model still holding placeholders or drafts is flagged
+  (WARN, README "Concepts"), never refused
+  (`docs/verification/proposal-from-code-2026-11-11.md`).
 - `cmd/codetospec/main.go` — the full sequence.
 
 ## Extractors and the D2 renderer = SEPARATE Go modules
@@ -743,9 +760,18 @@ packages it imports: what the package map resolves imports by), plus
 `tags` on struct facts (`docs/verification/check-inputs-2026-11-06.md`).
 
 `api_type` (webapp: federated `@key` types, `owned` or extended,
-`deprecated`) and the `table` facts' `references` (Go extractor: foreign
-keys, `not_null` = composition evidence) are concept seeds
-(DOMAIN_PLAN.md rec. 7, 10).
+`deprecated`, `description` from the docstring, `implements`; plus the
+interfaces an owned type implements, `interface: true`) and the `table`
+facts' `references` (Go extractor: foreign keys, `not_null` = composition
+evidence), `primary_key`, `description`, `column_descriptions` (SQL
+comments; webapp: Datastore field comments) and `stored_by` (webapp: the
+Go type of a kind named otherwise) are concept seeds (DOMAIN_PLAN.md rec.
+7, 10). The Go extractor reads the `.sql` files in walk (name) order as
+one schema (`extractors/go/sql.go`, regexp-based on purpose: dialects and
+comments): ALTER TABLE (columns added, dropped, renamed, retyped, NOT
+NULL set or dropped, keys added), RENAME TO, DROP TABLE; `.down.sql`
+files and goose/dbmate down sections never run; a table cites the file
+creating it.
 `constant` facts (grounding: `400` ↔ `http.StatusBadRequest`), `doc`
 (`SCHEMA_DOCS` section of the map), `dependency` (`service` nodes +
 `depends_on`; `as` = `service-admin` | `user`, the authority of the call)

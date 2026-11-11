@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/StevenACoffman/codetospec/internal/alignment"
+	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"gopkg.in/yaml.v3"
 )
@@ -130,6 +131,12 @@ func (l *Ledger) ResolvedGap(g *graph.CoverageGap) bool {
 // of concepts is resolved.
 func (l *Ledger) ResolvedDivergence(p *alignment.Pair) bool {
 	return l.resolved[KindConceptDivergence+"\x00"+PairSubject(p)]
+}
+
+// ResolvedLink reports whether the question about a column link is
+// resolved.
+func (l *Ledger) ResolvedLink(link extract.ColumnLink) bool {
+	return l.resolved[KindColumnLink+"\x00"+link.String()]
 }
 
 // Count is how many questions are resolved.

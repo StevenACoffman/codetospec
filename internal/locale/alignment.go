@@ -4,6 +4,9 @@ package locale
 // confirmed models with the code: the questions that settle the concept
 // conflicts, and the "Concepts and code" section.
 type Alignment struct {
+	// ConceptsUnreviewedFmt warns that the models given are a proposal
+	// (%d entities still defined by codetospec, %d entities in all).
+	ConceptsUnreviewedFmt               string
 	ConceptSetsLeadFmt                  string // %d questions, %d conflicts
 	ConceptSetFmt                       string // %d conflicts a question settles
 	AlignmentHeading, AlignmentIntroFmt string // %d converge, diverge, absent, unobservable
@@ -17,6 +20,10 @@ type Alignment struct {
 
 func newAlignment(tr translate) Alignment {
 	return Alignment{
+		ConceptsUnreviewedFmt: tr(
+			"**Modèles non relus** : %d des %d entités des modèles donnés gardent une définition écrite par codetospec (un emplacement à remplir, ou un brouillon tiré de la documentation du code). Lisez ces concepts comme une proposition : les règles bougent comme un modèle confirmé les ferait bouger, et les relations tirées des clés étrangères concordent par construction avec ces mêmes clés.",
+			"**Unreviewed models**: %d of the %d entities of the models given keep a definition codetospec wrote (a placeholder, or a draft from the code's documentation). Read these concepts as a proposal: the rules move as a confirmed model would move them, and relationships drawn from foreign keys converge with those same keys by construction.",
+		),
 		ConceptSetsLeadFmt: tr(
 			"Ces %d questions, posées dans l'ordre, règlent les %d conflits : chacune demande si ses concepts ont un propriétaire commun, ce qui règle aussi tout conflict dont elle contient les concepts.",
 			"These %d questions, asked in order, settle the %d conflicts: each asks whether its concepts share an owner, which also settles every conflict whose concepts it contains.",

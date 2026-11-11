@@ -110,6 +110,19 @@ type Report struct {
 	StaleMappings []string
 }
 
+// UnreviewedEntities counts the entities whose definition codetospec
+// wrote: models holding any are a proposal, whatever --domain-model calls
+// them.
+func (r *Report) UnreviewedEntities() int {
+	n := 0
+	for i := range r.Entities {
+		if r.Entities[i].Unreviewed {
+			n++
+		}
+	}
+	return n
+}
+
 // Entity is one model entity and what the code has of it.
 type Entity struct {
 	Name string // scope.Entity
@@ -127,6 +140,10 @@ type Entity struct {
 	// the verbs of those rules no model action names.
 	Actions          []Action
 	UnmodeledActions []RuleAction
+	// Unreviewed is true when its definition is still one codetospec
+	// wrote (a placeholder or a draft): no person has said what the entity
+	// is.
+	Unreviewed bool
 }
 
 // CodeEntity is an entity node of the graph.
@@ -206,6 +223,7 @@ func Compare(set *Set, nodes []graph.Node, opts Options) Report {
 				e.Ambiguous = candidates
 			}
 			entity := m.Model.Entities[name]
+			e.Unreviewed = writtenByCodetospec(entity.Definition)
 			compareRules(&e, &entity, modelLevel, rules, threshold)
 			report.Entities = append(report.Entities, e)
 		}

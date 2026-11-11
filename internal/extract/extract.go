@@ -122,8 +122,10 @@ const (
 	// ("true" when the code declares it, "false" when it only extends a
 	// type another service owns: a reference to that service's concept),
 	// AttrKey (its key fields) and AttrDeprecated ("true" when every field
-	// it declares is deprecated: cruft). A seed for the business concepts
-	// codetospec proposes (DOMAIN_PLAN.md recommendation 7).
+	// it declares is deprecated: cruft), AttrDescription (its docstring),
+	// AttrImplements; an interface such a type implements has one too,
+	// AttrInterface. A seed for the business concepts codetospec proposes
+	// (DOMAIN_PLAN.md recommendation 7).
 	KindAPIType = "api_type"
 	// KindAccessCheck is a function the extractor knows to be an access
 	// check: AttrName is the name a rule's AttrChecks and AttrCheckArgs use
@@ -177,6 +179,11 @@ const (
 	AttrOwned      = "owned"
 	AttrKey        = "key"
 	AttrDeprecated = "deprecated"
+	// AttrImplements, on an api_type fact, names the interfaces the type
+	// implements, sorted and comma-separated; AttrInterface is True on an
+	// interface's fact (one an owned entity type implements).
+	AttrImplements = "implements"
+	AttrInterface  = "interface"
 )
 
 // DispatchInterface is AttrDispatch on a call or test fact whose caller
@@ -263,8 +270,16 @@ const (
 	// description (a struct's doc comment, a schema comment): what the
 	// entity is, in its authors' words. The entity page shows it.
 	AttrDescription = "description"
-	AttrService     = "service"
-	AttrOperation   = "operation"
+	// AttrPrimaryKey, on a table fact, is its primary key's columns joined
+	// by "+"; AttrColumnDescriptions, its columns' authored descriptions
+	// (a schema comment, a field's doc comment) as a JSON object, column
+	// → text; AttrStoredBy, the code type its rows are stored as when that
+	// type's name is not the table's (a Datastore kind's Go struct).
+	AttrPrimaryKey         = "primary_key"
+	AttrColumnDescriptions = "column_descriptions"
+	AttrStoredBy           = "stored_by"
+	AttrService            = "service"
+	AttrOperation          = "operation"
 	// AttrInheritedFrom, on a rule fact, names the spec the rule comes
 	// from: an LLM rule of shared code (webapp's pkg/ spec) the extractor
 	// found the analyzed code reaches. It then carries that spec's

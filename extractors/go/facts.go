@@ -32,6 +32,15 @@ const attrName = "name"
 // separated), the core's extract.AttrReferences.
 const attrReferences = "references"
 
+// Table fact attributes, the core's extract.AttrPrimaryKey,
+// AttrDescription and AttrColumnDescriptions: its primary key's columns
+// joined by "+", its comment, and its columns' comments as a JSON object.
+const (
+	attrPrimaryKey         = "primary_key"
+	attrDescription        = "description"
+	attrColumnDescriptions = "column_descriptions"
+)
+
 const (
 	schemaID = "codetospec/facts/v1"
 	origin   = "go"

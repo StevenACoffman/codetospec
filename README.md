@@ -700,8 +700,8 @@ writes modelith models under `<out>/models/`, never into the source tree:
 
 - each human model, copied at its path relative to `--src`, with what the
   code adds. Human definitions, comments and order are kept. A placeholder
-  definition is replaced by the entity's authored description when there is
-  one. Columns the entity lacks become attributes. Single-entity ubiquitous
+  definition is replaced by a draft of the entity's authored description
+  when there is one. Columns the entity lacks become attributes. Single-entity ubiquitous
   rules that no invariant states become invariants.
 - one proposed concepts model, `generated/concepts.modelith.yaml`, for the
   concepts no human model names: code tables, and the API entity types the
@@ -711,8 +711,17 @@ writes modelith models under `<out>/models/`, never into the source tree:
   concepts) and deprecated ones are named in its description, never
   defined. One model for the whole output, not one per domain: today's
   domains are code layers, and a proposal must not carry them into the
-  concepts. An entity is defined by its description or, failing that, a
-  placeholder; the README lists those placeholders as questions.
+  concepts. Table entities are named in the singular (`assignments` →
+  `Assignment`). An owned key that is the child's whole primary key is
+  `1:0..1`. A GraphQL type implementing exactly one interface the code
+  owns is its `subtypeOf`. A column whose code type is an enumeration
+  takes it as its type. An entity is defined by a draft of the code's own
+  documentation (a schema comment, a doc comment, a GraphQL docstring,
+  opening with "Draft, from the code's documentation:") or, failing that,
+  a placeholder; the README lists those placeholders as questions.
+  Column comments describe the attributes. A column named like a
+  foreign key elsewhere that no key declares (a document store's
+  `assignment_id`) is a `column_link` question, never a relationship.
 - `models/provenance.json`, which says where each field codetospec decided
   comes from (human, description, placeholder, column or rule).
 
@@ -730,8 +739,10 @@ there under its concept; a rule a person reviewed stays where it is, and
 rule ids don't change. The output README's "Concepts" section says how
 many rules each context took and where they came from. Only a model
 you pass with `--domain-model` moves rules: the proposal codetospec
-draws from the code is shown, never applied. An actor of
-`codetospec.yaml` that `owns` concepts (`owns: [assignments.Assignments]`,
+draws from the code is shown, never applied. A model passed while it
+still holds definitions codetospec wrote (placeholders or drafts) is
+flagged there as unreviewed. An actor of
+`codetospec.yaml` that `owns` concepts (`owns: [assignments.Assignment]`,
 or a whole model by its scope) becomes the EARS subject of the rules
 placed in them, the sentence rewritten from its components without an
 LLM; a reviewed rule keeps its own. An owned concept no model declares
@@ -826,7 +837,13 @@ extractors:
 `proved` > extractor > tree-sitter, so a runtime-proved route overrides a
 statically guessed one. A failing extractor is a warning, not a fatal error.
 A `table` fact may carry `description`, the entity's authored description
-(a struct's doc comment, on one line); the entity page shows it.
+(a struct's doc comment, a schema comment, on one line); the entity page
+shows it. Also `primary_key` (columns joined by `+`), `column_descriptions`
+(a JSON object, column → comment) and `stored_by` (the code type its rows
+are stored as, when named otherwise): the proposed model reads them. The Go
+extractor reads `.sql` files in name order as one schema, as a database
+running them as migrations would: later `ALTER TABLE`, `DROP TABLE` and
+renames apply, rollbacks (`.down.sql`, goose or dbmate down sections) don't.
 
 Arguments may use `{src}` (the analyzed root) and `{lang}` (`--lang`).
 Two more kinds let an extractor contribute beyond structure (contract in

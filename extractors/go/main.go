@@ -138,6 +138,9 @@ type options struct {
 func moduleFacts(m *loadedModule, root string, opts *options, log logf) ([]Fact, error) {
 	pkgs, fset := m.pkgs, m.fset
 	facts := routeFacts(pkgs, fset, root, opts.skipDirs, log)
+	pkgFacts := PackageFacts(pkgs, root, opts.shared)
+	log("%d package(s)", len(pkgFacts))
+	facts = append(facts, pkgFacts...)
 	constants := ConstantFacts(pkgs, fset, root)
 	log("%d constant(s)", len(constants))
 	facts = append(facts, constants...)

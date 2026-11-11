@@ -30,6 +30,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/llm"
 	"github.com/StevenACoffman/codetospec/internal/locale"
 	"github.com/StevenACoffman/codetospec/internal/mapper"
+	"github.com/StevenACoffman/codetospec/internal/packagemap"
 	"github.com/StevenACoffman/codetospec/internal/position"
 	"github.com/StevenACoffman/codetospec/internal/reducer"
 	"github.com/StevenACoffman/codetospec/internal/render"
@@ -169,7 +170,6 @@ func (p *pipeline) run(ctx context.Context) error {
 	meta := buildMeta(cfg, &ext, &metaInputs{
 		chunks:   chunks,
 		gaps:     gaps,
-		groups:   domainGroups(chunks, resolver.Ambiguous, &hints),
 		nodes:    nodes,
 		tally:    tally,
 		snapshot: &snapshot,
@@ -179,34 +179,35 @@ func (p *pipeline) run(ctx context.Context) error {
 	meta.Reviewed = reviewedFiles
 	meta.Resolutions = prior.Resolutions
 	meta.UnusedTargets = result.unusedTargets
-	written, err := p.domainModel(models, nodes, ext.facts)
+	written, diagrams, err := p.modelsAndDiagrams(ctx, models, nodes, ext.facts, &meta)
 	if err != nil {
 		return err
 	}
-	return p.finish(ctx, nodes, &meta, &written, &snapshot)
+	return p.finish(ctx, nodes, diagrams, &meta, &written, &snapshot)
 }
 
-// drawDomainMap draws the README's domain map with --d2-renderer; without
-// one, or when it fails, the map is its source alone (said once), never
-// a failed run.
-func (p *pipeline) drawDomainMap(
+// drawDiagrams draws the README's diagrams (by name) with --d2-renderer;
+// without one, or when one fails, a diagram is its source alone (said
+// once), never a failed run.
+func (p *pipeline) drawDiagrams(
 	ctx context.Context,
-	nodes []graph.Node,
-	groups map[string]string,
-) *d2.Picture {
+	ds map[string]*d2.Diagram,
+) map[string]*d2.Picture {
 	renderer := d2.FindRenderer(p.cfg.D2Renderer)
 	if renderer.Cmd == "" {
-		p.logger.InfoContext(ctx, "no D2 renderer: the domain map is written as its source",
+		p.logger.InfoContext(ctx, "no D2 renderer: the diagrams are written as their sources",
 			"renderer", p.cfg.D2Renderer)
 	}
-	name := render.DomainMapName
-	pictures, err := renderer.Draw(ctx, []string{name},
-		map[string]*d2.Diagram{name: render.DomainMap(nodes, groups,
-			locale.For(p.cfg.Lang).DomainsIsolated)})
+	names := slices.Sorted(maps.Keys(ds))
+	pictures, err := renderer.Draw(ctx, names, ds)
 	if err != nil {
-		p.logger.WarnContext(ctx, "cannot draw the domain map", "err", err)
+		p.logger.WarnContext(ctx, "cannot draw every diagram", "err", err)
 	}
-	return &pictures[0]
+	out := make(map[string]*d2.Picture, len(pictures))
+	for i := range pictures {
+		out[pictures[i].Name] = &pictures[i]
+	}
+	return out
 }
 
 // finish renders the graph and the domain models, closes the state and
@@ -214,6 +215,7 @@ func (p *pipeline) drawDomainMap(
 func (p *pipeline) finish(
 	ctx context.Context,
 	nodes []graph.Node,
+	diagrams map[string]*d2.Diagram,
 	meta *render.Meta,
 	written *domainmodel.Enhanced,
 	snapshot *state.State,
@@ -223,7 +225,8 @@ func (p *pipeline) finish(
 	}
 	meta.ModelUndefined = written.Undefined
 	p.sink.Emit(ui.PhaseChanged{Phase: "render"})
-	meta.DomainMap = p.drawDomainMap(ctx, nodes, meta.DomainGroups)
+	drawn := p.drawDiagrams(ctx, diagrams)
+	meta.PackageMap, meta.ConceptMap = drawn[render.PackageMapName], drawn[render.ConceptMapName]
 	if err := render.Write(p.cfg.Out, nodes, meta); err != nil {
 		return err
 	}
@@ -669,7 +672,6 @@ func (p *pipeline) verify(ctx context.Context, nodes []graph.Node) error {
 type metaInputs struct {
 	chunks   []sitter.Chunk
 	gaps     []graph.CoverageGap // generated files and failed map or reduce units
-	groups   map[string]string
 	nodes    []graph.Node
 	tally    crosscheck.Tally
 	snapshot *state.State
@@ -681,7 +683,6 @@ type metaInputs struct {
 func buildMeta(cfg *config.Config, ext *extraction, in *metaInputs) render.Meta {
 	meta := render.Meta{
 		DomainSplits:          communities.Splits(codeFiles(in.chunks), importsOf(ext.facts)),
-		DomainGroups:          in.groups,
 		Coverage:              graph.ComputeCoverage(in.nodes),
 		ChunksFailed:          in.snapshot.ChunksFailed,
 		ChunksTotal:           in.snapshot.ChunksTotal,
@@ -802,41 +803,47 @@ func importsOf(facts []extract.Fact) []communities.Import {
 	return imports
 }
 
-// domainGroups maps each domain that chunks of an ambiguous namespace
-// resolved to by directory (no extractor hint) to that namespace; a domain
-// reached from two such namespaces belongs to neither.
-func domainGroups(
-	chunks []sitter.Chunk,
-	ambiguous map[string]bool,
-	hints *extract.DomainHints,
-) map[string]string {
-	groups := make(map[string]string)
-	mixed := make(map[string]bool)
-	for _, c := range chunks {
-		if !ambiguous[c.Namespace] || hints.At(c.Path, c.StartLine) != "" {
-			continue
-		}
-		if ns, ok := groups[c.Domain]; ok && ns != c.Namespace {
-			mixed[c.Domain] = true
-		}
-		groups[c.Domain] = c.Namespace
+// modelsAndDiagrams is what the run writes beside the graph: the models
+// to write under models/ (none without --write-domain-model), and the
+// README's diagrams by name, the package map and the concept map (meta
+// says whether that is a proposal).
+func (p *pipeline) modelsAndDiagrams(
+	ctx context.Context,
+	models *domainmodel.Set,
+	nodes []graph.Node,
+	facts []extract.Fact,
+	meta *render.Meta,
+) (domainmodel.Enhanced, map[string]*d2.Diagram, error) {
+	enhanced, err := p.domainModel(ctx, models, nodes, facts)
+	if err != nil {
+		return domainmodel.Enhanced{}, nil, err
 	}
-	for domain := range mixed {
-		delete(groups, domain)
+	text := locale.For(p.cfg.Lang)
+	diagrams := map[string]*d2.Diagram{
+		render.PackageMapName: packagemap.Build(facts, text.PackagesIsolated),
 	}
-	return groups
+	concepts, proposed := p.conceptMap(ctx, models, &enhanced, nodes, text)
+	if concepts != nil {
+		diagrams[render.ConceptMapName] = concepts
+		meta.ConceptMapProposed = proposed
+	}
+	if !p.cfg.WriteDomainModel {
+		enhanced = domainmodel.Enhanced{}
+	}
+	return enhanced, diagrams, nil
 }
 
-// domainModel builds the modelith models to write when
-// --write-domain-model is set; without it, nothing (no files).
+// domainModel builds the modelith models for the graph (domainmodel.
+// Enhance): the human models enhanced and the proposed concepts. They are
+// written only with --write-domain-model, but the proposal also draws the
+// concept map when no --domain-model is given, so without that flag a
+// model the schema rejects is logged, never a failed run.
 func (p *pipeline) domainModel(
+	ctx context.Context,
 	models *domainmodel.Set,
 	nodes []graph.Node,
 	facts []extract.Fact,
 ) (domainmodel.Enhanced, error) {
-	if !p.cfg.WriteDomainModel {
-		return domainmodel.Enhanced{}, nil
-	}
 	written, err := domainmodel.Enhance(&domainmodel.EnhanceInput{
 		Set:        models,
 		Nodes:      nodes,
@@ -847,10 +854,44 @@ func (p *pipeline) domainModel(
 		Options:    domainmodel.Options{Entities: p.cfg.DomainModelEntities},
 		MirrorPath: mirrorPath(p.cfg.Src),
 	})
-	if err != nil {
+	if err != nil && p.cfg.WriteDomainModel {
 		return domainmodel.Enhanced{}, err
 	}
+	if err != nil {
+		p.logger.WarnContext(ctx, "cannot propose the concepts", "err", err)
+		return domainmodel.Enhanced{}, nil
+	}
 	return *written, nil
+}
+
+// conceptMap is the concept map of the confirmed models, each concept
+// with the rules placed in it, or, with none, of the proposed concepts
+// (true); nil when there is neither.
+func (p *pipeline) conceptMap(
+	ctx context.Context,
+	models *domainmodel.Set,
+	enhanced *domainmodel.Enhanced,
+	nodes []graph.Node,
+	text *locale.Text,
+) (*d2.Diagram, bool) {
+	if models != nil {
+		placed := map[string]int{}
+		for i := range nodes {
+			if c := nodes[i].Extra[concept.ExtraConcept]; nodes[i].Type == graph.TypeRule &&
+				c != "" {
+				placed[c]++
+			}
+		}
+		return domainmodel.ConceptMap(models.Models, false, placed, text), false
+	}
+	proposal, ok, err := domainmodel.Proposal(enhanced)
+	if err != nil {
+		p.logger.WarnContext(ctx, "cannot read the proposed concepts", "err", err)
+	}
+	if !ok {
+		return nil, false
+	}
+	return domainmodel.ConceptMap([]domainmodel.Model{*proposal}, true, nil, text), true
 }
 
 // placement is where the rules' code and evidence place them: each layer
@@ -863,7 +904,8 @@ type placement struct {
 
 // place records each rule's position and evidence (position.Annotate),
 // then, with --domain-model, its concept (concept.Assign), which reads
-// that evidence.
+// that evidence, and moves each placed rule into its model's context
+// domain (concept.Regroup): only confirmed models reorganize the output.
 func (p *pipeline) place(
 	nodes []graph.Node,
 	positions *position.Map,
@@ -878,6 +920,7 @@ func (p *pipeline) place(
 		domainmodel.Options{Entities: p.cfg.DomainModelEntities})
 	nodes, concepts := concept.Assign(nodes, domainmodel.Concepts(models, &report))
 	nodes, _ = concept.Subjects(nodes, p.cfg.Actors.Owners)
+	nodes, concepts.Regrouped = concept.Regroup(nodes, domainmodel.Contexts(models), p.cfg.Lang)
 	placed.concepts = &concepts
 	return nodes, placed
 }

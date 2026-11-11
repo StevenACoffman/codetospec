@@ -41,13 +41,17 @@ func fixtureFacts() []extract.Fact {
 			Attrs: map[string]string{extract.AttrName: `App\Http\Controllers`},
 			Source: extract.Ref{
 				Path:  "app/Http/Controllers/ActivationController.php",
-				Lines: "3-3",
+				Lines: thirdLine,
 			},
 		},
 		{
-			Kind: extract.KindModule, ID: "module.App\\Services\\Billing",
-			Attrs:  map[string]string{extract.AttrName: `App\Services\Billing`},
-			Source: extract.Ref{Path: "app/Services/Billing/ProrataCalculator.php", Lines: "3-3"},
+			Kind:  extract.KindModule,
+			ID:    "module.App\\Services\\Billing",
+			Attrs: map[string]string{extract.AttrName: `App\Services\Billing`},
+			Source: extract.Ref{
+				Path:  "app/Services/Billing/ProrataCalculator.php",
+				Lines: thirdLine,
+			},
 		},
 		{
 			Kind: extract.KindImport,
@@ -70,7 +74,7 @@ func fixtureReduced() []reducer.Output {
 			Slug:        slug,
 			Title:       "Titre " + slug,
 			EarsKind:    earsEvent,
-			Requirement: "QUAND x, le systeme doit y.",
+			Requirement: whenXThenY,
 			Rationale:   "Parce que.",
 			Citations: []extract.Ref{
 				{Path: "app/Services/Billing/ProrataCalculator.php", Lines: "11-24"},
@@ -248,7 +252,7 @@ func TestBuildDomainDependsOnGoStyleImports(t *testing.T) {
 	}
 	rule := func(domain string) reducer.Output {
 		return reducer.Output{Domain: domain, DomainSummary: "s", Rules: []reducer.Rule{{
-			Slug: "r", Title: "T", EarsKind: earsEvent, Requirement: "QUAND x, le systeme doit y.",
+			Slug: "r", Title: "T", EarsKind: earsEvent, Requirement: whenXThenY,
 			Citations:          []extract.Ref{{Path: "internal/" + domain + "/x.go", Lines: "1-2"}},
 			AcceptanceCriteria: []string{"a", "b"},
 			Nature:             natureBusiness, Origin: originExplicit, Confidence: 0.9,
@@ -479,4 +483,49 @@ func TestBuildMergesCollidingEndpoints(t *testing.T) {
 	if strings.Count(got.Body, "LoginStaticHandler") != 1 {
 		t.Errorf("handler not listed once: %q", got.Body)
 	}
+}
+
+// TestBuildDomainDependsOnImportedDirectory: a Go import path names its
+// package's directory, whatever the package is called: cmd imports
+// cmd/pull-topic, whose package is pull_topic, and depends on its domain.
+func TestBuildDomainDependsOnImportedDirectory(t *testing.T) {
+	importFact := func(path, namespace, target string) extract.Fact {
+		return extract.Fact{
+			Kind: extract.KindImport, ID: "import." + path + "#" + target,
+			Attrs:  map[string]string{extract.AttrTarget: target, extract.AttrNamespace: namespace},
+			Source: extract.Ref{Path: path, Lines: thirdLine},
+		}
+	}
+	facts := []extract.Fact{
+		{
+			Kind: extract.KindModule, ID: "module.pull_topic",
+			Attrs:  map[string]string{extract.AttrName: "pull_topic"},
+			Source: extract.Ref{Path: "cmd/pull-topic/process.go", Lines: firstLine},
+		},
+		importFact("cmd/command.go", "cmd", "example.com/jobs/khanxadmin/cmd/pull-topic"),
+		importFact("cmd/pull-topic/process.go", "pull_topic", "example.com/jobs/pkg/errors"),
+	}
+	rule := func(domain, dir string) reducer.Output {
+		return reducer.Output{Domain: domain, DomainSummary: "s", Rules: []reducer.Rule{{
+			Slug: "r", Title: "T", EarsKind: earsEvent, Requirement: whenXThenY,
+			Citations:          []extract.Ref{{Path: dir + "/x.go", Lines: "1-2"}},
+			AcceptanceCriteria: []string{"a", "b"},
+			Nature:             natureBusiness, Origin: originExplicit, Confidence: 0.9,
+		}}}
+	}
+	nodes := graph.Build(facts,
+		[]reducer.Output{rule("cmd", "cmd"), rule("pull-topic", "cmd/pull-topic")},
+		extract.DomainResolver{}, "fr", nil)
+	for _, n := range nodes {
+		if n.ID != "domain.cmd" {
+			continue
+		}
+		if !slices.ContainsFunc(n.Edges, func(e graph.Edge) bool {
+			return e.Type == graph.EdgeDependsOn && e.To == "domain.pull-topic"
+		}) {
+			t.Fatalf("domain.cmd should depend on domain.pull-topic, edges = %+v", n.Edges)
+		}
+		return
+	}
+	t.Fatal("domain.cmd not found")
 }

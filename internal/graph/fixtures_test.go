@@ -9,6 +9,8 @@ const (
 	activateRoute  = "endpoint.post-api-activate"
 	servicesDomain = "domain.services"
 	firstLine      = "1-1"
+	thirdLine      = "3-3"
+	whenXThenY     = "QUAND x, le systeme doit y."
 	billingDomain  = "billing"
 	sharedRoot     = "pkg"
 	prorataRule    = "rule.services.prorata-activation"

@@ -399,26 +399,14 @@ func ruleAndDomainNodes(
 	for _, domain := range slices.Sorted(maps.Keys(drafts)) {
 		d := drafts[domain]
 		sort.SliceStable(d.rules, func(i, j int) bool { return d.rules[i].ID < d.rules[j].ID })
-		var ruleList strings.Builder
-		for _, r := range d.rules {
-			fmt.Fprintf(
-				&ruleList,
-				"- [%s](../rules/%s.md)\n",
-				r.Title,
-				strings.TrimPrefix(r.ID, "rule."),
-			)
-		}
 		rules = append(rules, d.rules...)
-		body := d.summary + "\n\n" + text.RulesHeading + "\n\n" + strings.TrimRight(
-			ruleList.String(),
-			"\n",
-		)
+		body := domainBody(d.summary, d.rules, "", text)
 		domains = append(domains, Node{
 			ID:     "domain." + domain,
 			Type:   "domain",
 			Status: StatusGenerated,
 			Title:  fmt.Sprintf(text.DomainTitleFmt, domain),
-			Body:   strings.TrimSpace(body),
+			Body:   body,
 		})
 	}
 	return rules, domains
@@ -497,6 +485,7 @@ func domainDependencies(
 		existing[strings.TrimPrefix(d.ID, "domain.")] = true
 	}
 	modules := moduleDomains(facts, resolver)
+	dirs := directoryDomains(facts, resolver)
 	deps := make(map[string]map[string]bool)
 	for i := range facts {
 		f := &facts[i]
@@ -504,7 +493,7 @@ func domainDependencies(
 			continue
 		}
 		from := resolver.Resolve(f.Attrs["namespace"], f.Source.Path)
-		to := importDomain(modules, extract.SplitQualified(f.Attrs["target"]))
+		to := importDomain(modules, dirs, extract.SplitQualified(f.Attrs["target"]))
 		if to == "" || to == from || !existing[from] || !existing[to] {
 			continue
 		}
@@ -547,11 +536,44 @@ func moduleDomains(facts []extract.Fact, resolver extract.DomainResolver) []modu
 	return modules
 }
 
+// directoryDomains maps each source directory to the domain of its files,
+// from the facts that state a file's namespace (its imports, its module):
+// a directory whose files resolve to several domains maps to "". Merging
+// keeps one module fact per name, so two packages of one name (Go's cmd
+// and pkg/cmd) have one module fact; every importing file has its own
+// import facts.
+func directoryDomains(facts []extract.Fact, resolver extract.DomainResolver) map[string]string {
+	dirs := map[string]string{}
+	for i := range facts {
+		f := &facts[i]
+		namespace := f.Attrs[extract.AttrNamespace]
+		if f.Kind == extract.KindModule {
+			namespace = f.Attrs[extract.AttrName]
+		} else if f.Kind != extract.KindImport {
+			continue
+		}
+		slash := strings.LastIndex(f.Source.Path, "/")
+		if slash < 0 || namespace == "" {
+			continue // a file at the root: its directory names nothing
+		}
+		dir := f.Source.Path[:slash]
+		domain := resolver.Resolve(namespace, f.Source.Path)
+		if prior, seen := dirs[dir]; seen && prior != domain {
+			domain = ""
+		}
+		dirs[dir] = domain
+	}
+	return dirs
+}
+
 // importDomain is the domain of the module an import target names: the
-// longest module prefix of the target, else the single domain whose module
-// is a suffix of it (Go imports carry a path, "app/internal/billing", while
-// its package fact names "billing"); "" when neither resolves.
-func importDomain(modules []moduleDomain, target []string) string {
+// longest module prefix of the target; else the domain of the longest
+// source directory the target ends with (a Go import path names its
+// package's directory, whatever the package is called: cmd/pull-topic
+// holds package pull_topic); else the single domain whose module is a
+// suffix of it (Go imports carry a path, "app/internal/billing", while its
+// package fact names "billing"); "" when none resolves.
+func importDomain(modules []moduleDomain, dirs map[string]string, target []string) string {
 	to, bestLen := "", 0
 	for _, m := range modules {
 		if len(m.segments) > bestLen && segmentsPrefix(m.segments, target) {
@@ -559,6 +581,9 @@ func importDomain(modules []moduleDomain, target []string) string {
 		}
 	}
 	if to != "" {
+		return to
+	}
+	if to = dirDomain(dirs, target); to != "" {
 		return to
 	}
 	suffixDomains := map[string]bool{}
@@ -572,6 +597,28 @@ func importDomain(modules []moduleDomain, target []string) string {
 	}
 	for domain := range suffixDomains {
 		to = domain
+	}
+	return to
+}
+
+// dirDomain is the domain of the longest directory of dirs that target
+// ends with, segment-wise; "" when none, or when the longest are of
+// different domains.
+func dirDomain(dirs map[string]string, target []string) string {
+	to, bestLen, tied := "", 0, false
+	for dir, domain := range dirs {
+		segments := extract.SplitQualified(dir)
+		if len(segments) < bestLen || !segmentsSuffix(segments, target) {
+			continue
+		}
+		if len(segments) == bestLen {
+			tied = tied || domain != to
+			continue
+		}
+		to, bestLen, tied = domain, len(segments), false
+	}
+	if tied {
+		return ""
 	}
 	return to
 }

@@ -382,13 +382,26 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   `Picture.Files`/`Markdown` own the file names (`name.d2`, `name.svg`,
   `name-dark.svg`) and the README `<picture>`. `TestRendererTestdata`
   keeps renderers/d2's test sources equal to `Source`'s output.
-  The output README's domain map is `render.DomainMap` (a namespace's
-  split domains in one container, their edges once; domains no edge
-  touches in one grid: ELK otherwise lays them in one row), drawn in
-  `pipeline.finish`, written under `<out>/diagrams/` (`ReplaceDir`: no
-  stale SVG). ELK's time grows faster than the edges (182 edges 16 s,
-  274 47 s, 378 two minutes, 1117 over ten): `Draw` sends no diagram of
-  more than `d2.MaxEdges` (300); it keeps its source.
+  The output README draws two diagrams, never a "domain map" (packages
+  are code, not business domains,
+  `docs/verification/concept-regrouping-2026-11-10.md`): the package
+  dependencies (`internal/packagemap`: a node per `package` fact, the
+  Go extractor's import paths, else per module fact (a namespace); an
+  edge per import resolved exactly, else to the longest package
+  prefixing it; shared-root packages drawn external, only when imported;
+  labels without the prefix all share; unconnected packages in one
+  grid, `d2.GridIsolated`: ELK lays them in one row otherwise) and the
+  concept map (`domainmodel.ConceptMap`: a frame per model, entities
+  with their placed rules, owns / references / is-a edges, other
+  models' entities external; of the confirmed models, else of the
+  proposal `domainmodel.Proposal` reads from Enhance's output, which the
+  run now builds even without `--write-domain-model`, titled
+  "(proposal)" and introduced as unconfirmed). Built in
+  `pipeline.modelsAndDiagrams`, drawn in one batch in `pipeline.finish`,
+  written under `<out>/diagrams/` (`ReplaceDir`: no stale SVG). ELK's
+  time grows faster than the edges (182 edges 16 s, 274 47 s, 358 97 s,
+  378 two minutes, 1117 over ten): `Draw` sends no diagram of more than
+  `d2.MaxEdges` (300); it keeps its source.
 - `internal/policyview` — `export --format views` (`--lang`): the
   access matrix (`index.html`, `page.html` embedded: markup only, words
   from `locale.Access`) of every persona on every exported operation and
@@ -628,11 +641,20 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   `touches` edges and condition variables on a concept's table; several
   concepts go to their nearest common owner, none in common is
   `concept_conflict` (a question, keyed by the options). Frontmatter
-  `concept`, `concept_evidence`; README "Concepts" = size of the
-  regrouping. Recorded, not applied: rules keep their domain until the
-  move is measured on a confirmed model
-  (`docs/verification/concept-assignment-2026-11-04.md`). Runs right after
-  `position.Annotate` (`pipeline.place`). `concept.Subjects`: an actor's
+  `concept`, `concept_evidence`. `concept.Regroup` then applies it (only
+  confirmed models reorganize the output): each placed rule a person
+  didn't review moves into its model's context domain (the model's
+  scope, `-context` when a code domain of that name keeps rules), its
+  rules listed under their concepts; the context depends on the
+  contexts its model imports (`domainmodel.Contexts`). The move itself
+  is `graph.Move`: belongs_to, every touched domain's rule list (the
+  body helper `Build` uses), the target's coverage (partial with its
+  sources' gaps) and depends_on (declared, plus its sources' services),
+  emptied gapless domains dropped with the edges to them, rule ids
+  unchanged. README "Concepts" = rules moved per context and where they
+  came from (`docs/verification/concept-regrouping-2026-11-10.md`:
+  assignments, 786 rules into one context, on its proposal taken as
+  confirmed). Runs right after `position.Annotate` (`pipeline.place`). `concept.Subjects`: an actor's
   `owns` (config, `domainmodel.CheckOwned` before any LLM call) makes it
   the EARS subject of the rules of its concepts (`graph.WithSubject`
   re-renders the sentence; reviewed rules untouched; runs after the
@@ -686,8 +708,10 @@ longer emits them) and `call`, and, for the policy inventory, what each
 function reads: `reads` (struct fields), `uses_value` (package-level
 constants and basic-typed variables, with type and value: capabilities,
 flags), `loads` (datastore kinds and filtered properties),
-`calls_method` (module methods called, `called_method`), plus `tags`
-on struct facts (`docs/verification/check-inputs-2026-11-06.md`).
+`calls_method` (module methods called, `called_method`), `package`
+(each package's import path, the analyzed module's and the shared
+packages it imports: what the package map resolves imports by), plus
+`tags` on struct facts (`docs/verification/check-inputs-2026-11-06.md`).
 
 `api_type` (webapp: federated `@key` types, `owned` or extended,
 `deprecated`) and the `table` facts' `references` (Go extractor: foreign

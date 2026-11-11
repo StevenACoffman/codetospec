@@ -117,7 +117,9 @@ func (c cli) policyModel(
 				"err", joinErr)
 			return policy.Model{}, policy.Registry{}, nil, false
 		}
-		facts = append(facts, joined...)
+		// Merged by id, as the run merges facts: admin's graph joins its
+		// own facts, and each role would otherwise count twice.
+		facts = extract.Merge(facts, joined)
 	}
 	checkers, err := readCheckers(cfg.Checkers)
 	if err != nil {

@@ -154,6 +154,43 @@ func TestExportViews(t *testing.T) {
 	}
 }
 
+// TestExportJoinsItsOwnCapabilities: admin's graph registers the
+// capabilities and roles it checks, and is also the --capabilities-from
+// graph every service joins; joining its facts to themselves must not
+// count each role twice.
+func TestExportJoinsItsOwnCapabilities(t *testing.T) {
+	outDir := guardedGraph(t, `{"schema":"codetospec/facts/v1","facts":[
+{"kind":"capability","id":"capability.1","origin":"webapp","certainty":"static",
+ "source":{"path":"caps.go","lines":"1-1"},"attrs":{"name":"CanAddUserNote","value":"can_add_user_note"}},
+{"kind":"rule","id":"rule.webapp.role.1","origin":"webapp","certainty":"static",
+ "source":{"path":"app/Models/Invoice.php","lines":"1-3"},"attrs":{"role":"supporter","capabilities":"CanAddUserNote",
+  "slug":"role-supporter","title":"Role: supporter","domain":"billing","ears":"ubiquitous","nature":"business",
+  "requirement":"The system shall grant the supporter role the capabilities CanAddUserNote."}},
+{"kind":"rule","id":"rule.webapp.authz.notes","origin":"webapp","certainty":"static",
+ "source":{"path":"app/Models/Invoice.php","lines":"1-3"},
+ "attrs":{"slug":"authz-notes","title":"Access control: Query.notes",
+  "requirement":"IF the caller lacks permission CanAddUserNote, THEN the system shall reject Query.notes.",
+  "ears":"unwanted","nature":"business","domain":"billing","operation":"Query.notes",
+  "checks":"acl.ActorHasPermission",
+  "check_args":"[{\"check\":\"acl.ActorHasPermission\",\"var\":\"caller.hasPermission.CanAddUserNote\",\"means\":\"capability\",\"scope\":\"any\",\"capability\":\"CanAddUserNote\",\"matcher\":\"acl.AnyScope\"}]",
+  "condition":"{\"not\":{\"var\":\"caller.hasPermission.CanAddUserNote\",\"op\":\"equal\",\"value\":true}}"}}]}`)
+	views := func(extra ...string) string {
+		args := append([]string{
+			exportCmd, outFlag, outDir, toFlag,
+			filepath.Join(t.TempDir(), "views"), formatFlag, "views",
+			"--d2-renderer", filepath.Join(t.TempDir(), "absent"),
+		}, extra...)
+		return command(t, args...)
+	}
+	alone, joined := views(), views("--capabilities-from", outDir)
+	// The four fixed callers, a site administrator, supporter at each of
+	// the six grant scopes, and the explicit holder.
+	const want = "(12 caller kinds)"
+	if !strings.Contains(alone, want) || !strings.Contains(joined, want) {
+		t.Errorf("alone: %q\njoined: %q\nwant %s in both", alone, joined, want)
+	}
+}
+
 // TestExportJoinsCapabilities: a service names a capability another graph
 // (admin's) registers; alone its guard can't translate, joined with
 // --capabilities-from it becomes a deny on the stored name.

@@ -422,6 +422,22 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   closes) and `target`; another digest → `target_stale` →
   `stale_target` question. A target with no NFR of its id is counted in
   the README, never an error. `export` passes the file to `quire.Export`.
+- `internal/anarch` — `export --format anarch` (`--anarch` the target's
+  model): `anarch-proposals.json`, architecture rules proposed to
+  anarch-lint in its proposals format (pinned in the package doc,
+  `anarch-lint.proposals.v1`; its schema copied into testdata and checked
+  by the test). One `fields` rule per enumerated field of a stored struct
+  the code writes (`writes` facts; a struct is stored when a table fact
+  names it, `stored_by` or the kind's name, in its file's package;
+  directories resolved to import paths by the `package` facts): only
+  today's writing packages may write it, `optional` (a field every writer
+  of which became a method matches nothing, which is the state kept to
+  itself), evidence the writes and the rules citing the writing code,
+  id the hash of the rule. Pure (`Propose`, `Declared`, `Marshal`); a rule
+  the model declares, accepted or rejected (gate off), is not proposed
+  again. A person reviews with `anarch-lint proposals report` and adds
+  with `proposals accept`; nothing writes `anarch.json` from codetospec
+  (`docs/verification/anarch-proposals-2026-11-11.md`).
 - `internal/kiro` — `export --format kiro`: one Kiro spec per domain
   (`.kiro/specs/<domain>/requirements.md`, `design.md`), format pinned in
   the package doc (Kiro docs + example spec from kirodotdev/Kiro
@@ -758,6 +774,11 @@ flags), `loads` (datastore kinds and filtered properties),
 (each package's import path, the analyzed module's and the shared
 packages it imports: what the package map resolves imports by), plus
 `tags` on struct facts (`docs/verification/check-inputs-2026-11-06.md`).
+It also emits `writes` (`extractors/go/writes.go`): per function, each
+field of the module's structs that holds one of its enumerations and that
+the function writes (assignment, increment, keyed literal), `field`,
+`field_package`, `enum`; a method's writes of its own receiver's type are
+left out, as anarch-lint leaves them out (`internal/anarch` reads them).
 
 `api_type` (webapp: federated `@key` types, `owned` or extended,
 `deprecated`, `description` from the docstring, `implements`; plus the

@@ -1,0 +1,764 @@
+{
+  "$defs": {
+    "BoundaryRule": {
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "gate": {
+          "enum": [
+            "fail",
+            "warn",
+            "off"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "qualityAttribute": {
+          "enum": [
+            "functional_suitability",
+            "performance_efficiency",
+            "compatibility",
+            "usability",
+            "reliability",
+            "availability",
+            "security",
+            "maintainability",
+            "portability",
+            "scalability",
+            "compliance",
+            "safety"
+          ],
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "uses": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "files",
+        "uses"
+      ],
+      "type": "object"
+    },
+    "CallRule": {
+      "additionalProperties": false,
+      "properties": {
+        "callees": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "dispatch": {
+          "type": "boolean"
+        },
+        "from": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "gate": {
+          "enum": [
+            "fail",
+            "warn",
+            "off"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "only": {
+          "type": "boolean"
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "qualityAttribute": {
+          "enum": [
+            "functional_suitability",
+            "performance_efficiency",
+            "compatibility",
+            "usability",
+            "reliability",
+            "availability",
+            "security",
+            "maintainability",
+            "portability",
+            "scalability",
+            "compliance",
+            "safety"
+          ],
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "tests": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "callees"
+      ],
+      "type": "object"
+    },
+    "CoChangeRule": {
+      "additionalProperties": false,
+      "properties": {
+        "except": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "gate": {
+          "enum": [
+            "fail",
+            "warn",
+            "off"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "qualityAttribute": {
+          "enum": [
+            "functional_suitability",
+            "performance_efficiency",
+            "compatibility",
+            "usability",
+            "reliability",
+            "availability",
+            "security",
+            "maintainability",
+            "portability",
+            "scalability",
+            "compliance",
+            "safety"
+          ],
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "require": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "when": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "require",
+        "when"
+      ],
+      "type": "object"
+    },
+    "Dependents": {
+      "additionalProperties": false,
+      "properties": {
+        "gate": {
+          "enum": [
+            "fail",
+            "warn",
+            "off"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "onlyFrom": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "packages": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "qualityAttribute": {
+          "enum": [
+            "functional_suitability",
+            "performance_efficiency",
+            "compatibility",
+            "usability",
+            "reliability",
+            "availability",
+            "security",
+            "maintainability",
+            "portability",
+            "scalability",
+            "compliance",
+            "safety"
+          ],
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "packages"
+      ],
+      "type": "object"
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "lines": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "ExpectRule": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "gate": {
+          "enum": [
+            "fail",
+            "warn",
+            "off"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "qualityAttribute": {
+          "enum": [
+            "functional_suitability",
+            "performance_efficiency",
+            "compatibility",
+            "usability",
+            "reliability",
+            "availability",
+            "security",
+            "maintainability",
+            "portability",
+            "scalability",
+            "compliance",
+            "safety"
+          ],
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "to": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "type": "object"
+    },
+    "FanOutRule": {
+      "additionalProperties": false,
+      "properties": {
+        "gate": {
+          "enum": [
+            "fail",
+            "warn",
+            "off"
+          ],
+          "type": "string"
+        },
+        "max": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "packages": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "qualityAttribute": {
+          "enum": [
+            "functional_suitability",
+            "performance_efficiency",
+            "compatibility",
+            "usability",
+            "reliability",
+            "availability",
+            "security",
+            "maintainability",
+            "portability",
+            "scalability",
+            "compliance",
+            "safety"
+          ],
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "max",
+        "packages"
+      ],
+      "type": "object"
+    },
+    "FieldRule": {
+      "additionalProperties": false,
+      "properties": {
+        "fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "from": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "gate": {
+          "enum": [
+            "fail",
+            "warn",
+            "off"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "only": {
+          "type": "boolean"
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "qualityAttribute": {
+          "enum": [
+            "functional_suitability",
+            "performance_efficiency",
+            "compatibility",
+            "usability",
+            "reliability",
+            "availability",
+            "security",
+            "maintainability",
+            "portability",
+            "scalability",
+            "compliance",
+            "safety"
+          ],
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "writes": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "fields"
+      ],
+      "type": "object"
+    },
+    "InterfacesOnly": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "gate": {
+          "enum": [
+            "fail",
+            "warn",
+            "off"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "qualityAttribute": {
+          "enum": [
+            "functional_suitability",
+            "performance_efficiency",
+            "compatibility",
+            "usability",
+            "reliability",
+            "availability",
+            "security",
+            "maintainability",
+            "portability",
+            "scalability",
+            "compliance",
+            "safety"
+          ],
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "to": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "type": "object"
+    },
+    "LibraryRule": {
+      "additionalProperties": false,
+      "properties": {
+        "allow": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "from": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "gate": {
+          "enum": [
+            "fail",
+            "warn",
+            "off"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "qualityAttribute": {
+          "enum": [
+            "functional_suitability",
+            "performance_efficiency",
+            "compatibility",
+            "usability",
+            "reliability",
+            "availability",
+            "security",
+            "maintainability",
+            "portability",
+            "scalability",
+            "compliance",
+            "safety"
+          ],
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "from"
+      ],
+      "type": "object"
+    },
+    "Proposal": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "type": "array"
+        },
+        "fitness": {
+          "$ref": "#/$defs/RuleSetFitness"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "RuleSetFitness": {
+      "additionalProperties": false,
+      "properties": {
+        "boundaries": {
+          "items": {
+            "$ref": "#/$defs/BoundaryRule"
+          },
+          "type": "array"
+        },
+        "calls": {
+          "items": {
+            "$ref": "#/$defs/CallRule"
+          },
+          "type": "array"
+        },
+        "coChange": {
+          "items": {
+            "$ref": "#/$defs/CoChangeRule"
+          },
+          "type": "array"
+        },
+        "dependents": {
+          "items": {
+            "$ref": "#/$defs/Dependents"
+          },
+          "type": "array"
+        },
+        "expects": {
+          "items": {
+            "$ref": "#/$defs/ExpectRule"
+          },
+          "type": "array"
+        },
+        "fanOut": {
+          "items": {
+            "$ref": "#/$defs/FanOutRule"
+          },
+          "type": "array"
+        },
+        "fields": {
+          "items": {
+            "$ref": "#/$defs/FieldRule"
+          },
+          "type": "array"
+        },
+        "interfacesOnly": {
+          "items": {
+            "$ref": "#/$defs/InterfacesOnly"
+          },
+          "type": "array"
+        },
+        "libraries": {
+          "items": {
+            "$ref": "#/$defs/LibraryRule"
+          },
+          "type": "array"
+        },
+        "slices": {
+          "items": {
+            "$ref": "#/$defs/Slices"
+          },
+          "type": "array"
+        },
+        "unusedExports": {
+          "items": {
+            "$ref": "#/$defs/UnusedExports"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "Slices": {
+      "additionalProperties": false,
+      "properties": {
+        "freeOfCycles": {
+          "type": "boolean"
+        },
+        "gate": {
+          "enum": [
+            "fail",
+            "warn",
+            "off"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "notDependOnEachOther": {
+          "type": "boolean"
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "qualityAttribute": {
+          "enum": [
+            "functional_suitability",
+            "performance_efficiency",
+            "compatibility",
+            "usability",
+            "reliability",
+            "availability",
+            "security",
+            "maintainability",
+            "portability",
+            "scalability",
+            "compliance",
+            "safety"
+          ],
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern"
+      ],
+      "type": "object"
+    },
+    "UnusedExports": {
+      "additionalProperties": false,
+      "properties": {
+        "gate": {
+          "enum": [
+            "fail",
+            "warn",
+            "off"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "packages": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "qualityAttribute": {
+          "enum": [
+            "functional_suitability",
+            "performance_efficiency",
+            "compatibility",
+            "usability",
+            "reliability",
+            "availability",
+            "security",
+            "maintainability",
+            "portability",
+            "scalability",
+            "compliance",
+            "safety"
+          ],
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "packages"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/StevenACoffman/anarch-lint/schema/proposals.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "proposals": {
+      "items": {
+        "$ref": "#/$defs/Proposal"
+      },
+      "type": "array"
+    },
+    "schema": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "proposals",
+    "schema",
+    "source"
+  ],
+  "title": "anarch-lint proposals",
+  "type": "object"
+}

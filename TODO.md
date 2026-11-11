@@ -459,7 +459,7 @@ holds the rest.
     pinned export formats exempt). The shared `.golangci.yaml` is
     untouched.
 
-- [ ] Propose structural rules to anarch-lint. When a technical rule states a
+- [x] Propose structural rules to anarch-lint. When a technical rule states a
       dependency constraint, such as "package X never calls Y", emit it as a
       candidate `fitness` rule for a person to accept into the target's
       `anarch.json`. No format is fixed yet.
@@ -484,6 +484,31 @@ holds the rest.
     gives `fitness.fields` proposals worth a file, with the rules citing
     the writes as each proposal's reason. A proposal records today's
     writers, not intent: a person judges each.
+  - Measured (2026-11-11, `docs/verification/anarch-proposals-2026-11-11.md`),
+    on six webapp services, each candidate checked by anarch-lint on
+    webapp. The enum-typed fields of stored Datastore kinds: 64, of which
+    46 are written outside tests, 34 by a single package, about 8 `fields`
+    rules per service. Codetospec knows which structs are stored (`table`
+    facts, `stored_by`); without that filter the scan finds 284 written
+    fields, mostly request and parameter structs. Cross-service calls
+    gave 57 `calls` rules, all holding, but they name operation
+    functions: 76 commits touched those services' operation files in
+    three months, and each one adding a cross-service operation needs a
+    new proposal and acceptance; calls deferred
+    through `tasks.GraphQLTask` escape them. That convention belongs in
+    anarch-lint as one rule per service over the supergraph's ownership
+    (anarch-lint's TODO).
+  - Done (2026-11-11): the Go extractor's `writes` facts;
+    `export --format anarch [--anarch model]` (`internal/anarch`): one
+    `fields` rule per written enumerated field of a stored struct, its
+    evidence the writes and the rules citing the writing code, id the
+    rule's hash, a rule the model declares never proposed again (a
+    rejection is a rule kept with its gate off); anarch-lint's
+    proposals format, `schema --proposals`, `proposals report` and
+    `proposals accept`. On six webapp services: 55 proposals, all passing
+    on today's code. Left: SQL tables name no Go type, so Postgres
+    state is not covered; a pilot with a service's owners, to learn how
+    many proposals a person accepts.
 
 ## Measurement Against Outside Data (`nlp4re-tools.md`)
 

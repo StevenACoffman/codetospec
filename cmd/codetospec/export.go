@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/StevenACoffman/codetospec/internal/anarch"
 	"github.com/StevenACoffman/codetospec/internal/atomicfs"
 	"github.com/StevenACoffman/codetospec/internal/cedarpolicy"
 	"github.com/StevenACoffman/codetospec/internal/cerbos"
@@ -46,6 +47,8 @@ func (c cli) export(ctx context.Context, cfg *config.Config) int {
 		return c.exportPolicies(cfg, nodes)
 	case config.ExportViews:
 		return c.exportViews(ctx, cfg, nodes)
+	case config.ExportAnarch:
+		return c.exportAnarch(ctx, cfg, nodes)
 	}
 	nfrTargets, err := nfrtarget.Load(cfg.Out)
 	if err != nil {
@@ -242,6 +245,41 @@ func (c cli) exportViews(ctx context.Context, cfg *config.Config, nodes []graph.
 			"%d decision diagram(s), %d operation(s) not exported, written to %s\n",
 		len(views.Rows), len(views.Columns), views.Personas, len(views.Names),
 		len(views.Skipped), cfg.To)
+	return exitOK
+}
+
+// exportAnarch writes the architecture rules the run's facts propose to
+// anarch-lint, leaving out every rule --anarch's model declares.
+func (c cli) exportAnarch(ctx context.Context, cfg *config.Config, nodes []graph.Node) int {
+	facts, err := extract.LoadFactsFile(filepath.Join(cfg.Out, ".codetospec", "facts.json"))
+	if err != nil {
+		c.logger.ErrorContext(ctx, "cannot load the run's facts", "err", err)
+		return exitFailure
+	}
+	declared := map[string]bool{}
+	if cfg.AnarchModel != "" {
+		model, readErr := os.ReadFile(filepath.Clean(cfg.AnarchModel))
+		if readErr != nil {
+			c.logger.ErrorContext(ctx, "cannot read the anarch-lint model", "err", readErr)
+			return exitFailure
+		}
+		if declared, err = anarch.Declared(model); err != nil {
+			c.logger.ErrorContext(ctx, "cannot read the anarch-lint model", "err", err)
+			return exitFailure
+		}
+	}
+	proposals := anarch.Propose(facts, nodes, declared)
+	if err = writeSpec(
+		cfg.To,
+		map[string][]byte{anarch.FileName: anarch.Marshal(&proposals)},
+	); err != nil {
+		c.logger.ErrorContext(ctx, "cannot write the proposals", "dir", cfg.To, "err", err)
+		return exitFailure
+	}
+	_, _ = fmt.Fprintf(c.stdout,
+		"export: %d proposed rule(s) written to %s; review them with "+
+			"anarch-lint proposals report\n",
+		len(proposals.Proposals), filepath.Join(cfg.To, anarch.FileName))
 	return exitOK
 }
 

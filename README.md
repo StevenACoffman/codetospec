@@ -263,6 +263,7 @@ bin/codetospec policies --out <graph> [--registry reg.json] [--checkers c.json] 
 bin/codetospec export --out <graph> --to <dir> --format cerbos [--checkers c.json] [--registry reg.json] [--join <graph>=<checkers>]  # access guards as Cerbos policies
 bin/codetospec export --out <graph> --to <dir> --format cedar-policy  # ... in the Cedar policy language
 bin/codetospec export --out <graph> --to <dir> --format views [--checkers c.json] [--capabilities-from <admin graph>] [--lang en|fr]  # access matrix and decision diagrams
+bin/codetospec export --out <graph> --to <dir> --format anarch [--anarch anarch.json]  # who may write each stored state field, as anarch-lint proposals
 ```
 
 `make build` also builds `bin/codetospec-d2`, which draws the diagrams
@@ -284,6 +285,23 @@ the request's country or locale against the grant). Operations the
 exports leave out are listed with why. Each guarded operation also gets
 a decision diagram (`operations/<slug>.svg`): its checks in rule order,
 each a question.
+
+`--format anarch` writes `anarch-proposals.json`: architecture rules for
+[anarch-lint](https://github.com/StevenACoffman/anarch-lint) to review,
+in its proposals format (`anarch-lint schema --proposals`). For each
+enumerated field of a stored struct (a Datastore kind the webapp
+extractor names, with `stored_by`) that the code writes, it proposes a
+`fields` rule letting only today's writing packages write it, with the
+writes and the rules citing the writing code as evidence. A method writing its
+own type's fields doesn't count, as anarch-lint doesn't count it. The Go
+extractor's `writes` and `package` facts are needed, so re-extract a graph
+made before them. A proposal states what the code does, not what it
+should: review the file with `anarch-lint proposals report`, add a rule
+with `anarch-lint proposals accept`, and reject one by accepting it with
+its gate off. `--anarch` names the target's model, whose declared rules,
+accepted or rejected, are not proposed again. SQL tables name no Go
+type, so Postgres-backed state is left out
+(`docs/verification/anarch-proposals-2026-11-11.md`).
 
 `--format cerbos` and `--format cedar-policy` (the Cedar policy language,
 not Khan's CEDAR analytics pipeline) write the extractor's access guards

@@ -114,6 +114,9 @@ type Config struct {
 	// policy export joins (--capabilities-from): admin's, for a service
 	// that names capabilities it doesn't register.
 	CapabilitiesFrom string
+	// AnarchModel is the target's anarch-lint model (export --anarch): the
+	// rules it declares, accepted or rejected, are not proposed again.
+	AnarchModel string
 	// Checkers are the checkers files of a policy export or of policies
 	// (--checkers, repeatable): what the checks the extractor doesn't know
 	// mean, pinned by a person; shared and per-service files merge.
@@ -421,6 +424,9 @@ const (
 	// ExportViews is the access views (internal/policyview): an access
 	// matrix page and a decision diagram per guarded operation.
 	ExportViews = "views"
+	// ExportAnarch is the architecture rules proposed to anarch-lint
+	// (internal/anarch): who may write each stored state field.
+	ExportAnarch = "anarch"
 )
 
 // d2RendererFlag declares --d2-renderer, shared by the commands that draw.
@@ -445,9 +451,40 @@ func ParseExport(args []string) (*Config, error) {
 		&cfg.Format,
 		"format",
 		ExportQuire,
-		"spec format: quire, kiro, cerbos, cedar-policy or views",
+		"spec format: quire, kiro, cerbos, cedar-policy, views or anarch",
 	)
 	d2RendererFlag(flags, cfg)
+	exportInputFlags(flags, cfg)
+	registerRefRoots(flags, cfg)
+	flags.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
+	if err := flags.Parse(args); err != nil {
+		return nil, err
+	}
+	if cfg.Out == "" || cfg.To == "" {
+		return nil, errors.New("export requires --out and --to")
+	}
+	formats := []string{
+		ExportQuire, ExportKiro, ExportCerbos, ExportCedarPolicy, ExportViews, ExportAnarch,
+	}
+	if !slices.Contains(formats, cfg.Format) {
+		return nil, fmt.Errorf(
+			"--format %q must be one of %s",
+			cfg.Format,
+			strings.Join(formats, ", "),
+		)
+	}
+	return cfg, nil
+}
+
+// exportInputFlags declares the inputs only some export formats read,
+// each flag's help naming them.
+func exportInputFlags(flags *flag.FlagSet, cfg *Config) {
+	flags.StringVar(
+		&cfg.AnarchModel,
+		"anarch",
+		"",
+		"anarch: the target's anarch-lint model, whose declared rules are not proposed again (optional)",
+	)
 	flags.StringVar(&cfg.CapabilitiesFrom, "capabilities-from", "",
 		"cerbos, cedar-policy, views: graph whose capability and role facts to join (admin's)")
 	flags.Var(
@@ -470,23 +507,6 @@ func ParseExport(args []string) (*Config, error) {
 		"cerbos, cedar-policy, views: repository the checks are cited in, to tell stale pins (optional)",
 	)
 	flags.StringVar(&cfg.Lang, "lang", "en", "views: language of the page and diagrams (en or fr)")
-	registerRefRoots(flags, cfg)
-	flags.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
-	if err := flags.Parse(args); err != nil {
-		return nil, err
-	}
-	if cfg.Out == "" || cfg.To == "" {
-		return nil, errors.New("export requires --out and --to")
-	}
-	formats := []string{ExportQuire, ExportKiro, ExportCerbos, ExportCedarPolicy, ExportViews}
-	if !slices.Contains(formats, cfg.Format) {
-		return nil, fmt.Errorf(
-			"--format %q must be one of %s",
-			cfg.Format,
-			strings.Join(formats, ", "),
-		)
-	}
-	return cfg, nil
 }
 
 // ParsePolicies resolves the policies command configuration.

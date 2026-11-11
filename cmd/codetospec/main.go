@@ -45,7 +45,7 @@ const usageText = `usage:
   codetospec verify --src <repo-dir> --out <graph-dir>
   codetospec drift --src <repo-dir> --out <graph-dir>
   codetospec diff --old <graph-dir> --new <graph-dir>
-  codetospec export --out <graph-dir> --to <new-dir> [--format quire|kiro|cerbos|cedar-policy]
+  codetospec export --out <graph-dir> --to <new-dir> [--format quire|kiro|cerbos|cedar-policy|views|anarch]
   codetospec policies --out <graph-dir> [--registry <file>] [--format md|json]
   codetospec stats --out <graph-dir>`
 

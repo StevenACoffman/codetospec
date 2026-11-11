@@ -12,8 +12,8 @@
 // evidence says business (position's nature_by_evidence) are assigned:
 // a technical or open rule has no concept to find.
 //
-// The assignment is recorded, not yet applied: rules keep their domain,
-// and the Report says how large the regrouping into concepts would be.
+// Regroup then applies it: each placed rule moves into its model's
+// context domain; the Report says how the rules regrouped.
 package concept
 
 import (
@@ -55,6 +55,9 @@ type Report struct {
 	Concepts  []Count
 	Conflicts int // business rules whose concepts share no owner
 	Unplaced  int // business rules with no concept evidence
+	// Regrouped is, per context domain, how many rules Regroup moved
+	// into it.
+	Regrouped map[string]int
 }
 
 // The frontmatter keys Assign writes.

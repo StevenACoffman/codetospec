@@ -146,6 +146,7 @@ type ReadmeReview struct {
 	EvidenceColumns                       string // the table's header rows
 	ConceptsHeading, ConceptsIntroFmt     string // %d conflicts, %d unplaced
 	ConceptsColumns                       string // the table's header rows
+	ConceptsRegroupedLead                 string // before each context domain and its rules moved
 	AndMoreFmt                            string // %d omitted entries
 	DomainsHeading                        string
 	// DomainMapAlt is the drawn domain map's alternative text,
@@ -645,12 +646,16 @@ func newReadmeReview(tr translate) ReadmeReview {
 			"## Concepts",
 		),
 		ConceptsIntroFmt: tr(
-			"Les règles métier que leurs indices (entités touchées, conditions sur leurs tables) placent dans un concept des modèles confirmés (`concept`, `concept_evidence`), plusieurs concepts allant à leur propriétaire commun le plus proche. Le regroupement n'est pas appliqué : le tableau dit sa taille. %d règles nomment des concepts sans propriétaire commun (`concept_conflict`, une question chacune) ; %d règles métier ne nomment aucun concept.",
-			"The business rules their evidence (entities touched, conditions on their tables) places in a concept of the confirmed models (`concept`, `concept_evidence`), several concepts going to their nearest common owner. The regrouping is not applied: the table states its size. %d rules name concepts with no common owner (`concept_conflict`, a question each); %d business rules name no concept.",
+			"Les règles métier que leurs indices (entités touchées, conditions sur leurs tables) placent dans un concept des modèles confirmés (`concept`, `concept_evidence`), plusieurs concepts allant à leur propriétaire commun le plus proche. Chaque règle placée rejoint le domaine du contexte de son modèle, ses règles rangées par concept (une règle relue par une personne garde le sien) ; le tableau dit d'où elles viennent. %d règles nomment des concepts sans propriétaire commun (`concept_conflict`, une question chacune) ; %d règles métier ne nomment aucun concept.",
+			"The business rules their evidence (entities touched, conditions on their tables) places in a concept of the confirmed models (`concept`, `concept_evidence`), several concepts going to their nearest common owner. Each placed rule moves into its model's context domain, listed under its concept (a rule a person reviewed keeps its own); the table says where they came from. %d rules name concepts with no common owner (`concept_conflict`, a question each); %d business rules name no concept.",
 		),
 		ConceptsColumns: tr(
-			"| concept | règles | domaines actuels |\n|---|---:|---|",
-			"| concept | rules | current domains |\n|---|---:|---|",
+			"| concept | règles | domaines d'origine |\n|---|---:|---|",
+			"| concept | rules | domains they came from |\n|---|---:|---|",
+		),
+		ConceptsRegroupedLead: tr(
+			"Règles déplacées, par domaine de contexte :",
+			"Rules moved, by context domain:",
 		),
 		DuplicatesHeading: tr(
 			"## Doublons candidates",

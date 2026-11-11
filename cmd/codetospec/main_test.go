@@ -348,10 +348,21 @@ entities:
 		"## Domain model",
 		"- Model entities found in the code: 1/2", // Invoice is the invoices table
 		"- `billing.Customer`",
+		// The placed rules regrouped into the model's context domain.
+		"Rules moved, by context domain:\n\n- `domain.billing`: 5",
 	} {
 		if !strings.Contains(string(readme), want) {
 			t.Errorf("README lacks %q:\n%s", want, readme)
 		}
+	}
+
+	billing, err := fs.ReadFile(os.DirFS(outDir), "nodes/domains/billing.md")
+	if err != nil || !strings.Contains(string(billing), "### billing.Invoice") {
+		t.Errorf(
+			"billing context domain = %q, %v; want its rules under billing.Invoice",
+			billing,
+			err,
+		)
 	}
 
 	invalid := write("broken.modelith.yaml", `kind: DomainModel

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/StevenACoffman/codetospec/internal/concept"
+	"github.com/StevenACoffman/indomain/pkg/model"
 )
 
 // Concepts are the entities of the confirmed models as concept assignment
@@ -37,6 +38,30 @@ func Concepts(set *Set, report *Report) []concept.Concept {
 		func(a, b concept.Concept) int { return strings.Compare(a.Name, b.Name) },
 	)
 	return concepts
+}
+
+// Contexts are the models as business contexts (concept.Regroup): each
+// model's scope, its description (its title when it has none), and the
+// scopes of the models it imports, by the files they name (a model's
+// scope is its file's basename, whatever the importer binds it to).
+//
+// Ensures: in model order; nil for a nil set.
+func Contexts(set *Set) []concept.Context {
+	if set == nil {
+		return nil
+	}
+	contexts := make([]concept.Context, 0, len(set.Models))
+	for _, m := range set.Models {
+		c := concept.Context{Scope: m.Scope, Summary: m.Model.Description}
+		if c.Summary == "" {
+			c.Summary = m.Model.Title
+		}
+		for _, imp := range m.Model.Imports {
+			c.Imports = append(c.Imports, model.ScopeFromPath(imp.Path))
+		}
+		contexts = append(contexts, c)
+	}
+	return contexts
 }
 
 // owners maps each owned entity to the entity owning it, both qualified;

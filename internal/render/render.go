@@ -1155,6 +1155,12 @@ func conceptsSection(report *concept.Report, text *locale.Text) string {
 	var b strings.Builder
 	b.WriteString("\n" + text.ConceptsHeading + "\n\n")
 	fmt.Fprintf(&b, text.ConceptsIntroFmt+"\n", report.Conflicts, report.Unplaced)
+	if len(report.Regrouped) > 0 {
+		b.WriteString("\n" + text.ConceptsRegroupedLead + "\n\n")
+		for _, slug := range slices.Sorted(maps.Keys(report.Regrouped)) {
+			fmt.Fprintf(&b, "- `domain.%s`: %d\n", slug, report.Regrouped[slug])
+		}
+	}
 	if len(report.Concepts) == 0 {
 		return b.String()
 	}

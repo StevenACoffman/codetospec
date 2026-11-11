@@ -863,7 +863,8 @@ type placement struct {
 
 // place records each rule's position and evidence (position.Annotate),
 // then, with --domain-model, its concept (concept.Assign), which reads
-// that evidence.
+// that evidence, and moves each placed rule into its model's context
+// domain (concept.Regroup): only confirmed models reorganize the output.
 func (p *pipeline) place(
 	nodes []graph.Node,
 	positions *position.Map,
@@ -878,6 +879,7 @@ func (p *pipeline) place(
 		domainmodel.Options{Entities: p.cfg.DomainModelEntities})
 	nodes, concepts := concept.Assign(nodes, domainmodel.Concepts(models, &report))
 	nodes, _ = concept.Subjects(nodes, p.cfg.Actors.Owners)
+	nodes, concepts.Regrouped = concept.Regroup(nodes, domainmodel.Contexts(models), p.cfg.Lang)
 	placed.concepts = &concepts
 	return nodes, placed
 }

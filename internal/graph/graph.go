@@ -400,25 +400,13 @@ func ruleAndDomainNodes(
 		d := drafts[domain]
 		sort.SliceStable(d.rules, func(i, j int) bool { return d.rules[i].ID < d.rules[j].ID })
 		rules = append(rules, d.rules...)
-		var ruleList strings.Builder
-		for _, r := range d.rules {
-			fmt.Fprintf(
-				&ruleList,
-				"- [%s](../rules/%s.md)\n",
-				r.Title,
-				strings.TrimPrefix(r.ID, "rule."),
-			)
-		}
-		body := d.summary + "\n\n" + text.RulesHeading + "\n\n" + strings.TrimRight(
-			ruleList.String(),
-			"\n",
-		)
+		body := domainBody(d.summary, d.rules, "", text)
 		domains = append(domains, Node{
 			ID:     "domain." + domain,
 			Type:   "domain",
 			Status: StatusGenerated,
 			Title:  fmt.Sprintf(text.DomainTitleFmt, domain),
-			Body:   strings.TrimSpace(body),
+			Body:   body,
 		})
 	}
 	return rules, domains

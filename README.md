@@ -223,7 +223,7 @@ given to a different rule in the next one.
 
 ## Quick start
 
-Requirements: Go ≥ 1.27.3, a C toolchain (CGo for tree-sitter), an
+Requirements: Go ≥ 1.27.4, a C toolchain (CGo for tree-sitter), an
 OpenAI-compatible endpoint.
 
 ```sh

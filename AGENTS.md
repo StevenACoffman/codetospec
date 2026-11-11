@@ -18,7 +18,7 @@ scripts/remap.sh                               # remap every ~/spec-graphs outpu
 
 - Lint: the repo's `.golangci.yaml` (copy of `~/Documents/git/.golangci.yml`),
   golangci-lint v2.15.0, pinned in `mise.toml` and CI (2.13 cannot read
-  Go 1.27.3 export data). Never
+  Go 1.27 export data). Never
   relax it; a `//nolint:<linter> // <reason>` only when the code is correct
   by design (nolintlint requires the reason).
 - `make corpus` (`internal/corpus`, tag `corpus`) replays grounding, verify

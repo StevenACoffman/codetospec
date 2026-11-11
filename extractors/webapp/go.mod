@@ -1,6 +1,6 @@
 module github.com/StevenACoffman/codetospec/extractors/webapp
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/vektah/gqlparser/v2 v2.5.64

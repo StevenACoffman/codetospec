@@ -1,3 +1,5 @@
 [tools]
-# 2.13 and older cannot read Go 1.27.3 export data; CI pins the same version.
+# go.mod's version, as CI installs it (setup-go reads go.mod).
+go = "1.27.4"
+# 2.13 and older cannot read Go 1.27 export data; CI pins the same version.
 golangci-lint = "2.15.0"

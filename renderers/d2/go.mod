@@ -1,6 +1,6 @@
 module github.com/StevenACoffman/codetospec/renderers/d2
 
-go 1.27.3
+go 1.27.4
 
 require oss.terrastruct.com/d2 v0.7.2
 

@@ -73,6 +73,11 @@ const (
 	KindImport = "import"
 	KindTable  = "table"
 	KindSymbol = "symbol"
+	// KindPackage is one package of a language whose imports name a path
+	// (Go): AttrName its import path, Source a file of it (under its root
+	// for a shared package). Emitted by the Go extractor; the package map
+	// resolves an import to the package of that exact path.
+	KindPackage = "package"
 	// KindReach marks code of a shared root (Source.Root) that the
 	// analyzed code reaches: a declaration it calls or uses, directly or
 	// through other shared code. Rules of the shared root's own spec that

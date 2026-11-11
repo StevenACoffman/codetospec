@@ -7,6 +7,10 @@ import (
 	"testing"
 )
 
+// sharedName is the shared root's name in the workspace tests, as
+// codetospec's --ref-root names it.
+const sharedName = "pkg"
+
 // writeWorkspace writes a go.work of two modules: shared (example.com/shared,
 // package lib) and app, which requires it the way districts-jobs modules
 // require pkg/ (replace => ../shared). It returns the workspace root.
@@ -72,7 +76,7 @@ func main() {
 
 func TestReachFacts(t *testing.T) {
 	ws := writeWorkspace(t)
-	shared, err := sharedRoots([]string{"pkg=" + filepath.Join(ws, "shared")})
+	shared, err := sharedRoots([]string{sharedName + "=" + filepath.Join(ws, "shared")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +109,8 @@ func TestReachFacts(t *testing.T) {
 			if found != tc.reached {
 				t.Fatalf("reached = %v, want %v (facts: %v)", found, tc.reached, got)
 			}
-			if found && (f.Source.Root != "pkg" || f.Source.Path != "lib.go" || f.Kind != "reach") {
+			if found &&
+				(f.Source.Root != sharedName || f.Source.Path != "lib.go" || f.Kind != "reach") {
 				t.Errorf("fact = %+v, want a reach fact citing @pkg/lib.go", f)
 			}
 		})
@@ -120,10 +125,13 @@ func TestSharedRoots(t *testing.T) {
 		spec       string
 		wantModule string // "" when an error is expected
 	}{
-		"module read from go.mod": {"pkg=" + filepath.Join(ws, "shared"), "example.com/shared"},
-		"no name":                 {"=" + ws, ""},
-		"no go.mod":               {"pkg=" + ws, ""},
-		"not name=dir":            {"pkg", ""},
+		"module read from go.mod": {
+			sharedName + "=" + filepath.Join(ws, "shared"),
+			"example.com/shared",
+		},
+		"no name":      {"=" + ws, ""},
+		"no go.mod":    {sharedName + "=" + ws, ""},
+		"not name=dir": {"pkg", ""},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -146,7 +154,7 @@ func TestSharedRoots(t *testing.T) {
 // none.
 func TestSharedStructFacts(t *testing.T) {
 	ws := writeWorkspace(t)
-	shared, err := sharedRoots([]string{"pkg=" + filepath.Join(ws, "shared")})
+	shared, err := sharedRoots([]string{sharedName + "=" + filepath.Join(ws, "shared")})
 	if err != nil {
 		t.Fatal(err)
 	}

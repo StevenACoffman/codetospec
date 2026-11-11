@@ -1,12 +1,35 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "Only mise.toml: Dependabot keeps the Go modules and GitHub Actions current.",
-  "enabledManagers": ["mise"],
+  "description": "mise.toml's tools, and the Go version in mise.toml and every go.mod; Dependabot keeps the Go modules and GitHub Actions current.",
+  "enabledManagers": ["mise", "gomod"],
+  "ignorePaths": ["**/testdata/**"],
   "schedule": ["* 0-5 * * 1"],
   "minimumReleaseAge": "7 days",
   "dependencyDashboard": { "enabled": false },
   "semanticCommits": "disabled",
   "commitMessagePrefix": "mise:",
   "commitMessageAction": "update",
-  "commitMessageTopic": "{{depName}}"
+  "commitMessageTopic": "{{depName}}",
+  "packageRules": [
+    {
+      "description": "Dependabot updates the modules; Renovate reads go.mod only for its go directive.",
+      "matchManagers": ["gomod"],
+      "enabled": false
+    },
+    {
+      "description": "The go directive, which CI installs through setup-go: bump it, not widen it.",
+      "matchManagers": ["gomod"],
+      "matchDepNames": ["go"],
+      "matchDepTypes": ["golang"],
+      "enabled": true,
+      "rangeStrategy": "bump"
+    },
+    {
+      "description": "One PR moves Go everywhere at once, so mise.toml and the five go.mod files never disagree.",
+      "matchDepNames": ["go"],
+      "groupName": "Go",
+      "commitMessagePrefix": "all:",
+      "commitMessageTopic": "Go"
+    }
+  ]
 }

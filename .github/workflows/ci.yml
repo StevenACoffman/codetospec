@@ -78,7 +78,7 @@ jobs:
     env:
       # anarch-lint has no tags yet, so `go run module@commit` fails on Go's
       # deprecation lookup; build it from a pinned commit instead.
-      ANARCH_LINT_REF: e14bcf224a7bd819f43042e2006e7c98967bd5a3
+      ANARCH_LINT_REF: 59ecc043c1530bdcb34ebfdaeafdb5bbcc592385
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:

@@ -146,6 +146,37 @@ holds the rest.
       proposal, marked)
       (`docs/verification/concept-regrouping-2026-11-10.md`: assignments,
       786 rules into one context on its proposal taken as confirmed).
+- [x] Compare the confirmed models with the code (`beyond_static_analysis`
+      ideas: reflexion models, recovery against ground truth, the smallest
+      question): `alignment.Measure` (pairs converge / diverge / absent /
+      unobservable from foreign keys and direct calls, `concept_divergence`
+      questions; scattering and tangling; adjusted Rand index of the
+      communities against the concepts) and `concept.ConflictSets`
+      (`docs/verification/concept-alignment-2026-11-11.md`: assignments,
+      16 divergent pairs, 11 conflicts settled by 4 questions, index 0.00).
+- [x] A proposal from more of the code: schema migrations replayed
+      (ALTER TABLE, rollbacks skipped), primary keys (`1:0..1`), drafts
+      from SQL comments, field comments and GraphQL docstrings, GraphQL
+      interfaces as `subtypeOf`, enums from `enum` facts, singular names,
+      `column_link` questions, and unreviewed models flagged
+      (`docs/verification/proposal-from-code-2026-11-11.md`: assignments,
+      placeholders 28 → 14, 5 `1:0..1`, 12 `subtypeOf`, 3 enums, 3 links).
+- [ ] Link a SQL column to the Go enum it holds (`assignments.assignment_type`
+      ↔ `models.AssignmentType`): needs a struct ↔ table mapping no fact
+      gives yet.
+- [ ] Concepts from API types touch no rule (rules touch tables), so the
+      alignment calls their relationships unobservable: place rules on
+      them through the endpoint journeys of the types they resolve
+      (recommendation 12 below).
+- [ ] Must and may graphs across services (`beyond_static_analysis` idea
+      5): reachability and propagation cost as an interval, direct imports
+      and calls against those plus interface dispatch, `callee_var` and
+      `dependency` facts, with the assumptions neither includes listed.
+      Wait for a second repo with cross-service edges (only webapp emits
+      `dependency` facts).
+- [ ] Decision-point coverage: a Go extractor fact per branch on a
+      business-relevant value, and the share some rule cites; plus the
+      chunks that mapped without error and produced no rule.
 - [ ] Variants (`DOMAIN_PLAN.md` recommendation 17): revisit when a
       confirmed model names the dimension; code enums find 8 of 67 pairs
       (`docs/verification/enum-variants-2026-11-04.md`).
@@ -163,10 +194,11 @@ holds the rest.
 - [ ] Declared vs computed (recommendation 16): let a person declare the
       concept of a file or a rule, and ask when the computed one
       disagrees. No place to declare it yet (modelith has none).
-- [ ] Taxonomy (recommendation 8): the proposal does not mark is-kind-of
-      (the six platform assignment types under Assignment); propose it
-      from an assignment-type enum or `BaseAssignment` embedding, as a
-      QUESTION for a person.
+- [ ] Taxonomy (recommendation 8): GraphQL interfaces now give
+      `subtypeOf` (the six platform assignment types under
+      `BaseAssignment`); still unmarked: whether the SQL `Assignment`
+      table is those types' storage, readable from its `assignment_type`
+      values, as a QUESTION for a person.
 - [ ] Terminology checks (recommendation 9): one concept under several
       domain names (`content-assignment` / `content-assignments`), one
       name for several concepts. The concept table shows the first;
@@ -416,7 +448,7 @@ holds the rest.
     an anarch-lint `calls` rule forbidding `os.WriteFile`, `os.Create`,
     `os.Rename` and the like outside `internal/atomicfs`, with one model per
     module because the extractors are separate modules. A forbidigo pattern
-    would also work; `.golangci.yml` is a shared copy that is never relaxed,
+    would also work; `.golangci.yaml` is a shared copy that is never relaxed,
     so check whether a local tightening is allowed.
   - "All fixed output strings live in `internal/locale`"
     (`AGENTS.md:242-245`): neither anarch-lint nor golangci-lint sees string
@@ -424,7 +456,7 @@ holds the rest.
   - Done: `internal/atomicfs/onlywriter_test.go` (all modules; atomicfs on
     renameio/v2, `ReplaceDir(dir, files)`) and
     `internal/locale/onlylocale_test.go` (spec writers; llms.txt and the
-    pinned export formats exempt). The shared `.golangci.yml` is
+    pinned export formats exempt). The shared `.golangci.yaml` is
     untouched.
 
 - [ ] Propose structural rules to anarch-lint. When a technical rule states a

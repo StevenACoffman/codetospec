@@ -1,6 +1,7 @@
 package communities_test
 
 import (
+	"fmt"
 	"reflect"
 	"slices"
 	"testing"
@@ -63,7 +64,7 @@ func TestSplits(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := communities.Splits(tc.files, tc.imports)
+			got := communities.Splits(tc.files, communities.Of(tc.files, tc.imports))
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("Splits = %+v, want %+v", got, tc.want)
 			}
@@ -106,7 +107,7 @@ func TestSplitsResolvesImports(t *testing.T) {
 				)
 				imports = append(imports, communities.Import{From: "app/" + n, Target: target})
 			}
-			got := communities.Splits(files, imports)
+			got := communities.Splits(files, communities.Of(files, imports))
 			want := []communities.Split{{Domain: mixedDomain, Communities: 2, Files: 9}}
 			if !reflect.DeepEqual(got, want) {
 				t.Fatalf(
@@ -123,7 +124,7 @@ func TestSplitsResolvesImports(t *testing.T) {
 // the same splits.
 func TestSplitsDeterministic(t *testing.T) {
 	files, imports := tools()
-	want := communities.Splits(files, imports)
+	want := communities.Splits(files, communities.Of(files, imports))
 	cases := map[string]struct {
 		files   []communities.File
 		imports []communities.Import
@@ -136,11 +137,51 @@ func TestSplitsDeterministic(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			for range 20 {
-				if got := communities.Splits(tc.files, tc.imports); !reflect.DeepEqual(got, want) {
+				if got := communities.Splits(
+					tc.files,
+					communities.Of(tc.files, tc.imports),
+				); !reflect.DeepEqual(
+					got,
+					want,
+				) {
 					t.Fatalf("run differs: %+v vs %+v", got, want)
 				}
 			}
 		})
+	}
+}
+
+// TestOfDeterministic: a graph with many ties (240 files in 40
+// directories, 900 scattered imports) gets the same communities on every
+// call. gonum walked a simple graph's neighbours in map order, and calls
+// differed on such graphs.
+func TestOfDeterministic(t *testing.T) {
+	const dirs, perDir, imports = 40, 6, 900
+	var files []communities.File
+	for d := range dirs {
+		for f := range perDir {
+			files = append(files, communities.File{Path: fmt.Sprintf("d%02d/f%d.go", d, f)})
+		}
+	}
+	var edges []communities.Import
+	// A linear congruential sequence (glibc's constants) scatters them,
+	// the same on every run.
+	x := uint32(1)
+	next := func(n int) int {
+		x = x*1103515245 + 12345
+		return int(x>>16) % n
+	}
+	for range imports {
+		from := files[next(len(files))].Path
+		edges = append(edges, communities.Import{
+			From: from, Target: fmt.Sprintf("example.com/x/d%02d", next(dirs)),
+		})
+	}
+	want := communities.Of(files, edges)
+	for i := range 40 {
+		if got := communities.Of(files, edges); !reflect.DeepEqual(got, want) {
+			t.Fatalf("call %d gives other communities", i)
+		}
 	}
 }
 

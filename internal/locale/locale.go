@@ -37,6 +37,7 @@ type Text struct {
 	Policy
 	Access
 	Diagrams
+	Alignment
 }
 
 // ModelFile is the text codetospec writes into modelith model files.
@@ -45,8 +46,15 @@ type ModelFile struct {
 	// entity nobody described: a later run recognizes it by this prefix
 	// (in any language) and replaces it once a description exists.
 	PlaceholderPrefix string
-	PlaceholderFmt    string // %s prefix, %s table name, %s source path:lines
-	GeneratedDescFmt  string // %s the code the model covers
+	// DraftPrefix opens a definition codetospec took from the code's own
+	// documentation (a comment, a docstring): a draft until a person
+	// rewrites it, recognized by this prefix in any language.
+	DraftPrefix    string
+	PlaceholderFmt string // %s prefix, %s table name, %s source path:lines
+	// PlaceholderStoredFmt, for a table stored by a code type named
+	// otherwise: %s prefix, %s table name, %s type, %s source path:lines.
+	PlaceholderStoredFmt string
+	GeneratedDescFmt     string // %s the code the model covers
 	// PlaceholderTypeFmt defines an API type nobody described (%s prefix,
 	// %s type name, %s source path:lines); ReferencedTypesFmt and
 	// DeprecatedTypesFmt list, in a proposed model's description, the
@@ -170,6 +178,7 @@ type ReadmeModel struct {
 	ModelFilesHeading     string
 	ModelFilesIntroFmt    string // %d files written
 	ModelUndefinedFmt     string // %d entities without a definition
+	ModelLinksFmt         string // %d columns named like a foreign key elsewhere
 }
 
 // newText builds the Text of lang ("fr" or "en"). Each field holds its
@@ -223,6 +232,7 @@ model's own rating, not a check.`,
 		Policy:    newPolicy(tr),
 		Access:    newAccess(tr),
 		Diagrams:  newDiagrams(tr),
+		Alignment: newAlignment(tr),
 	}
 }
 
@@ -320,6 +330,10 @@ func newLabels(tr translate) Labels {
 func newModelFile(tr translate) ModelFile {
 	return ModelFile{
 		PlaceholderPrefix: tr("Pas encore défini.", "Not yet defined."),
+		DraftPrefix: tr(
+			"Brouillon, tiré de la documentation du code :",
+			"Draft, from the code's documentation:",
+		),
 		PlaceholderFmt: tr(
 			"%s codetospec l'a trouvée comme la table %s (%s) : dire ce qu'elle est, et ce qu'elle n'est pas.",
 			"%s codetospec found it as the table %s (%s): say what it is, and what it is not.",
@@ -327,6 +341,10 @@ func newModelFile(tr translate) ModelFile {
 		GeneratedDescFmt: tr(
 			"Concepts que codetospec propose pour %s à partir de son code (tables et types d'entité de son API qu'aucun modèle humain ne nomme, possession par les clés étrangères NOT NULL) : une proposition, à confirmer ou corriger avant qu'elle ne regroupe les règles.",
 			"Concepts codetospec proposes for %s from its code (tables and API entity types no human model names, ownership from NOT NULL foreign keys): a proposal, to confirm or correct before it groups rules.",
+		),
+		PlaceholderStoredFmt: tr(
+			"%s codetospec l'a trouvée comme la table %s, stockée par le type %s du code (%s) : dire ce qu'elle est, et ce qu'elle n'est pas.",
+			"%s codetospec found it as the table %s, stored by the code type %s (%s): say what it is, and what it is not.",
 		),
 		PlaceholderTypeFmt: tr(
 			"%s codetospec l'a trouvé comme le type d'API %s (%s) : dire ce qu'il est, et ce qu'il n'est pas.",
@@ -408,6 +426,10 @@ func newReadmeModel(tr translate) ReadmeModel {
 		ModelFilesIntroFmt: tr(
 			"%d fichiers de modèle modelith écrits sous `models/` (provenance de chaque champ : `models/provenance.json`) :",
 			"%d modelith model files written under `models/` (where each field comes from: `models/provenance.json`):",
+		),
+		ModelLinksFmt: tr(
+			"%d colonnes portent le nom d'une clé étrangère ailleurs, sans qu'aucune clé ne le déclare (`column_link`, une question chacune) : des liens qu'un modèle peut avoir, que le code ne dit pas.",
+			"%d columns are named like a foreign key elsewhere, which no key declares (`column_link`, a question each): links a model may hold that the code never states.",
 		),
 		ModelUndefinedFmt: tr(
 			"%d entités n'ont pas encore de définition : que sont-elles, et que ne sont-elles pas ?",

@@ -1,0 +1,37 @@
+name: golangci-lint
+on:
+  push:
+    branches:
+    - main
+  pull_request:
+    types: [opened, synchronize]
+# When a new revision is pushed to a PR, cancel all in-progress CI runs for that
+# PR. See https://docs.github.com/en/actions/using-jobs/using-concurrency
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+env:
+  GOTOOLCHAIN: local
+  GOFLAGS: "-trimpath"
+jobs:
+  golangci-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: "false"
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache-dependency-path: "**/go.sum"
+    # golangci-lint at the version mise.toml pins (2.13 and older cannot read
+    # Go 1.27 export data; a newer one can add findings unannounced).
+    - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+      with:
+        cache: true
+    # Every module, with the corpus build tag, as `make check` does locally.
+    - name: golangci-lint, every module
+      run: make lint

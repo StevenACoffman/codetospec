@@ -1,6 +1,14 @@
-type AIProfile @key(fields: "id") {
+"""
+A profile the AI keeps for a learner.
+"""
+type AIProfile implements Profile @key(fields: "id") {
   id: ID!
   summary: String
+}
+
+"""Anything that describes a learner."""
+interface Profile {
+  id: ID!
 }
 
 type RowByTeacher @key(fields: "teacherID kaLocale") {

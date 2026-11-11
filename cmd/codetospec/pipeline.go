@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/alignment"
 	"github.com/StevenACoffman/codetospec/internal/atomicfs"
 	"github.com/StevenACoffman/codetospec/internal/callers"
 	"github.com/StevenACoffman/codetospec/internal/communities"
@@ -681,8 +682,10 @@ type metaInputs struct {
 
 // buildMeta computes the output README's summary and checks.
 func buildMeta(cfg *config.Config, ext *extraction, in *metaInputs) render.Meta {
+	files := codeFiles(in.chunks)
+	community := communities.Of(files, importsOf(ext.facts))
 	meta := render.Meta{
-		DomainSplits:          communities.Splits(codeFiles(in.chunks), importsOf(ext.facts)),
+		DomainSplits:          communities.Splits(files, community),
 		Coverage:              graph.ComputeCoverage(in.nodes),
 		ChunksFailed:          in.snapshot.ChunksFailed,
 		ChunksTotal:           in.snapshot.ChunksTotal,
@@ -702,6 +705,7 @@ func buildMeta(cfg *config.Config, ext *extraction, in *metaInputs) render.Meta 
 		SharedEntities:        graph.SharedEntities(in.nodes),
 		Lang:                  cfg.Lang,
 		RuleFactsRejected:     len(ext.rejected),
+		ColumnLinks:           extract.ColumnLinks(ext.facts),
 		FactsExcluded:         len(ext.excluded),
 		Actors:                cfg.Actors.Descriptions,
 	}
@@ -715,6 +719,14 @@ func buildMeta(cfg *config.Config, ext *extraction, in *metaInputs) render.Meta 
 		report := domainmodel.Compare(in.models, in.nodes,
 			domainmodel.Options{Entities: cfg.DomainModelEntities})
 		meta.DomainModel = &report
+		aligned := alignment.Measure(&alignment.Input{
+			Nodes:       in.nodes,
+			Facts:       ext.facts,
+			Concepts:    domainmodel.Concepts(in.models, &report),
+			Declared:    domainmodel.Relations(in.models),
+			Communities: community,
+		})
+		meta.Alignment = &aligned
 	}
 	return meta
 }
@@ -849,6 +861,7 @@ func (p *pipeline) domainModel(
 		Nodes:      nodes,
 		Tables:     tablesOf(facts),
 		APITypes:   apiTypesOf(facts),
+		Enums:      enumsOf(facts),
 		Title:      filepath.Base(filepath.Clean(p.cfg.Src)),
 		Lang:       p.cfg.Lang,
 		Options:    domainmodel.Options{Entities: p.cfg.DomainModelEntities},
@@ -918,6 +931,10 @@ func (p *pipeline) place(
 	}
 	report := domainmodel.Compare(models, nodes,
 		domainmodel.Options{Entities: p.cfg.DomainModelEntities})
+	if n := report.UnreviewedEntities(); n > 0 {
+		p.logger.Warn("domain models are unreviewed: rules regroup by definitions codetospec wrote",
+			"unreviewed", n, "entities", len(report.Entities))
+	}
 	nodes, concepts := concept.Assign(nodes, domainmodel.Concepts(models, &report))
 	nodes, _ = concept.Subjects(nodes, p.cfg.Actors.Owners)
 	nodes, concepts.Regrouped = concept.Regroup(nodes, domainmodel.Contexts(models), p.cfg.Lang)
@@ -941,15 +958,38 @@ func tablesOf(facts []extract.Fact) []domainmodel.Table {
 			}
 		}
 		tables = append(tables, domainmodel.Table{
-			ID:          graph.EntityID(&f),
-			Title:       title,
-			Columns:     columns,
-			Description: f.Attrs[extract.AttrDescription],
-			Source:      f.Source,
-			References:  extract.ParseReferences(f.Attrs[extract.AttrReferences]),
+			ID:                 graph.EntityID(&f),
+			Title:              title,
+			Columns:            columns,
+			Description:        f.Attrs[extract.AttrDescription],
+			Source:             f.Source,
+			References:         extract.ParseReferences(f.Attrs[extract.AttrReferences]),
+			PrimaryKey:         primaryKeyOf(&f),
+			StoredBy:           f.Attrs[extract.AttrStoredBy],
+			ColumnDescriptions: columnDescriptionsOf(&f),
 		})
 	}
 	return tables
+}
+
+// primaryKeyOf is a table fact's primary key columns; nil when unknown.
+func primaryKeyOf(f *extract.Fact) []string {
+	if key := f.Attrs[extract.AttrPrimaryKey]; key != "" {
+		return strings.Split(key, "+")
+	}
+	return nil
+}
+
+// columnDescriptionsOf reads a table fact's column descriptions; nil when
+// absent or malformed.
+func columnDescriptionsOf(f *extract.Fact) map[string]string {
+	var out map[string]string
+	if data := f.Attrs[extract.AttrColumnDescriptions]; data != "" {
+		if err := json.Unmarshal([]byte(data), &out); err != nil {
+			return nil
+		}
+	}
+	return out
 }
 
 // apiTypesOf turns the api_type facts into the concept seeds a proposed
@@ -960,14 +1000,54 @@ func apiTypesOf(facts []extract.Fact) []domainmodel.APIType {
 		if f.Kind != extract.KindAPIType {
 			continue
 		}
+		var implements []string
+		if list := f.Attrs[extract.AttrImplements]; list != "" {
+			implements = strings.Split(list, ",")
+		}
 		types = append(types, domainmodel.APIType{
-			Name:       f.Attrs[extract.AttrName],
-			Owned:      f.Attrs[extract.AttrOwned] == extract.True,
-			Deprecated: f.Attrs[extract.AttrDeprecated] == extract.True,
-			Source:     f.Source,
+			Name:        f.Attrs[extract.AttrName],
+			Owned:       f.Attrs[extract.AttrOwned] == extract.True,
+			Deprecated:  f.Attrs[extract.AttrDeprecated] == extract.True,
+			Description: f.Attrs[extract.AttrDescription],
+			Implements:  implements,
+			Interface:   f.Attrs[extract.AttrInterface] == extract.True,
+			Source:      f.Source,
 		})
 	}
 	return types
+}
+
+// enumsOf turns the enum and enum_value facts into the enumerations a
+// proposed attribute can take as its type, values in code order (the
+// facts arrive sorted by id).
+func enumsOf(facts []extract.Fact) []domainmodel.Enum {
+	values := map[string][]*extract.Fact{} // enum fact id → its values
+	for i := range facts {
+		if f := &facts[i]; f.Kind == extract.KindEnumValue {
+			values[f.Attrs[extract.AttrEnum]] = append(values[f.Attrs[extract.AttrEnum]], f)
+		}
+	}
+	var enums []domainmodel.Enum
+	for i := range facts {
+		f := &facts[i]
+		if f.Kind != extract.KindEnum {
+			continue
+		}
+		e := domainmodel.Enum{Name: f.Attrs[extract.AttrName], Source: f.Source}
+		ordered := values[f.ID]
+		slices.SortStableFunc(ordered, func(a, b *extract.Fact) int {
+			aStart, _, _ := extract.ParseLines(a.Source.Lines)
+			bStart, _, _ := extract.ParseLines(b.Source.Lines)
+			return cmp.Or(cmp.Compare(a.Source.Path, b.Source.Path), cmp.Compare(aStart, bStart))
+		})
+		for _, v := range ordered {
+			e.Values = append(e.Values, domainmodel.EnumValue{
+				Name: v.Attrs[extract.AttrName], Value: v.Attrs[extract.AttrValue],
+			})
+		}
+		enums = append(enums, e)
+	}
+	return enums
 }
 
 // mirrorPath places a human model's enhanced copy at its path relative to

@@ -36,16 +36,16 @@ func withJourneys(nodes, rules []Node, facts []extract.Fact, text *locale.Text) 
 	if len(spans) == 0 {
 		return nodes
 	}
-	calls := directCalls(facts)
+	calls := extract.DirectCalls(facts)
 	out := slices.Clone(nodes)
 	for i := range out {
 		if out[i].Type != TypeEndpoint {
 			continue
 		}
-		var starts []span
+		var starts []extract.Span
 		for _, s := range spans {
 			if s.endpoint == out[i].ID {
-				starts = append(starts, span{path: s.path, start: s.start, end: s.end})
+				starts = append(starts, extract.Span{Path: s.path, Start: s.start, End: s.end})
 			}
 		}
 		journey := journeyRules(rules, reachedFrom(starts, calls))
@@ -68,57 +68,21 @@ func withJourneys(nodes, rules []Node, facts []extract.Fact, text *locale.Text) 
 	return out
 }
 
-// span is a definition's lines in a file of --src.
-type span struct {
-	path       string
-	start, end int
-}
-
-func (s span) overlaps(path string, start, end int) bool {
-	return s.path == path && start <= s.end && s.start <= end
-}
-
-// call is a caller definition and the definition it calls.
-type call struct{ caller, callee span }
-
-// directCalls reads the call facts of --src, those through an interface
-// left out: their implementations include test doubles (as for drift's
-// callees).
-func directCalls(facts []extract.Fact) []call {
-	var calls []call
-	for i := range facts {
-		f := &facts[i]
-		if f.Kind != extract.KindCall || f.Source.Root != "" || f.ViaDispatch() {
-			continue
-		}
-		a, b, errCaller := extract.ParseLines(f.Source.Lines)
-		c, d, errCallee := extract.ParseLines(f.Attrs[extract.AttrCalleeLines])
-		if errCaller != nil || errCallee != nil {
-			continue
-		}
-		calls = append(calls, call{
-			caller: span{f.Source.Path, a, b},
-			callee: span{f.Attrs[extract.AttrCalleePath], c, d},
-		})
-	}
-	return calls
-}
-
 // reachedFrom is every definition reached from starts within
 // journeyDepth calls, at its least depth (0 for the handler code).
-func reachedFrom(starts []span, calls []call) map[span]int {
-	depth := map[span]int{}
+func reachedFrom(starts []extract.Span, calls []extract.Call) map[extract.Span]int {
+	depth := map[extract.Span]int{}
 	frontier := starts
 	for d := 0; d <= journeyDepth && len(frontier) > 0; d++ {
-		var next []span
+		var next []extract.Span
 		for _, s := range frontier {
 			if _, seen := depth[s]; seen {
 				continue
 			}
 			depth[s] = d
 			for _, c := range calls {
-				if c.caller.overlaps(s.path, s.start, s.end) {
-					next = append(next, c.callee)
+				if c.Caller.Overlaps(s) {
+					next = append(next, c.Callee)
 				}
 			}
 		}
@@ -130,7 +94,7 @@ func reachedFrom(starts []span, calls []call) map[span]int {
 // journeyRules lists the rules citing reached code, ordered by the depth
 // of the nearest reached definition they cite, then by their first
 // citation, then by id.
-func journeyRules(rules []Node, reached map[span]int) []*Node {
+func journeyRules(rules []Node, reached map[extract.Span]int) []*Node {
 	type step struct {
 		rule  *Node
 		depth int
@@ -140,12 +104,12 @@ func journeyRules(rules []Node, reached map[span]int) []*Node {
 	for i := range rules {
 		least := -1
 		for _, src := range rules[i].Sources {
-			a, b, err := extract.ParseLines(src.Lines)
-			if src.Root != "" || err != nil {
+			cited, ok := extract.SpanOf(src)
+			if !ok {
 				continue
 			}
 			for s, d := range reached {
-				if s.overlaps(src.Path, a, b) && (least < 0 || d < least) {
+				if s.Overlaps(cited) && (least < 0 || d < least) {
 					least = d
 				}
 			}

@@ -29,6 +29,13 @@ type Table struct {
 	Source      extract.Ref
 	// References are its foreign keys (extract.ParseReferences).
 	References []extract.Reference
+	// PrimaryKey is its primary key's columns; nil when unknown.
+	PrimaryKey []string
+	// ColumnDescriptions are its columns' authored descriptions, by name.
+	ColumnDescriptions map[string]string
+	// StoredBy is the code type its rows are stored as, when named
+	// otherwise; "" when none is known.
+	StoredBy string
 }
 
 // APIType is an entity type of an API the code serves (an api_type fact):
@@ -41,7 +48,26 @@ type APIType struct {
 	// Deprecated marks a type every field of which is deprecated: cruft,
 	// left out of the proposal.
 	Deprecated bool
+	// Description is its docstring; "" when none.
+	Description string
+	// Implements names the interfaces it implements; Interface marks an
+	// interface (one an owned type implements).
+	Implements []string
+	Interface  bool
 	Source     extract.Ref
+}
+
+// Enum is an enumeration of the code (an enum fact): the type, as
+// "pkg.Type", and its values in code order.
+type Enum struct {
+	Name   string
+	Values []EnumValue
+	Source extract.Ref
+}
+
+// EnumValue is one value of an Enum: the constant's name and its value.
+type EnumValue struct {
+	Name, Value string
 }
 
 // EnhanceInput is what Enhance builds models from.
@@ -50,6 +76,9 @@ type EnhanceInput struct {
 	Nodes    []graph.Node
 	Tables   []Table
 	APITypes []APIType
+	// Enums are the code's enumerations: a proposed attribute whose code
+	// type names one takes it as its type.
+	Enums []Enum
 	// Title names the code the proposed concepts model covers (the
 	// output's source); "" names it after the generated file.
 	Title   string
@@ -90,6 +119,7 @@ const yamlString = "!!str"
 const (
 	originHuman       = "human"
 	originPlaceholder = "placeholder"
+	originDraft       = "draft"
 )
 
 // Enhance writes modelith models for the graph. Each human model is copied
@@ -198,8 +228,34 @@ func isPlaceholder(definition string) bool {
 	return false
 }
 
+// isDraft reports whether a definition is a draft codetospec took from
+// the code's documentation, in any language.
+func isDraft(definition string) bool {
+	for _, text := range locale.All() {
+		if strings.HasPrefix(strings.TrimSpace(definition), text.DraftPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// writtenByCodetospec reports whether no person has written a definition:
+// a placeholder or a draft.
+func writtenByCodetospec(definition string) bool {
+	return isPlaceholder(definition) || isDraft(definition)
+}
+
+// draft is a definition taken from the code's own documentation.
+func (b *builder) draft(description string) string {
+	return b.text.DraftPrefix + " " + description
+}
+
 // placeholder is the definition of an entity nobody described.
 func (b *builder) placeholder(t *Table) string {
+	if t.StoredBy != "" && t.StoredBy != t.Title {
+		return fmt.Sprintf(b.text.PlaceholderStoredFmt, b.text.PlaceholderPrefix, t.Title,
+			t.StoredBy, sourceOf(t))
+	}
 	return fmt.Sprintf(b.text.PlaceholderFmt, b.text.PlaceholderPrefix, t.Title, sourceOf(t))
 }
 
@@ -279,13 +335,17 @@ func (b *builder) mirrorDefinition(
 	prov map[string]string,
 ) bool {
 	pointer := "/entities/" + name + "/definition"
-	if !isPlaceholder(m.Model.Entities[name].Definition) {
+	switch definition := m.Model.Entities[name].Definition; {
+	case isDraft(definition):
+		prov[pointer] = originDraft
+		return false
+	case !isPlaceholder(definition):
 		prov[pointer] = originHuman
 		return false
 	}
 	if match != nil {
 		if t := b.tables[match.Code.ID]; t != nil && t.Description != "" {
-			setMappingValue(node, "definition", t.Description)
+			setMappingValue(node, "definition", b.draft(t.Description))
 			prov[pointer] = "description " + sourceOf(t)
 			return false
 		}
@@ -311,7 +371,7 @@ func (b *builder) addAttributes(
 		have[a.Name] = true
 	}
 	for _, column := range t.Columns {
-		attr := b.attribute(column)
+		attr := b.attribute(t, column)
 		if have[attr.Name] {
 			continue
 		}
@@ -450,7 +510,8 @@ func (b *builder) proposedTypes(named map[string]bool) proposedTypes {
 }
 
 // generateConcepts writes ConceptsFile: tables and owned API types as
-// entities, foreign keys as relationships.
+// entities, foreign keys as relationships, implemented interfaces as
+// subtypeOf, the enums the tables' columns name.
 func (b *builder) generateConcepts(tables []*Table, types proposedTypes, out *Enhanced) error {
 	file := ConceptsFile
 	title := cmp.Or(b.in.Title, "concepts")
@@ -475,24 +536,37 @@ func (b *builder) generateConcepts(tables []*Table, types proposedTypes, out *En
 		Description: description,
 		Entities:    map[string]entityYAML{},
 	}
-	names := map[string]string{} // table title → entity name
+	names := b.tableEntities(&doc, tables, prov, out)
+	b.typeEntities(&doc, types.owned, prov, out)
+	addRelationships(&doc, tables, names, prov)
+	slices.Sort(out.Undefined[file])
+	return b.writeGenerated(file, &doc, title, prov, out)
+}
+
+// tableEntities adds an entity per table, defined by a draft of its
+// description or a placeholder, its columns as attributes and its
+// invariant rules; it returns the entity name of each table title.
+func (b *builder) tableEntities(
+	doc *modelYAML, tables []*Table, prov map[string]string, out *Enhanced,
+) map[string]string {
+	names := map[string]string{}
 	used := map[string]bool{}
 	for _, t := range tables {
-		name := uniqueName(entityName(t.Title), doc.Entities)
+		name := uniqueName(entityName(singular(t.Title)), doc.Entities)
 		names[t.Title] = name
 		pointer := "/entities/" + name
-		e := entityYAML{Definition: t.Description}
+		e := entityYAML{Definition: b.draft(t.Description)}
 		prov[pointer+"/definition"] = "description " + sourceOf(t)
 		if t.Description == "" {
 			e.Definition = b.placeholder(t)
 			prov[pointer+"/definition"] = originPlaceholder
-			out.Undefined[file] = append(out.Undefined[file], name)
+			out.Undefined[ConceptsFile] = append(out.Undefined[ConceptsFile], name)
 		}
 		for _, column := range t.Columns {
 			prov[fmt.Sprintf("%s/attributes/%d", pointer, len(e.Attributes))] = "column " + sourceOf(
 				t,
 			)
-			e.Attributes = append(e.Attributes, b.attribute(column))
+			e.Attributes = append(e.Attributes, b.proposedAttribute(doc, t, column))
 		}
 		for _, r := range b.rules[t.ID] {
 			prov[fmt.Sprintf("%s/invariants/%d", pointer, len(e.Invariants))] = "rule " + r.id
@@ -501,24 +575,133 @@ func (b *builder) generateConcepts(tables []*Table, types proposedTypes, out *En
 		}
 		doc.Entities[name] = e
 	}
-	for _, api := range types.owned {
+	return names
+}
+
+// typeEntities adds an entity per owned API type no table stands for,
+// defined by a draft of its docstring or a placeholder; a type
+// implementing exactly one of the interfaces added is its subtype
+// (modelith takes one parent, and choosing among several would be a
+// guess).
+func (b *builder) typeEntities(
+	doc *modelYAML, owned []*APIType, prov map[string]string, out *Enhanced,
+) {
+	names := map[string]string{} // API type name → entity name
+	for _, api := range owned {
 		name := uniqueName(entityName(api.Name), doc.Entities)
+		names[api.Name] = name
 		pointer := "/entities/" + name
 		src := api.Source.Path + ":" + api.Source.Lines
-		doc.Entities[name] = entityYAML{
-			Definition: fmt.Sprintf(
-				b.text.PlaceholderTypeFmt,
-				b.text.PlaceholderPrefix,
-				api.Name,
-				src,
-			),
+		if api.Description != "" {
+			doc.Entities[name] = entityYAML{Definition: b.draft(api.Description)}
+			prov[pointer+"/definition"] = "description " + src
+			continue
 		}
+		doc.Entities[name] = entityYAML{Definition: fmt.Sprintf(
+			b.text.PlaceholderTypeFmt, b.text.PlaceholderPrefix, api.Name, src,
+		)}
 		prov[pointer+"/definition"] = originPlaceholder
-		out.Undefined[file] = append(out.Undefined[file], name)
+		out.Undefined[ConceptsFile] = append(out.Undefined[ConceptsFile], name)
 	}
-	addRelationships(&doc, tables, names, prov)
-	slices.Sort(out.Undefined[file])
-	return b.writeGenerated(file, &doc, title, prov, out)
+	for _, api := range owned {
+		var parents []string
+		for _, i := range api.Implements {
+			if parent, ok := names[i]; ok && slices.ContainsFunc(owned, func(o *APIType) bool {
+				return o.Interface && o.Name == i
+			}) {
+				parents = append(parents, parent)
+			}
+		}
+		if len(parents) == 1 {
+			e := doc.Entities[names[api.Name]]
+			e.SubtypeOf = parents[0]
+			doc.Entities[names[api.Name]] = e
+			prov["/entities/"+names[api.Name]+"/subtypeOf"] = "implements " +
+				api.Source.Path + ":" + api.Source.Lines
+		}
+	}
+}
+
+// proposedAttribute is attribute, typed by the enum its code type names
+// when there is one: the enum is added to doc.
+func (b *builder) proposedAttribute(doc *modelYAML, t *Table, column string) attributeYAML {
+	attr := b.attribute(t, column)
+	_, codeType, _ := strings.Cut(column, ":")
+	e := b.enumOf(t, codeType)
+	if e == nil {
+		return attr
+	}
+	attr.Type = b.addEnum(doc, e)
+	attr.Description = t.ColumnDescriptions[attr.Name]
+	return attr
+}
+
+// enumOf is the enum a column's code type names: a bare name, the enum of
+// that name in the table's directory (its package); "pkg.Type", the one
+// enum of that name. Nil when none, or several, fit.
+func (b *builder) enumOf(t *Table, codeType string) *Enum {
+	codeType = strings.TrimLeft(strings.TrimSpace(codeType), "*")
+	var found []*Enum
+	for i := range b.in.Enums {
+		e := &b.in.Enums[i]
+		_, typeName, _ := strings.Cut(e.Name, ".")
+		switch {
+		case strings.Contains(codeType, "."):
+			if e.Name == codeType {
+				found = append(found, e)
+			}
+		case typeName == codeType && path.Dir(e.Source.Path) == path.Dir(t.Source.Path):
+			found = append(found, e)
+		}
+	}
+	if len(found) != 1 || len(found[0].Values) == 0 {
+		return nil
+	}
+	return found[0]
+}
+
+// addEnum adds e to doc's enums, once, and returns its name there: its
+// type's name, else prefixed by its package, else numbered, when another
+// enum took it. A value's name is the value when that reads as a name,
+// else (a number) the constant's.
+func (b *builder) addEnum(doc *modelYAML, e *Enum) string {
+	pkg, typeName, _ := strings.Cut(e.Name, ".")
+	qualified := entityName(pkg + "_" + typeName)
+	for n := 0; ; n++ {
+		var name string
+		switch n {
+		case 0:
+			name = entityName(typeName)
+		case 1:
+			name = qualified
+		default:
+			name = qualified + strconv.Itoa(n)
+		}
+		existing, taken := doc.Enums[name]
+		if taken && existing.source == e.Name {
+			return name
+		}
+		if !taken {
+			if doc.Enums == nil {
+				doc.Enums = map[string]enumYAML{}
+			}
+			doc.Enums[name] = enumOut(e)
+			return name
+		}
+	}
+}
+
+// enumOut is the modelith enum of e.
+func enumOut(e *Enum) enumYAML {
+	out := enumYAML{source: e.Name}
+	for _, v := range e.Values {
+		name := v.Value
+		if name == "" || !unicode.IsLetter(rune(name[0])) {
+			name = v.Name
+		}
+		out.Values = append(out.Values, enumValueYAML{Name: name})
+	}
+	return out
 }
 
 // addRelationships records each table's foreign keys between the entities
@@ -553,8 +736,9 @@ func addRelationships(
 					continue
 				}
 				prov[fmt.Sprintf("/entities/%s/relationships/%d", parent, len(e.Relationships))] = src
-				e.Relationships = append(e.Relationships,
-					relationshipYAML{Entity: child, Cardinality: "1:n", Ownership: ownershipOwned})
+				e.Relationships = append(e.Relationships, relationshipYAML{
+					Entity: child, Cardinality: ownedCardinality(t, &r), Ownership: ownershipOwned,
+				})
 				doc.Entities[parent] = e
 				continue
 			}
@@ -571,6 +755,18 @@ func addRelationships(
 			doc.Entities[child] = e
 		}
 	}
+}
+
+// ownedCardinality is "1:0..1" when the key's columns are exactly t's
+// primary key (one row at most per parent), "1:n" otherwise.
+func ownedCardinality(t *Table, r *extract.Reference) string {
+	key, cols := slices.Clone(t.PrimaryKey), slices.Clone(r.Columns)
+	slices.Sort(key)
+	slices.Sort(cols)
+	if len(key) > 0 && slices.Equal(key, cols) {
+		return "1:0..1"
+	}
+	return "1:n"
 }
 
 // The modelith relationship ownerships the proposal writes.
@@ -602,8 +798,10 @@ func (b *builder) writeGenerated(
 	return nil
 }
 
-// entityName turns a table name into a modelith entity name, PascalCase:
-// user_nonces → UserNonces, so the next run matches it back by name.
+// entityName turns a code name into a modelith name, PascalCase:
+// user_nonce → UserNonce. Tables go through singular first (an entity
+// names one of its rows), which the next run matches back through its
+// plurals; API types and enums keep the name their authors gave.
 func entityName(title string) string {
 	var b strings.Builder
 	upper := true
@@ -628,6 +826,28 @@ func entityName(title string) string {
 	return name
 }
 
+// singular undoes the regular English plurals plurals writes: policies →
+// policy, addresses → address, students → student; words ending in ss,
+// us or is stay (class, status, analysis). An irregular word may come out
+// oddly (series → sery), never unmatched: the plural of the result is the
+// name again.
+func singular(name string) string {
+	lower := strings.ToLower(name)
+	switch {
+	case strings.HasSuffix(lower, "ies") && len(name) > len("ies"):
+		return name[:len(name)-len("ies")] + "y"
+	case slices.ContainsFunc([]string{"sses", "xes", "ches", "shes", "zzes"}, func(s string) bool {
+		return strings.HasSuffix(lower, s)
+	}):
+		return name[:len(name)-len("es")]
+	case strings.HasSuffix(lower, "s") && !slices.ContainsFunc([]string{"ss", "us", "is"},
+		func(s string) bool { return strings.HasSuffix(lower, s) }):
+		return name[:len(name)-1]
+	default:
+		return name
+	}
+}
+
 // uniqueName suffixes name until no entity of the model has it.
 func uniqueName(name string, entities map[string]entityYAML) string {
 	unique := name
@@ -639,14 +859,22 @@ func uniqueName(name string, entities map[string]entityYAML) string {
 	}
 }
 
-// attribute is the modelith attribute of a "name:type" column.
-func (b *builder) attribute(column string) attributeYAML {
+// attribute is the modelith attribute of a "name:type" column of t,
+// described by the column's authored description, then by its code type
+// when no primitive fits it.
+func (b *builder) attribute(t *Table, column string) attributeYAML {
 	name, codeType, _ := strings.Cut(column, ":")
+	name = strings.TrimSpace(name)
 	primitive, exact := primitiveType(codeType)
-	attr := attributeYAML{Name: strings.TrimSpace(name), Type: primitive}
-	if !exact {
-		attr.Description = fmt.Sprintf(b.text.CodeTypeFmt, codeType)
+	attr := attributeYAML{Name: name, Type: primitive}
+	var description []string
+	if d := t.ColumnDescriptions[name]; d != "" {
+		description = append(description, d)
 	}
+	if !exact {
+		description = append(description, fmt.Sprintf(b.text.CodeTypeFmt, codeType))
+	}
+	attr.Description = strings.Join(description, "; ")
 	return attr
 }
 
@@ -683,10 +911,19 @@ type (
 		Version     string                `yaml:"version"`
 		Title       string                `yaml:"title"`
 		Description string                `yaml:"description"`
+		Enums       map[string]enumYAML   `yaml:"enums,omitempty"`
 		Entities    map[string]entityYAML `yaml:"entities"`
+	}
+	enumYAML struct {
+		Values []enumValueYAML `yaml:"values"`
+		source string          // the code type it comes from, "pkg.Type"
+	}
+	enumValueYAML struct {
+		Name string `yaml:"name"`
 	}
 	entityYAML struct {
 		Definition    string             `yaml:"definition"`
+		SubtypeOf     string             `yaml:"subtypeOf,omitempty"`
 		Attributes    []attributeYAML    `yaml:"attributes,omitempty"`
 		Relationships []relationshipYAML `yaml:"relationships,omitempty"`
 		Invariants    []invariantYAML    `yaml:"invariants,omitempty"`

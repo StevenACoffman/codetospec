@@ -1,7 +1,25 @@
 {
   "schema": "anarch-lint.baseline.v1",
-  "modelHash": "5ce8271a59582009d469e7fdd5d649903ae63fc02652b08cff8727013cd1b493",
+  "modelHash": "0720a2adbe351a3dc24b8ecad1706d27fb11a2b811695ecb8131e8784c2db7ef",
   "findings": [
+    {
+      "fingerprint": "257ed69ac399609e",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/cmd/codetospec.cli.policies"
+    },
+    {
+      "fingerprint": "9deb44be6ee32668",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/acceptance.Annotate"
+    },
+    {
+      "fingerprint": "3ebb3f461dbcae21",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/alignment.recovery"
+    },
     {
       "fingerprint": "bb1d43603a3dfac0",
       "rule": "cognitive-complexity",
@@ -9,10 +27,28 @@
       "subject": "github.com/StevenACoffman/codetospec/internal/callers.callerSets"
     },
     {
+      "fingerprint": "ba23fe873b484811",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/cerbos.apply"
+    },
+    {
       "fingerprint": "9124e68562b222f8",
       "rule": "cognitive-complexity",
       "severity": "warning",
       "subject": "github.com/StevenACoffman/codetospec/internal/communities.Splits"
+    },
+    {
+      "fingerprint": "17bc5b370299880d",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/concept.Regroup"
+    },
+    {
+      "fingerprint": "87e1103a4c89a2e0",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/config.Actors.UnmarshalYAML"
     },
     {
       "fingerprint": "3e264e65e787ef39",
@@ -43,6 +79,12 @@
       "rule": "cognitive-complexity",
       "severity": "warning",
       "subject": "github.com/StevenACoffman/codetospec/internal/domainmodel.Compare"
+    },
+    {
+      "fingerprint": "326a1030d8496ff9",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/domainmodel.addRelationships"
     },
     {
       "fingerprint": "ec1df3d45b58a604",
@@ -105,16 +147,82 @@
       "subject": "github.com/StevenACoffman/codetospec/internal/grounding.Annotate"
     },
     {
+      "fingerprint": "4dbe953166c19e6a",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/grounding.literal.foundIn"
+    },
+    {
+      "fingerprint": "6ad12b2591962e04",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/mapper.Mapper.misses"
+    },
+    {
+      "fingerprint": "55b8703773d828b6",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/policy.Checker.withSubjectArg"
+    },
+    {
+      "fingerprint": "5596d3458eda8e01",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/policy.Deny.separateSecond"
+    },
+    {
+      "fingerprint": "86f77b404a9bf883",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/policy.Equivalent"
+    },
+    {
+      "fingerprint": "cd6eed25bbc35aa7",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/policy.Join"
+    },
+    {
+      "fingerprint": "f8fc1166845f1c35",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/policy.Operation.Cases"
+    },
+    {
+      "fingerprint": "9499c74b2621c539",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/policy.factIndex.reachedFrom"
+    },
+    {
+      "fingerprint": "df443aea2ecbaa6b",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/policy.pathCoverage"
+    },
+    {
+      "fingerprint": "300a6cb79d95c210",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/policy.pathReader.conjunction"
+    },
+    {
       "fingerprint": "afcd86ae6ba0eb54",
       "rule": "cognitive-complexity",
       "severity": "warning",
       "subject": "github.com/StevenACoffman/codetospec/internal/position.FromAnarch"
     },
     {
-      "fingerprint": "7ec95f63cc3609dc",
+      "fingerprint": "29af7de74112e9ec",
       "rule": "cognitive-complexity",
       "severity": "warning",
-      "subject": "github.com/StevenACoffman/codetospec/internal/questions.List"
+      "subject": "github.com/StevenACoffman/codetospec/internal/position.evidenceOf"
+    },
+    {
+      "fingerprint": "9f56fe126cb42fae",
+      "rule": "cognitive-complexity",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/quality.AnnotateThresholds"
     },
     {
       "fingerprint": "eb9532ab8e9722eb",
@@ -153,6 +261,18 @@
       "subject": "github.com/StevenACoffman/codetospec/internal/verify.Run"
     },
     {
+      "fingerprint": "f8aa970191b5a0f1",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/concept.index.evidence"
+    },
+    {
+      "fingerprint": "395ddb911ef3baf7",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/condition.conjoined"
+    },
+    {
       "fingerprint": "7a6ddea5b56f781d",
       "rule": "deep-nesting",
       "severity": "warning",
@@ -165,10 +285,22 @@
       "subject": "github.com/StevenACoffman/codetospec/internal/domainmodel.Compare"
     },
     {
+      "fingerprint": "7af3160f71f5670c",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/domainmodel.addRelationships"
+    },
+    {
       "fingerprint": "39254d716a4508c4",
       "rule": "deep-nesting",
       "severity": "warning",
       "subject": "github.com/StevenACoffman/codetospec/internal/domainmodel.index"
+    },
+    {
+      "fingerprint": "3d151df440ec5eff",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/domainmodel.owners"
     },
     {
       "fingerprint": "cfaa53b88a5a99c8",
@@ -187,6 +319,18 @@
       "rule": "deep-nesting",
       "severity": "warning",
       "subject": "github.com/StevenACoffman/codetospec/internal/ears.startsWithArticle"
+    },
+    {
+      "fingerprint": "6dc76857f24c8d96",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/extract.ColumnLinks"
+    },
+    {
+      "fingerprint": "fb206b5f0acf78ba",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/graph.RuleObservable"
     },
     {
       "fingerprint": "295577a9f1b5393d",
@@ -213,6 +357,54 @@
       "subject": "github.com/StevenACoffman/codetospec/internal/grounding.Annotate"
     },
     {
+      "fingerprint": "2ea7af0582ec4cb8",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/grounding.NamedConstants"
+    },
+    {
+      "fingerprint": "39e0c129ed63784b",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/grounding.carriedValues"
+    },
+    {
+      "fingerprint": "a3a2fe2d0a724806",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/policy.factIndex.reachedFrom"
+    },
+    {
+      "fingerprint": "0e61d2c9782692eb",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/policy.guardStater.operation"
+    },
+    {
+      "fingerprint": "d6256db40ed353f0",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/policy.itemPolicies"
+    },
+    {
+      "fingerprint": "730fad58445f9df7",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/policy.pathCoverage"
+    },
+    {
+      "fingerprint": "f5a739d2e17dc1c8",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/policy.writeAccess"
+    },
+    {
+      "fingerprint": "4760dde8b520d689",
+      "rule": "deep-nesting",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/position.evidenceOf"
+    },
+    {
       "fingerprint": "28906aa0c0c89d53",
       "rule": "deep-nesting",
       "severity": "warning",
@@ -225,10 +417,40 @@
       "subject": "github.com/StevenACoffman/codetospec/internal/testreach.uses.reach"
     },
     {
+      "fingerprint": "799bca11347777a0",
+      "rule": "large-file",
+      "severity": "warning",
+      "subject": "cmd/codetospec/pipeline.go"
+    },
+    {
+      "fingerprint": "8b3d9e08a3c39ede",
+      "rule": "large-file",
+      "severity": "warning",
+      "subject": "internal/domainmodel/enhance.go"
+    },
+    {
+      "fingerprint": "063696096ec87efe",
+      "rule": "large-file",
+      "severity": "warning",
+      "subject": "internal/policy/model.go"
+    },
+    {
       "fingerprint": "f2e13cbfc176830b",
       "rule": "large-file",
       "severity": "warning",
       "subject": "internal/render/render.go"
+    },
+    {
+      "fingerprint": "7c19ae46de0b7334",
+      "rule": "large-func",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/cmd/codetospec.cli.policies"
+    },
+    {
+      "fingerprint": "dc23b8b66029397c",
+      "rule": "large-func",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/cmd/codetospec.pipeline.mapChunks"
     },
     {
       "fingerprint": "3aa24d7fd56b5137",
@@ -237,22 +459,40 @@
       "subject": "github.com/StevenACoffman/codetospec/cmd/codetospec.pipeline.run"
     },
     {
+      "fingerprint": "01372cb304ce5994",
+      "rule": "large-func",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/cedarpolicy.Export"
+    },
+    {
       "fingerprint": "d441629aadfe3962",
       "rule": "large-func",
       "severity": "warning",
       "subject": "github.com/StevenACoffman/codetospec/internal/config.ParseRun"
     },
     {
-      "fingerprint": "bf87bd8686087bbf",
+      "fingerprint": "46cacf1795d5109e",
       "rule": "large-func",
       "severity": "warning",
-      "subject": "github.com/StevenACoffman/codetospec/internal/graph.ruleAndDomainNodes"
+      "subject": "github.com/StevenACoffman/codetospec/internal/d2.writeClasses"
+    },
+    {
+      "fingerprint": "6b54ee75b9bbae77",
+      "rule": "large-func",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/locale.newAccess"
     },
     {
       "fingerprint": "f41b18bca5ed92e3",
       "rule": "large-func",
       "severity": "warning",
       "subject": "github.com/StevenACoffman/codetospec/internal/locale.newLabels"
+    },
+    {
+      "fingerprint": "b1b2a64b2281a326",
+      "rule": "large-func",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/locale.newPolicy"
     },
     {
       "fingerprint": "d4edc9eb72fa9707",
@@ -265,6 +505,12 @@
       "rule": "large-func",
       "severity": "warning",
       "subject": "github.com/StevenACoffman/codetospec/internal/locale.newReadmeModel"
+    },
+    {
+      "fingerprint": "edf1946050ba0f1a",
+      "rule": "large-func",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/internal/locale.newReadmeReview"
     },
     {
       "fingerprint": "c4d0e8b835650d27",
@@ -283,6 +529,12 @@
       "rule": "large-func",
       "severity": "warning",
       "subject": "github.com/StevenACoffman/codetospec/internal/sitter.ChunkFile"
+    },
+    {
+      "fingerprint": "1d27dfd8c0a73fcb",
+      "rule": "large-type",
+      "severity": "warning",
+      "subject": "github.com/StevenACoffman/codetospec/cmd/codetospec.cli"
     },
     {
       "fingerprint": "60403dc508b55317",
@@ -308,27 +560,27 @@
   "metrics": [
     {
       "name": "mmi.low",
-      "value": 5.99,
+      "value": 5.63,
       "higherIsBetter": true
     },
     {
       "name": "types.inCycles",
-      "value": 0,
+      "value": 2,
       "higherIsBetter": false
     },
     {
       "name": "types.maxCycleGroup",
-      "value": 0,
+      "value": 2,
       "higherIsBetter": false
     },
     {
       "name": "types.relativeCyclicity",
-      "value": 0,
+      "value": 0.005666,
       "higherIsBetter": false
     },
     {
       "name": "types.sdi",
-      "value": 0,
+      "value": 11,
       "higherIsBetter": false
     },
     {
@@ -342,18 +594,23 @@
       "higherIsBetter": false
     },
     {
+      "name": "files.excludedShare",
+      "value": 0,
+      "higherIsBetter": false
+    },
+    {
       "name": "fitness.cycles.subsystems",
       "value": 0,
       "higherIsBetter": false
     },
     {
       "name": "fitness.cycles.types",
-      "value": 0,
+      "value": 1,
       "higherIsBetter": false
     },
     {
       "name": "fitness.nccd.packages",
-      "value": 2.150327,
+      "value": 2.6,
       "higherIsBetter": false
     },
     {

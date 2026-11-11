@@ -3,6 +3,7 @@ package cedarpolicy_test
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"os"
 	"testing"
 
@@ -541,4 +542,117 @@ func TestNamespace(t *testing.T) {
 			t.Errorf("Namespace(%q) = %q, want %q", in, got, want)
 		}
 	}
+}
+
+// TestDecideAgreesWithCases: for every persona, every guarded operation
+// and item, and every request the decider loads, the exported policies
+// decide as the rules' conditions do: the checks' truths on that request,
+// asked of cedar-go one check at a time, select a case whose Denied is the
+// policies' deny. No Go copy of the templates decides anything.
+func TestDecideAgreesWithCases(t *testing.T) {
+	m := usersModel()
+	m.Roles = append(m.Roles, policy.Role{Name: "Support", Capabilities: []string{capability}})
+	spec, err := cedarpolicy.Export(&m, service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := cedarpolicy.NewDecider(&spec, service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policies, err := cedar.NewPolicySetFromBytes("users.cedar", spec.Files[service+".cedar"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked, outcomes := 0, map[string]int{}
+	for _, p := range policy.Personas(&m) {
+		for _, tg := range decideTargets(&m) {
+			outcomes[d.Decide(tg.op, tg.action, tg.resourceType, &p).Outcome]++
+			checked += agreeOnPersona(t, d, policies, &tg, &p)
+		}
+	}
+	if checked == 0 || outcomes[cedarpolicy.Allowed] == 0 || outcomes[cedarpolicy.Denied] == 0 ||
+		outcomes[cedarpolicy.Depends] == 0 {
+		t.Fatalf("checked %d requests, outcomes %v: want each outcome", checked, outcomes)
+	}
+	t.Logf("%d requests checked, outcomes %v", checked, outcomes)
+}
+
+// decideTarget is one action an operation's policies decide.
+type decideTarget struct {
+	op                   *policy.Operation
+	action, resourceType string
+}
+
+// decideTargets are m's operations as their own action on a Target, and
+// its item policies as their view action on an item.
+func decideTargets(m *policy.Model) []decideTarget {
+	var out []decideTarget
+	for i := range m.Operations {
+		out = append(out, decideTarget{&m.Operations[i], m.Operations[i].Action, "Target"})
+	}
+	for i := range m.Items {
+		out = append(out, decideTarget{
+			&m.Items[i].Operation,
+			cedarpolicy.ViewAction(m.Items[i].Kind), cedarpolicy.ItemType(m.Items[i].Kind),
+		})
+	}
+	return out
+}
+
+// agreeOnPersona checks every request the decider loads for p on tg
+// against the case the checks' truths select; it returns how many it
+// checked.
+func agreeOnPersona(
+	t *testing.T,
+	d *cedarpolicy.Decider,
+	policies *cedar.PolicySet,
+	tg *decideTarget,
+	p *policy.Persona,
+) int {
+	t.Helper()
+	checked := 0
+	facts := cedarpolicy.FactsOf(tg.op)
+	for mask := range 1 << len(facts) {
+		entities, req := cedarpolicy.Request(d, tg.action, tg.resourceType, p, facts, mask)
+		decision, _ := cedar.Authorize(policies, entities, req)
+		c, ok := caseOf(t, tg.op, entities, &req)
+		if !ok {
+			continue
+		}
+		if got := decision == cedar.Deny; got != c.Denied {
+			t.Errorf("%s as %s, facts %b: denied = %v, the conditions say %v",
+				tg.action, p.ID, mask, got, c.Denied)
+		}
+		checked++
+	}
+	return checked
+}
+
+// caseOf is op's case whose checks hold as cedar-go says they do on the
+// request; false when the conditions can't decide it.
+func caseOf(
+	t *testing.T,
+	op *policy.Operation,
+	entities types.EntityMap,
+	req *cedar.Request,
+) (policy.Case, bool) {
+	t.Helper()
+	given := map[string]bool{}
+	for _, l := range op.Leaves() {
+		text := fmt.Sprintf("permit (principal, action, resource) when { %s };",
+			cedarpolicy.Expr(ns, policy.Expr{Op: policy.OpCheck, Check: &l}))
+		ps, err := cedar.NewPolicySetFromBytes("leaf.cedar", []byte(text))
+		if err != nil {
+			t.Fatalf("leaf %s: %v", text, err)
+		}
+		decision, _ := cedar.Authorize(ps, entities, *req)
+		given[l.Var] = decision == cedar.Allow
+	}
+	for _, c := range op.Cases() {
+		if maps.Equal(c.Given, given) {
+			return c, true
+		}
+	}
+	return policy.Case{}, false
 }

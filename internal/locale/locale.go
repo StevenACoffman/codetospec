@@ -35,6 +35,7 @@ type Text struct {
 	Readme
 	ModelFile
 	Policy
+	Access
 }
 
 // ModelFile is the text codetospec writes into modelith model files.
@@ -147,6 +148,11 @@ type ReadmeReview struct {
 	ConceptsColumns                       string // the table's header rows
 	AndMoreFmt                            string // %d omitted entries
 	DomainsHeading                        string
+	// DomainMapAlt is the drawn domain map's alternative text,
+	// DomainMapSource the link to its D2 source.
+	DomainMapAlt, DomainMapSource string
+	// DomainsIsolated labels the domain map's domains no edge touches.
+	DomainsIsolated string
 }
 
 // ReadmeModel is the README comparison with human domain models.
@@ -219,6 +225,7 @@ model's own rating, not a check.`,
 		Readme:    newReadme(tr),
 		ModelFile: newModelFile(tr),
 		Policy:    newPolicy(tr),
+		Access:    newAccess(tr),
 	}
 }
 
@@ -661,6 +668,12 @@ func newReadmeReview(tr translate) ReadmeReview {
 			"## Domaines",
 			"## Domains",
 		),
+		DomainMapAlt: tr(
+			"Carte des domaines et de leurs dépendances",
+			"Map of the domains and their dependencies",
+		),
+		DomainMapSource: tr("Source D2", "D2 source"),
+		DomainsIsolated: tr("Sans dépendance", "No dependencies"),
 	}
 }
 

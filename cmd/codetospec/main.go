@@ -88,7 +88,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	case "diff":
 		return c.diff(cfg)
 	case "export":
-		return c.export(cfg)
+		return c.export(ctx, cfg)
 	case "policies":
 		return c.policies(cfg)
 	default: // stats

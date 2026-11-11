@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StevenACoffman/codetospec/internal/d2"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"gopkg.in/yaml.v3"
 )
@@ -106,6 +107,9 @@ type Config struct {
 	// Registry is the policies command's registry file (--registry): the
 	// PIP's properties and relations, each mapped to its sources.
 	Registry string
+	// D2Renderer is the codetospec-d2 binary that draws diagrams
+	// (--d2-renderer; see d2.FindRenderer).
+	D2Renderer string
 	// CapabilitiesFrom is the graph whose capability and role facts a
 	// policy export joins (--capabilities-from): admin's, for a service
 	// that names capabilities it doesn't register.
@@ -258,6 +262,7 @@ func ParseRun(args []string) (*Config, error) {
 		"human modelith model (*.modelith.yaml) to compare the graph with (repeatable)")
 	flags.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
 	flags.BoolVar(&cfg.NoTUI, "no-tui", false, "disable the full-screen dashboard, log to stderr")
+	d2RendererFlag(flags, cfg)
 	registerPassFlags(flags, cfg)
 	flags.IntVar(
 		&cfg.DomainDepth,
@@ -413,7 +418,17 @@ const (
 	// named in full: CEDAR is also Khan's analytics pipeline.
 	ExportCedarPolicy = "cedar-policy"
 	ExportKiro        = "kiro" // Kiro specs (internal/kiro)
+	// ExportViews is the access views (internal/policyview): an access
+	// matrix page and a decision diagram per guarded operation.
+	ExportViews = "views"
 )
+
+// d2RendererFlag declares --d2-renderer, shared by the commands that draw.
+func d2RendererFlag(flags *flag.FlagSet, cfg *Config) {
+	flags.StringVar(&cfg.D2Renderer, "d2-renderer", d2.RendererName,
+		"codetospec-d2 binary drawing diagrams as SVG: a path, or a name looked up beside "+
+			"codetospec then on PATH (none found: diagrams are written as D2 sources)")
+}
 
 // ParseExport resolves the export command configuration.
 func ParseExport(args []string) (*Config, error) {
@@ -430,14 +445,15 @@ func ParseExport(args []string) (*Config, error) {
 		&cfg.Format,
 		"format",
 		ExportQuire,
-		"spec format: quire, kiro, cerbos or cedar-policy",
+		"spec format: quire, kiro, cerbos, cedar-policy or views",
 	)
+	d2RendererFlag(flags, cfg)
 	flags.StringVar(&cfg.CapabilitiesFrom, "capabilities-from", "",
-		"cerbos, cedar-policy: graph whose capability and role facts to join (admin's)")
+		"cerbos, cedar-policy, views: graph whose capability and role facts to join (admin's)")
 	flags.Var(
 		(*stringList)(&cfg.Checkers),
 		"checkers",
-		"cerbos, cedar-policy: file (JSON or YAML) pinning what unknown checks mean (repeatable; files merge)",
+		"cerbos, cedar-policy, views: file (JSON or YAML) pinning what unknown checks mean (repeatable; files merge)",
 	)
 	flags.Var(
 		(*stringList)(&cfg.Joins),
@@ -446,9 +462,14 @@ func ParseExport(args []string) (*Config, error) {
 			"and its checkers file, for checks calling its operations (repeatable)",
 	)
 	flags.StringVar(&cfg.Registry, "registry", "",
-		"cerbos, cedar-policy: registry the checkers' relations must be declared in")
-	flags.StringVar(&cfg.Src, "src", "",
-		"cerbos, cedar-policy: repository the checks are cited in, to tell stale pins (optional)")
+		"cerbos, cedar-policy, views: registry the checkers' relations must be declared in")
+	flags.StringVar(
+		&cfg.Src,
+		"src",
+		"",
+		"cerbos, cedar-policy, views: repository the checks are cited in, to tell stale pins (optional)",
+	)
+	flags.StringVar(&cfg.Lang, "lang", "en", "views: language of the page and diagrams (en or fr)")
 	registerRefRoots(flags, cfg)
 	flags.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
 	if err := flags.Parse(args); err != nil {
@@ -457,12 +478,13 @@ func ParseExport(args []string) (*Config, error) {
 	if cfg.Out == "" || cfg.To == "" {
 		return nil, errors.New("export requires --out and --to")
 	}
-	if !slices.Contains(
-		[]string{ExportQuire, ExportKiro, ExportCerbos, ExportCedarPolicy},
-		cfg.Format,
-	) {
-		return nil, fmt.Errorf("--format %q must be %s, %s, %s or %s",
-			cfg.Format, ExportQuire, ExportKiro, ExportCerbos, ExportCedarPolicy)
+	formats := []string{ExportQuire, ExportKiro, ExportCerbos, ExportCedarPolicy, ExportViews}
+	if !slices.Contains(formats, cfg.Format) {
+		return nil, fmt.Errorf(
+			"--format %q must be one of %s",
+			cfg.Format,
+			strings.Join(formats, ", "),
+		)
 	}
 	return cfg, nil
 }

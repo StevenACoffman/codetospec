@@ -262,7 +262,28 @@ bin/codetospec export --out <graph> --to <dir> --format kiro  # the rules as Kir
 bin/codetospec policies --out <graph> [--registry reg.json] [--checkers c.json] [--compare c2.json] [--lang en|fr] [--format md|json]  # policy inventory, each check defined and verified
 bin/codetospec export --out <graph> --to <dir> --format cerbos [--checkers c.json] [--registry reg.json] [--join <graph>=<checkers>]  # access guards as Cerbos policies
 bin/codetospec export --out <graph> --to <dir> --format cedar-policy  # ... in the Cedar policy language
+bin/codetospec export --out <graph> --to <dir> --format views [--checkers c.json] [--capabilities-from <admin graph>] [--lang en|fr]  # access matrix and decision diagrams
 ```
+
+`make build` also builds `bin/codetospec-d2`, which draws the diagrams
+(D2, laid out by ELK, in the diagram-design skill's default skin, light
+and dark). `run` and `export` find it beside `bin/codetospec`, then on
+`PATH` (`--d2-renderer` names another); without it they write each
+diagram's D2 source, and the README shows the source instead of the
+picture.
+
+`--format views` writes an access matrix (`index.html`): a row per
+exported operation and item kind, a column per kind of caller
+(anonymous, a push message, a service administrator call, a signed-in
+user, a phantom account, a site administrator, each role granted at each
+scope, each capability held explicitly), callers decided alike merged
+into one column; each cell is what the exported policies in the Cedar
+policy language decide, loaded as their contract says: allowed, denied,
+or what it depends on (the caller being the user concerned, a relation,
+the request's country or locale against the grant). Operations the
+exports leave out are listed with why. Each guarded operation also gets
+a decision diagram (`operations/<slug>.svg`): its checks in rule order,
+each a question.
 
 `--format cerbos` and `--format cedar-policy` (the Cedar policy language,
 not Khan's CEDAR analytics pipeline) write the extractor's access guards
@@ -717,7 +738,8 @@ stops the run before any LLM call.
 ```
 <out>/
 ├── llms.txt          # navigation guide for agents
-├── README.md         # summary, coverage report, Mermaid domain graph
+├── README.md         # summary, coverage report, domain map
+├── diagrams/         # domains.d2, and its light and dark SVGs when drawn
 ├── graph.json        # whole graph, machine format
 ├── questions.json    # findings to review, with their ids
 ├── resolutions.yaml  # yours: answers to questions (never written by codetospec)
@@ -730,7 +752,8 @@ stops the run before any LLM call.
 ```
 
 Domain `depends_on` edges are computed from import facts crossing domain
-boundaries — never by the LLM. The output README reports coverage: endpoints
+boundaries — never by the LLM. On the domain map, domains no edge
+touches share one grid, so they don't stretch the map into one row. The output README reports coverage: endpoints
 referenced by at least one rule, entities touched, failed chunks/domains,
 files without a grammar.
 

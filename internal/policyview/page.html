@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="{{.Lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Geist:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root { {{template "palette" .Light}} }
+@media (prefers-color-scheme: dark) { :root { {{template "palette" .Dark}} } }
+body { margin: 0; padding: 24px 16px; background: var(--paper); color: var(--ink); font: 14px/1.5 Geist, system-ui, sans-serif; }
+h1, h2 { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; }
+h1 { font-size: 28px; margin: 0 0 8px; }
+p { max-width: 72ch; color: var(--muted); }
+.scroll { overflow: auto; max-height: 80vh; border: 1px solid var(--rule); border-radius: 6px; }
+table { border-collapse: collapse; background: var(--node); }
+th, td { border-bottom: 1px solid var(--rule); padding: 8px 12px; text-align: left; vertical-align: top; }
+thead th { position: sticky; top: 0; background: var(--paper); font-weight: 600; min-width: 120px; z-index: 1; }
+tbody th { position: sticky; left: 0; background: var(--node); font-weight: 600; min-width: 240px; }
+td.denied { color: var(--soft); }
+td.depends { font-style: italic; }
+.note { display: block; font-weight: 400; color: var(--soft); font-size: 12px; }
+a { color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>{{.Title}}</h1>
+<p>{{.T.AccessIntro}}</p>
+<div class="scroll">
+<table>
+<thead><tr><th>{{.T.AccessOperation}}</th>{{range .Columns}}<th>{{.Label}}</th>{{end}}</tr></thead>
+<tbody>
+{{- $t := .T}}
+{{- range .Rows}}
+<tr><th>{{.Label}}{{if .Limited}}<span class="note">{{printf $t.AccessLimitedFmt .Limited}}</span>{{end}}{{if .Link}}<span class="note"><a href="{{.Link}}">{{$t.AccessDiagram}}</a></span>{{end}}</th>
+{{- range .Cells}}<td class="{{.Outcome}}">{{.Text}}</td>{{end}}</tr>
+{{- end}}
+</tbody>
+</table>
+</div>
+{{- if .Skipped}}
+<h2>{{.T.AccessSkippedTitle}}</h2>
+<p>{{.T.AccessSkippedIntro}}</p>
+<ul>
+{{- range .Skipped}}
+<li><strong>{{.Operation}}</strong>: {{range $i, $r := .Reasons}}{{if $i}}; {{end}}{{$r}}{{end}}</li>
+{{- end}}
+</ul>
+{{- end}}
+</body>
+</html>
+{{define "palette"}}--paper: {{.Paper}}; --ink: {{.Ink}}; --muted: {{.Muted}}; --soft: {{.Soft}}; --rule: {{.Rule}}; --node: {{.Node}};{{end}}

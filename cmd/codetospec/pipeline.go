@@ -21,6 +21,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/config"
 	"github.com/StevenACoffman/codetospec/internal/consistency"
 	"github.com/StevenACoffman/codetospec/internal/crosscheck"
+	"github.com/StevenACoffman/codetospec/internal/d2"
 	"github.com/StevenACoffman/codetospec/internal/domainmodel"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
@@ -182,12 +183,36 @@ func (p *pipeline) run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return p.finish(nodes, &meta, &written, &snapshot)
+	return p.finish(ctx, nodes, &meta, &written, &snapshot)
+}
+
+// drawDomainMap draws the README's domain map with --d2-renderer; without
+// one, or when it fails, the map is its source alone (said once), never
+// a failed run.
+func (p *pipeline) drawDomainMap(
+	ctx context.Context,
+	nodes []graph.Node,
+	groups map[string]string,
+) *d2.Picture {
+	renderer := d2.FindRenderer(p.cfg.D2Renderer)
+	if renderer.Cmd == "" {
+		p.logger.InfoContext(ctx, "no D2 renderer: the domain map is written as its source",
+			"renderer", p.cfg.D2Renderer)
+	}
+	name := render.DomainMapName
+	pictures, err := renderer.Draw(ctx, []string{name},
+		map[string]*d2.Diagram{name: render.DomainMap(nodes, groups,
+			locale.For(p.cfg.Lang).DomainsIsolated)})
+	if err != nil {
+		p.logger.WarnContext(ctx, "cannot draw the domain map", "err", err)
+	}
+	return &pictures[0]
 }
 
 // finish renders the graph and the domain models, closes the state and
 // completes the run summary.
 func (p *pipeline) finish(
+	ctx context.Context,
 	nodes []graph.Node,
 	meta *render.Meta,
 	written *domainmodel.Enhanced,
@@ -198,6 +223,7 @@ func (p *pipeline) finish(
 	}
 	meta.ModelUndefined = written.Undefined
 	p.sink.Emit(ui.PhaseChanged{Phase: "render"})
+	meta.DomainMap = p.drawDomainMap(ctx, nodes, meta.DomainGroups)
 	if err := render.Write(p.cfg.Out, nodes, meta); err != nil {
 		return err
 	}

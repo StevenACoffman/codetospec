@@ -124,6 +124,36 @@ func TestExportPolicyFormats(t *testing.T) {
 	}
 }
 
+// TestExportViews: the access matrix denies the login-guarded operation
+// to an anonymous caller and allows it to a signed-in one, and links its
+// decision diagram, written as its D2 source when no renderer is found.
+func TestExportViews(t *testing.T) {
+	outDir := guardedGraph(t, loginFacts)
+	to := filepath.Join(t.TempDir(), "views")
+	out := command(t, exportCmd, outFlag, outDir, toFlag, to, formatFlag, "views",
+		"--d2-renderer", filepath.Join(t.TempDir(), "absent"))
+	if !strings.Contains(out, "1 decision diagram(s)") {
+		t.Errorf("summary = %q", out)
+	}
+	index := filepath.Join(to, "index.html")
+	page, err := os.ReadFile(index) //nolint:gosec // the test's own output
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"<th>Anonymous caller", `<td class="denied">denied</td>`, `<td class="allowed">allowed</td>`,
+		`<a href="operations/`,
+	} {
+		if !strings.Contains(string(page), want) {
+			t.Errorf("index.html lacks %q", want)
+		}
+	}
+	diagrams, err := filepath.Glob(filepath.Join(to, "operations", "*.d2"))
+	if err != nil || len(diagrams) != 1 {
+		t.Errorf("diagrams = %v, %v; want one source", diagrams, err)
+	}
+}
+
 // TestExportJoinsCapabilities: a service names a capability another graph
 // (admin's) registers; alone its guard can't translate, joined with
 // --capabilities-from it becomes a deny on the stored name.

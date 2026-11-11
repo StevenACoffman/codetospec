@@ -167,7 +167,7 @@ func checkExportKiro(t *testing.T, outDir string, nodes []graph.Node) {
 		logger: slog.New(slog.NewTextHandler(t.Output(), nil)),
 	}
 	cfg := &config.Config{Out: outDir, To: to, Format: config.ExportKiro}
-	if code := c.export(cfg); code != exitOK {
+	if code := c.export(t.Context(), cfg); code != exitOK {
 		t.Fatalf("export exit = %d, want %d", code, exitOK)
 	}
 	written, err := fs.Glob(os.DirFS(to), ".kiro/specs/*/requirements.md")
@@ -207,7 +207,7 @@ func checkExport(t *testing.T, outDir string, nodes []graph.Node) {
 		stderr: t.Output(),
 		logger: slog.New(slog.NewTextHandler(t.Output(), nil)),
 	}
-	if code := c.export(&config.Config{Out: outDir, To: to}); code != exitOK {
+	if code := c.export(t.Context(), &config.Config{Out: outDir, To: to}); code != exitOK {
 		t.Fatalf("export exit = %d, want %d", code, exitOK)
 	}
 	frs, err := fs.Glob(os.DirFS(to), "functional/FR-*.md")
@@ -231,7 +231,7 @@ func checkExport(t *testing.T, outDir string, nodes []graph.Node) {
 		t.Errorf("exported %d FRs and %d NFRs, want %d and %d (at least one NFR): %s",
 			len(frs), len(nfrs), wantFRs, wantNFRs, stdout.String())
 	}
-	if code := c.export(&config.Config{Out: outDir, To: to}); code != exitFailure {
+	if code := c.export(t.Context(), &config.Config{Out: outDir, To: to}); code != exitFailure {
 		t.Errorf("second export into %s: exit = %d, want %d", to, code, exitFailure)
 	}
 }

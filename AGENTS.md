@@ -8,6 +8,7 @@ rules (EARS), cited line by line and verified. For the what/why, see
 
 ```sh
 go build -o bin/codetospec ./cmd/codetospec   # ALWAYS rebuild before a real run
+make build                                     # also bin/codetospec-d2 (renderers/d2), the diagram renderer
 make test                                      # go vet + go test, all modules
 make check                                     # lint + test + race + tidy + vuln (= CI)
 make corpus                                    # real graphs vs baselines, no LLM
@@ -353,7 +354,50 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   Dependencies approved for these: cedar-go (pinned v1.9.0, `x/exp`
   validator) and jsonschema/v6 (Cerbos's vendored schemas in testdata).
   Name the Cedar policy language in full: CEDAR is Khan's analytics
-  pipeline.
+  pipeline. `cedarpolicy.Decider` (`decide.go`) loads a persona
+  (`policy.Personas`: the fixed principal kinds, a phantom, a site
+  admin, each role granting a checked capability at each grant scope
+  `policy.Grant*`, each checked capability held explicitly) as the loader
+  contract says, each request fact no persona fixes (`FactsOf`: self,
+  coach, a relation or attribute, task, Okta; a user-scope grant's NWEA
+  district, a country or locale grant's match) both ways, and asks
+  `cedar.Authorize` on the exported text: allowed, denied, or which facts
+  it depends on (undecided past 10 facts). `TestDecideAgreesWithCases`
+  checks every loaded request against `Operation.Cases`, the checks'
+  truths asked of cedar-go one leaf at a time; on the six remapped
+  graphs, 0 disagreements in ~99k requests
+  (`docs/verification/policy-views-2026-11-10.md`).
+- `internal/d2` — every diagram, in D2 (the one place that knows the
+  language): callers build a `d2.Diagram` (nodes by class: step,
+  decision, terminal, focal, group (a container; `Columns` makes it a
+  grid), store, external; edges), `Source` writes it in a `Palette`
+  (`Light`, `Dark`: the diagram-design skill's default skin, profile
+  `codetospec` in `.diagram-design`, translucent roles composited: D2
+  takes no alpha, and explicit colours don't follow its dark theme, so
+  dark is a second source), only the classes used, ELK layout (the
+  skill's right-angle connectors). `Renderer.Draw` runs codetospec-d2
+  (`FindRenderer`: a path, or beside the executable, then `PATH`) on a
+  batch, JSON over stdio, both palettes; no renderer or a failed
+  diagram keeps the source (a picture never fails a run).
+  `Picture.Files`/`Markdown` own the file names (`name.d2`, `name.svg`,
+  `name-dark.svg`) and the README `<picture>`. `TestRendererTestdata`
+  keeps renderers/d2's test sources equal to `Source`'s output.
+  The output README's domain map is `render.DomainMap` (a namespace's
+  split domains in one container, their edges once; domains no edge
+  touches in one grid: ELK otherwise lays them in one row), drawn in
+  `pipeline.finish`, written under `<out>/diagrams/` (`ReplaceDir`: no
+  stale SVG). ELK's time grows faster than the edges (182 edges 16 s,
+  274 47 s, 378 two minutes, 1117 over ten): `Draw` sends no diagram of
+  more than `d2.MaxEdges` (300); it keeps its source.
+- `internal/policyview` — `export --format views` (`--lang`): the
+  access matrix (`index.html`, `page.html` embedded: markup only, words
+  from `locale.Access`) of every persona on every exported operation and
+  item kind, decided by `cedarpolicy.Decider`, personas decided alike
+  merged into one column (`Views.merge`), operations the exports leave
+  out listed with the skip reasons; and a decision diagram per guarded
+  operation (`operations/<slug>`: each guard's `Expr` as questions,
+  yes/no edges, in rule order; the one focal node is the allowed end,
+  never a denial). Pure until `Views.Files`; `export` draws and writes.
 - `internal/nfrtarget` — a person's answers to `nfr_target`:
   `<out>/targets.yaml` (never written), keyed by rule id (a question id
   hashes the cited code; a rule id survives edits and renames), each one
@@ -618,7 +662,15 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   not change (round-trip test).
 - `cmd/codetospec/main.go` — the full sequence.
 
-## Extractors = SEPARATE Go modules
+## Extractors and the D2 renderer = SEPARATE Go modules
+
+`renderers/d2/` (binary `codetospec-d2`, depends on
+`oss.terrastruct.com/d2`, whose ELK layout runs in an embedded JavaScript
+engine) draws D2 sources as SVG for `internal/d2`, protocol pinned in
+both package docs; Geist (`fonts/`, OFL) embedded; `OmitVersion`, so a
+rebuild against the same layout gives the same bytes. Its dependencies
+were bumped past govulncheck's called findings (`x/net`, `x/text`,
+`goldmark`).
 
 `extractors/php/` (composer), `extractors/go/` (own `go.mod`, depends on
 `golang.org/x/tools`), `extractors/scip/` (depends on `github.com/scip-code/scip`

@@ -15,6 +15,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/communities"
 	"github.com/StevenACoffman/codetospec/internal/concept"
 	"github.com/StevenACoffman/codetospec/internal/consistency"
+	"github.com/StevenACoffman/codetospec/internal/d2"
 	"github.com/StevenACoffman/codetospec/internal/domainmodel"
 	"github.com/StevenACoffman/codetospec/internal/extract"
 	"github.com/StevenACoffman/codetospec/internal/graph"
@@ -511,21 +512,91 @@ func TestDomainDiagramGroupsSplitNamespaces(t *testing.T) {
 	}
 	got := string(readme)
 	for _, want := range []string{
-		"  subgraph group_main[\"main\"]\n    cmd_backfill[\"cmd-backfill\"]\n    cmd_seed[\"cmd-seed\"]\n  end\n",
-		"  group_main --> models\n",
-		"  models --> cmd_seed\n",
-		"  tasks_main[\"tasks-main\"]\n",
-		"  tasks_main --> models\n",
+		"\"group:main\": \"main\" {class: group\n  \"cmd-backfill\": \"cmd-backfill\" {class: step}\n" +
+			"  \"cmd-seed\": \"cmd-seed\" {class: step}\n}\n",
+		"\"group:main\" -> \"models\"\n",
+		"\"models\" -> \"group:main\".\"cmd-seed\"\n",
+		"\"tasks-main\": \"tasks-main\" {class: step}\n",
+		"\"tasks-main\" -> \"models\"\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("diagram lacks %q:\n%s", want, got)
 		}
 	}
-	if n := strings.Count(got, "group_main --> models"); n != 1 {
+	if n := strings.Count(got, "\"group:main\" -> \"models\""); n != 1 {
 		t.Errorf("group arrow drawn %d times, want once:\n%s", n, got)
 	}
-	if strings.Contains(got, "group_main --> cmd_seed") {
+	if strings.Contains(got, "\"group:main\" -> \"group:main\".\"cmd-seed\"") {
 		t.Errorf("arrow within the group drawn:\n%s", got)
+	}
+	source, err := fs.ReadFile(os.DirFS(outDir), "diagrams/domains.d2")
+	if err != nil || !strings.Contains(got, string(source)) {
+		t.Errorf("diagrams/domains.d2 = %q, %v; want the README's source", source, err)
+	}
+}
+
+// TestDomainMapIsolatedGrid: domains no edge touches share one grid
+// container, square-ish; the others, and groups, stay where they are.
+func TestDomainMapIsolatedGrid(t *testing.T) {
+	nodes := []graph.Node{
+		{ID: "domain.api", Type: graph.TypeDomain, Edges: []graph.Edge{
+			{Type: graph.EdgeDependsOn, To: "domain.store"},
+		}},
+		{ID: "domain.store", Type: graph.TypeDomain},
+	}
+	for _, slug := range []string{"a", "b", "c", "d", "e"} {
+		nodes = append(nodes, graph.Node{ID: "domain." + slug, Type: graph.TypeDomain})
+	}
+	d := render.DomainMap(nodes, nil, "No dependencies")
+	grid := d.Nodes[0]
+	if grid.Class != d2.ClassGroup || grid.Label != "No dependencies" || grid.Columns != 3 {
+		t.Fatalf("first node = %+v, want the grid container of 3 columns", grid)
+	}
+	in := map[string]string{}
+	for _, n := range d.Nodes[1:] {
+		in[n.ID] = n.In
+	}
+	for _, slug := range []string{"a", "b", "c", "d", "e"} {
+		if in[slug] != grid.ID {
+			t.Errorf("%s is in %q, want the grid", slug, in[slug])
+		}
+	}
+	if in["api"] != "" || in["store"] != "" {
+		t.Errorf("connected domains moved: %v", in)
+	}
+}
+
+// TestReadmeDrawnDomainMap: a drawn map is shown as its SVG, the dark one
+// for a dark theme, linked to its source, all three under diagrams/.
+func TestReadmeDrawnDomainMap(t *testing.T) {
+	outDir := t.TempDir()
+	meta := render.Meta{Lang: "en", DomainMap: &d2.Picture{
+		Name: render.DomainMapName, Source: "a -> b\n",
+		SVG: []byte("<svg>light</svg>"), DarkSVG: []byte("<svg>dark</svg>"),
+	}}
+	if err := render.Write(outDir, nil, &meta); err != nil {
+		t.Fatal(err)
+	}
+	readme, err := fs.ReadFile(os.DirFS(outDir), "README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`<source media="(prefers-color-scheme: dark)" srcset="diagrams/domains-dark.svg">`,
+		`<img alt="Map of the domains and their dependencies" src="diagrams/domains.svg">`,
+		"[D2 source](diagrams/domains.d2)",
+	} {
+		if !strings.Contains(string(readme), want) {
+			t.Errorf("README lacks %q:\n%s", want, readme)
+		}
+	}
+	for name, want := range map[string]string{
+		"domains.d2": "a -> b\n", "domains.svg": "<svg>light</svg>", "domains-dark.svg": "<svg>dark</svg>",
+	} {
+		got, readErr := fs.ReadFile(os.DirFS(outDir), "diagrams/"+name)
+		if readErr != nil || string(got) != want {
+			t.Errorf("diagrams/%s = %q, %v; want %q", name, got, readErr, want)
+		}
 	}
 }
 

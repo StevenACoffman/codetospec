@@ -1,0 +1,21 @@
+vars: {d2-config: {layout-engine: elk}}
+direction: down
+style: {fill: "#2d3142"}
+classes: {
+  decision: {shape: diamond; style: {fill: "#393e53"; stroke: "#f5f5f5"; font-color: "#f5f5f5"; stroke-width: 1; font-size: 12}}
+  focal: {style: {fill: "#413a44"; stroke: "#f08a59"; font-color: "#f5f5f5"; border-radius: 6; stroke-width: 1; font-size: 12}}
+  group: {style: {fill: "#333747"; stroke: "#454957"; font-color: "#bfc0c0"; border-radius: 8; stroke-width: 1; font-size: 12}}
+  step: {style: {fill: "#393e53"; stroke: "#f5f5f5"; font-color: "#f5f5f5"; border-radius: 6; stroke-width: 1; font-size: 12}}
+  terminal: {shape: oval; style: {fill: "#3c3f4f"; stroke: "#8e98ac"; font-color: "#f5f5f5"; stroke-width: 1; font-size: 12}}
+}
+(** -> **)[*].style: {stroke: "#bfc0c0"; stroke-width: 1; font-color: "#8e98ac"; font-size: 12}
+"main": "main" {class: group
+  "cmd-a": "cmd-a" {class: step}
+  "cmd.b": "cmd-b" {class: step}
+}
+"lib": "lib" {class: focal}
+"q": "Signed in?" {class: decision}
+"end": "Allowed" {class: terminal}
+"main" -> "lib"
+"main"."cmd.b" -> "q": "uses"
+"q" -> "end": "yes"

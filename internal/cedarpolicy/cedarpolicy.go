@@ -85,6 +85,14 @@
 // erroring policy is skipped). The context carries
 // the request's attributes and locale. Expiry and similar are the
 // loader's to apply before building entities: the language has no now().
+//
+// Decider (decide.go) is a loader for personas (policy.Persona): it builds
+// a persona's entities under this contract, each request fact no persona
+// fixes (the user concerned is the caller, a relation, the request's
+// country or locale against a scoped grant: FactsOf) both ways, and asks
+// cedar.Authorize on the exported text. An access matrix built on it
+// shows what the export allows, not a Go reading of the templates; its
+// test checks every loaded request against the rules' conditions.
 package cedarpolicy
 
 import (

@@ -58,6 +58,9 @@ type Report struct {
 	// Regrouped is, per context domain, how many rules Regroup moved
 	// into it.
 	Regrouped map[string]int
+	// Sets are the conflicts' questions, in the order that settles the
+	// most soonest (ConflictSets).
+	Sets []ConflictSet
 }
 
 // The frontmatter keys Assign writes.
@@ -111,6 +114,7 @@ func Assign(nodes []graph.Node, concepts []Concept) ([]graph.Node, Report) {
 	for _, name := range slices.Sorted(maps.Keys(counts)) {
 		report.Concepts = append(report.Concepts, count(name, counts[name]))
 	}
+	report.Sets = ConflictSets(out)
 	return out, report
 }
 

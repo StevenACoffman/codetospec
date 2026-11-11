@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/alignment"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"gopkg.in/yaml.v3"
 )
@@ -123,6 +124,12 @@ func (l *Ledger) ResolvedRule(kind, id string) bool {
 // resolved.
 func (l *Ledger) ResolvedGap(g *graph.CoverageGap) bool {
 	return l.resolved[gapFinding(g)]
+}
+
+// ResolvedDivergence reports whether the question about a divergent pair
+// of concepts is resolved.
+func (l *Ledger) ResolvedDivergence(p *alignment.Pair) bool {
+	return l.resolved[KindConceptDivergence+"\x00"+PairSubject(p)]
 }
 
 // Count is how many questions are resolved.

@@ -146,6 +146,23 @@ holds the rest.
       proposal, marked)
       (`docs/verification/concept-regrouping-2026-11-10.md`: assignments,
       786 rules into one context on its proposal taken as confirmed).
+- [x] Compare the confirmed models with the code (`beyond_static_analysis`
+      ideas: reflexion models, recovery against ground truth, the smallest
+      question): `alignment.Measure` (pairs converge / diverge / absent /
+      unobservable from foreign keys and direct calls, `concept_divergence`
+      questions; scattering and tangling; adjusted Rand index of the
+      communities against the concepts) and `concept.ConflictSets`
+      (`docs/verification/concept-alignment-2026-11-11.md`: assignments,
+      16 divergent pairs, 11 conflicts settled by 4 questions, index 0.00).
+- [ ] Must and may graphs across services (`beyond_static_analysis` idea
+      5): reachability and propagation cost as an interval, direct imports
+      and calls against those plus interface dispatch, `callee_var` and
+      `dependency` facts, with the assumptions neither includes listed.
+      Wait for a second repo with cross-service edges (only webapp emits
+      `dependency` facts).
+- [ ] Decision-point coverage: a Go extractor fact per branch on a
+      business-relevant value, and the share some rule cites; plus the
+      chunks that mapped without error and produced no rule.
 - [ ] Variants (`DOMAIN_PLAN.md` recommendation 17): revisit when a
       confirmed model names the dimension; code enums find 8 of 67 pairs
       (`docs/verification/enum-variants-2026-11-04.md`).

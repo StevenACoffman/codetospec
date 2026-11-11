@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/StevenACoffman/codetospec/internal/alignment"
 	"github.com/StevenACoffman/codetospec/internal/concept"
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/questions"
@@ -39,7 +40,7 @@ func ungrounded(where, digest string) graph.Node {
 // only is the one question of nodes.
 func only(t *testing.T, nodes []graph.Node) questions.Question {
 	t.Helper()
-	qs := questions.List(nodes, nil)
+	qs := questions.List(nodes, nil, nil)
 	if len(qs) != 1 {
 		t.Fatalf("questions = %+v, want one", qs)
 	}
@@ -66,7 +67,7 @@ func TestList(t *testing.T) {
 		{Domain: "billing", Reason: graph.GapMapFailed, Path: "a.php", Lines: "1-9"},
 	}
 	var kinds []string
-	for _, q := range questions.List(nodes, gaps) {
+	for _, q := range questions.List(nodes, gaps, nil) {
 		kinds = append(kinds, q.Kind+" "+q.Subject)
 	}
 	slices.Sort(kinds)
@@ -99,7 +100,7 @@ func TestApply(t *testing.T) {
 		Disposition: questions.Verified,
 		Reason:      "the 30 is the contract's",
 	}
-	ledger := questions.Apply(questions.List(nodes, nil), map[string]questions.Resolution{
+	ledger := questions.Apply(questions.List(nodes, nil, nil), map[string]questions.Resolution{
 		q.ID:             resolution,
 		"q-000000000000": resolution,
 	})
@@ -114,7 +115,7 @@ func TestApply(t *testing.T) {
 	}
 
 	gaps := []graph.CoverageGap{gap("a.php"), gap("b.php")}
-	listed := questions.List(nil, gaps)
+	listed := questions.List(nil, gaps, nil)
 	ledger = questions.Apply(listed, map[string]questions.Resolution{listed[0].ID: resolution})
 	resolvedGap := slices.IndexFunc(gaps, func(g graph.CoverageGap) bool {
 		return g.String() == listed[0].Detail
@@ -227,7 +228,7 @@ func TestListNFRTarget(t *testing.T) {
 			}
 			var got []string
 			for _, q := range questions.List(
-				[]graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}}, nil) {
+				[]graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}}, nil, nil) {
 				got = append(got, q.Kind+" "+q.Detail)
 			}
 			if !slices.Equal(got, tc.want) {
@@ -258,7 +259,7 @@ func TestListConditionMismatch(t *testing.T) {
 			}
 			var got []string
 			for _, q := range questions.List(
-				[]graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}}, nil) {
+				[]graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}}, nil, nil) {
 				got = append(got, q.Kind+" "+q.Detail)
 			}
 			if !slices.Equal(got, tc.want) {
@@ -292,7 +293,7 @@ func TestListStaleTarget(t *testing.T) {
 			maps.Copy(extra, tc.extra)
 			var got []string
 			for _, q := range questions.List(
-				[]graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}}, nil) {
+				[]graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}}, nil, nil) {
 				got = append(got, q.Kind+" "+q.Detail)
 			}
 			if !slices.Equal(got, tc.want) {
@@ -326,7 +327,7 @@ func TestListNatureMismatch(t *testing.T) {
 			}
 			var got []string
 			for _, q := range questions.List(
-				[]graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}}, nil) {
+				[]graph.Node{{ID: ruleID, Type: graph.TypeRule, Extra: extra}}, nil, nil) {
 				got = append(got, q.Kind+" "+q.Detail)
 			}
 			if !slices.Equal(got, tc.want) {
@@ -345,7 +346,7 @@ func TestListConceptConflict(t *testing.T) {
 		got := questions.List([]graph.Node{{
 			ID: ruleID, Type: graph.TypeRule,
 			Extra: map[string]string{concept.ExtraConceptConflict: options},
-		}}, nil)
+		}}, nil, nil)
 		if len(got) != 1 || got[0].Kind != questions.KindConceptConflict {
 			t.Fatalf("questions = %+v, want one concept_conflict", got)
 		}
@@ -365,5 +366,55 @@ func TestListConceptConflict(t *testing.T) {
 		"a.Config: touches entity.configs; u.User: touches entity.users",
 	); other.ID == first.ID {
 		t.Error("other options kept the question's id")
+	}
+}
+
+// TestListConceptDivergence: a divergent pair is a question quoting three
+// evidence lines and counting the rest; more evidence keeps its id; a
+// converging pair asks nothing; a resolution hides it.
+func TestListConceptDivergence(t *testing.T) {
+	pair := func(outcome alignment.Outcome, evidence ...string) alignment.Pair {
+		return alignment.Pair{A: "m.A", B: "m.B", Outcome: outcome, Evidence: evidence}
+	}
+	cases := map[string]struct {
+		pair       alignment.Pair
+		wantDetail string // "" for no question
+	}{
+		"diverges, one line": {
+			pair(alignment.Diverges, "m.A → m.B: call a.go:1-2 → b.go:3-4"),
+			"m.A → m.B: call a.go:1-2 → b.go:3-4",
+		},
+		"diverges, five lines": {
+			pair(alignment.Diverges, "e1", "e2", "e3", "e4", "e5"),
+			"e1; e2; e3; +2",
+		},
+		"converges": {pair(alignment.Converges, "e1"), ""},
+		"absent":    {pair(alignment.Absent), ""},
+	}
+	ids := map[string]bool{}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := questions.List(nil, nil, []alignment.Pair{tc.pair})
+			if tc.wantDetail == "" {
+				if len(got) != 0 {
+					t.Fatalf("questions = %+v, want none", got)
+				}
+				return
+			}
+			if len(got) != 1 || got[0].Kind != questions.KindConceptDivergence ||
+				got[0].Subject != "m.A ~ m.B" || got[0].Detail != tc.wantDetail {
+				t.Fatalf("questions = %+v, want one divergence %q", got, tc.wantDetail)
+			}
+			ids[got[0].ID] = true
+			ledger := questions.Apply(got, map[string]questions.Resolution{
+				got[0].ID: {Disposition: questions.Verified, Reason: "the model lacks it"},
+			})
+			if !ledger.ResolvedDivergence(&tc.pair) {
+				t.Error("resolved divergence not reported resolved")
+			}
+		})
+	}
+	if len(ids) != 1 {
+		t.Errorf("ids = %v, want one: more evidence keeps the question", ids)
 	}
 }

@@ -588,8 +588,14 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   crosscheck, the render never writes `extracted_by` for it.
 - `internal/communities` — "scattered" domains: communities of the import
   graph (gonum's Louvain + connected components, fixed seed), section of
-  the output README. gonum is pinned: a version bump can change the
-  communities.
+  the output README. `Of` is the partition (file → community, numbered
+  by smallest file), `Splits` reads it, so the alignment shares one run.
+  gonum is pinned: a version bump can change the communities. Pitfall:
+  gonum walks the graph's nodes and neighbours in the order the graph
+  gives, and a `simple` graph gives its maps' order: ties broke
+  differently on each call (assignments: 9 or 10 communities from one
+  input). `sortedGraph` iterates by id; `TestOfDeterministic` fails
+  without it.
 - `internal/inherit` — inherits from a spec of shared code (`--inherit
   name=graph`, requires `--ref-root name=dir`): each LLM rule with a single
   citation falling in reached code (`reach` facts, emitted by an extractor,
@@ -659,6 +665,29 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   the EARS subject of the rules of its concepts (`graph.WithSubject`
   re-renders the sentence; reviewed rules untouched; runs after the
   crosscheck, which judged the sentence as the reduce wrote it).
+  `concept.ConflictSets` (in `Report.Sets`): the conflicts' concept sets
+  in the greedy order that settles the most soonest (answering a set
+  settles every conflict whose concepts it contains), listed in the
+  README's "Concepts" section.
+- `internal/alignment` — with `--domain-model`, `alignment.Measure` (in
+  `buildMeta`, pure, one entry point) compares the confirmed models with
+  the code, no LLM: each unordered pair of concepts (a model relationship
+  is structure, not a call direction) converges, diverges (a
+  `concept_divergence` question, id without digest: about the model),
+  is absent, or unobservable (one concept with neither placed rules nor
+  a table: unknown, not absent). Evidence from facts only: a foreign key
+  between the concepts' tables, a direct call (`extract.DirectCalls`, no
+  interface dispatch) from code one concept's placed rules cite into
+  code another's cite; imports left out (a package serves most
+  concepts). Also scattering (per concept, the directories its rules
+  cite) and tangling (per directory, the concepts), rule counts beside
+  them (size), and `Recovery`, the adjusted Rand index of the
+  communities against each file's majority concept. Declared relations:
+  `domainmodel.Relations` (every relationship and is-a link, qualified).
+  README "Concepts and code"
+  (`docs/verification/concept-alignment-2026-11-11.md`). The placement
+  itself rests on `touches` (reduce) and condition variables: the report
+  is deterministic given it.
 - `graph.SharedEntities` — entities touched by rules of several domains
   (`touches` links from the reduce), "Shared entities" section of the
   output README: shared kernel or misplaced boundary.

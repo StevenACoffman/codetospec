@@ -27,9 +27,11 @@ import (
 	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"slices"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/alignment"
 	"github.com/StevenACoffman/codetospec/internal/concept"
 	"github.com/StevenACoffman/codetospec/internal/crosscheck"
 	"github.com/StevenACoffman/codetospec/internal/graph"
@@ -66,19 +68,18 @@ const (
 	// each option with its evidence): the rule belongs to one of them, or
 	// the model lacks an owner.
 	KindConceptConflict = "concept_conflict"
-	KindCoverageGap     = "coverage_gap"
+	// KindConceptDivergence: the code relates two concepts of the
+	// confirmed models that the models don't relate (alignment.Diverges,
+	// with the foreign keys and calls that show it): a relationship the
+	// model lacks, or code on the wrong side of a boundary. Its id has no
+	// digest: it is about the model, which only a person changes, so new
+	// evidence for the same pair keeps the question.
+	KindConceptDivergence = "concept_divergence"
+	KindCoverageGap       = "coverage_gap"
 )
 
-// conceptNames is the concepts of a concept conflict, "A, B", without
-// their evidence.
-func conceptNames(options string) string {
-	var names []string
-	for part := range strings.SplitSeq(options, "; ") {
-		name, _, _ := strings.Cut(part, ": ")
-		names = append(names, name)
-	}
-	return strings.Join(names, ", ")
-}
+// shownEvidence is how many evidence lines a divergence's detail quotes.
+const shownEvidence = 3
 
 // Question is one finding a person may resolve.
 type Question struct {
@@ -94,10 +95,10 @@ type Question struct {
 // List lists the questions the nodes and coverage gaps raise.
 //
 // Requires: nodes as the run renders them (verdicts, grounding and digests
-// set); gaps from graph.AnnotateCoverage.
+// set); gaps from graph.AnnotateCoverage; pairs from alignment.Measure.
 // Ensures:  sorted by id, unresolved; the same findings on the same cited
 // code give the same ids.
-func List(nodes []graph.Node, gaps []graph.CoverageGap) []Question {
+func List(nodes []graph.Node, gaps []graph.CoverageGap, pairs []alignment.Pair) []Question {
 	var qs []Question
 	add := func(kind, subject, detail, key, digest string) {
 		qs = append(qs, Question{
@@ -122,8 +123,28 @@ func List(nodes []graph.Node, gaps []graph.CoverageGap) []Question {
 			finding: gapFinding(&g),
 		})
 	}
+	for i := range pairs {
+		if p := &pairs[i]; p.Outcome == alignment.Diverges {
+			subject := PairSubject(p)
+			add(KindConceptDivergence, subject, divergenceDetail(p), subject, "")
+		}
+	}
 	slices.SortFunc(qs, func(a, b Question) int { return cmp.Compare(a.ID, b.ID) })
 	return qs
+}
+
+// PairSubject is the subject of a pair's question: "A ~ B".
+func PairSubject(p *alignment.Pair) string { return p.A + " ~ " + p.B }
+
+// divergenceDetail quotes a divergence's first evidence lines and counts
+// the rest.
+func divergenceDetail(p *alignment.Pair) string {
+	shown := p.Evidence[:min(len(p.Evidence), shownEvidence)]
+	detail := strings.Join(shown, "; ")
+	if more := len(p.Evidence) - len(shown); more > 0 {
+		detail += fmt.Sprintf("; +%d", more)
+	}
+	return detail
 }
 
 // finding is one question a rule raises: its kind, detail and stable key.
@@ -168,7 +189,10 @@ func ruleFindings(n *graph.Node) []finding {
 	// The options are the key, not their evidence: an edge the reduce adds
 	// rewords the evidence, the choice stays.
 	if options := n.Extra[concept.ExtraConceptConflict]; options != "" {
-		found = append(found, finding{KindConceptConflict, options, conceptNames(options)})
+		found = append(found, finding{
+			KindConceptConflict, options,
+			strings.Join(concept.ConflictConcepts(options), ", "),
+		})
 	}
 	if quality.IsNFR(n) && n.Extra[graph.ExtraThreshold] == "" &&
 		n.Extra[graph.ExtraQuantity] == graph.QuantityStated {

@@ -528,7 +528,8 @@ consistency check, split into intra- and cross-domain) for a reviewer to
 reconcile; two extractor rules are never paired, since they come from one
 template and name different operations. It also lists **scattered domains**:
 domains whose files fall into several communities of the import graph
-(gonum's Louvain, split into connected parts, fixed seed), a sign a domain
+(gonum's Louvain over a graph iterated by id, split into connected parts,
+fixed seed), a sign a domain
 lumps unrelated code together (every Go `main` package, a catch-all schema
 file). It also lists **shared entities**: entities that rules of several
 domains touch, either a shared kernel to name as such or a sign a domain
@@ -735,6 +736,23 @@ or a whole model by its scope) becomes the EARS subject of the rules
 placed in them, the sentence rewritten from its components without an
 LLM; a reviewed rule keeps its own. An owned concept no model declares
 stops the run before any LLM call.
+
+**Concepts and code.** With `--domain-model`, the output README also
+compares the models with the code, from facts alone. Each pair of concepts
+either converges (the model relates them and the code shows it), diverges
+(the code relates them and the model doesn't: a `concept_divergence`
+question with its evidence), is absent (declared and not shown), or is
+unobservable (one concept has neither placed rules nor a table, so
+nothing could show it). The code shows a relationship through a foreign
+key between the concepts' tables, or a direct call from code one concept's
+rules cite into code another's cite. It also lists how many directories
+each concept's rules come from and how many concepts each directory
+serves, with rule counts beside them (a large concept reaches more
+directories by size alone), and how far the import graph's communities
+recover the concepts (adjusted Rand index). The concept conflicts become
+the fewest questions that settle them all: answering whether some
+concepts share an owner settles every conflict among them. These are
+descriptions, not quality scores.
 
 ## Output
 

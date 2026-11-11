@@ -37,6 +37,7 @@ type Text struct {
 	Policy
 	Access
 	Diagrams
+	Alignment
 }
 
 // ModelFile is the text codetospec writes into modelith model files.
@@ -223,6 +224,7 @@ model's own rating, not a check.`,
 		Policy:    newPolicy(tr),
 		Access:    newAccess(tr),
 		Diagrams:  newDiagrams(tr),
+		Alignment: newAlignment(tr),
 	}
 }
 

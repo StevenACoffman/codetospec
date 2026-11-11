@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/StevenACoffman/codetospec/internal/alignment"
 	"github.com/StevenACoffman/codetospec/internal/atomicfs"
 	"github.com/StevenACoffman/codetospec/internal/callers"
 	"github.com/StevenACoffman/codetospec/internal/communities"
@@ -681,8 +682,10 @@ type metaInputs struct {
 
 // buildMeta computes the output README's summary and checks.
 func buildMeta(cfg *config.Config, ext *extraction, in *metaInputs) render.Meta {
+	files := codeFiles(in.chunks)
+	community := communities.Of(files, importsOf(ext.facts))
 	meta := render.Meta{
-		DomainSplits:          communities.Splits(codeFiles(in.chunks), importsOf(ext.facts)),
+		DomainSplits:          communities.Splits(files, community),
 		Coverage:              graph.ComputeCoverage(in.nodes),
 		ChunksFailed:          in.snapshot.ChunksFailed,
 		ChunksTotal:           in.snapshot.ChunksTotal,
@@ -715,6 +718,14 @@ func buildMeta(cfg *config.Config, ext *extraction, in *metaInputs) render.Meta 
 		report := domainmodel.Compare(in.models, in.nodes,
 			domainmodel.Options{Entities: cfg.DomainModelEntities})
 		meta.DomainModel = &report
+		aligned := alignment.Measure(&alignment.Input{
+			Nodes:       in.nodes,
+			Facts:       ext.facts,
+			Concepts:    domainmodel.Concepts(in.models, &report),
+			Declared:    domainmodel.Relations(in.models),
+			Communities: community,
+		})
+		meta.Alignment = &aligned
 	}
 	return meta
 }

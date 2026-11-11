@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/StevenACoffman/codetospec/internal/alignment"
 	"github.com/StevenACoffman/codetospec/internal/communities"
 	"github.com/StevenACoffman/codetospec/internal/concept"
 	"github.com/StevenACoffman/codetospec/internal/consistency"
@@ -21,6 +22,7 @@ import (
 	"github.com/StevenACoffman/codetospec/internal/graph"
 	"github.com/StevenACoffman/codetospec/internal/locale"
 	"github.com/StevenACoffman/codetospec/internal/position"
+	"github.com/StevenACoffman/codetospec/internal/questions"
 	"github.com/StevenACoffman/codetospec/internal/render"
 )
 
@@ -647,7 +649,11 @@ func TestReadmeConceptsSection(t *testing.T) {
 	}
 	got := readme(&concept.Report{
 		Concepts: []concept.Count{
-			{Concept: "a.Assignment", Rules: 3, Domains: []string{"models (2)", "resolvers (1)"}},
+			{
+				Concept: conceptAssignment,
+				Rules:   3,
+				Domains: []string{"models (2)", "resolvers (1)"},
+			},
 		},
 		Conflicts: 1,
 		Unplaced:  2,
@@ -666,6 +672,114 @@ func TestReadmeConceptsSection(t *testing.T) {
 		t.Error("a Concepts section without models")
 	}
 }
+
+// TestReadmeAlignmentSection: the questions settling the conflicts, the
+// pairs by outcome with the unresolved divergences and the absences, the
+// recovery (an index rounding to zero written 0.00) and the spread
+// tables; a resolved divergence leaves the list (and stays in
+// questions.json); no section without models.
+func TestReadmeAlignmentSection(t *testing.T) {
+	const (
+		assignment  = conceptAssignment
+		student     = "a.Student"
+		config      = "a.Config"
+		pairSubject = assignment + " ~ " + config
+	)
+	readme := func(meta *render.Meta) (string, string) {
+		t.Helper()
+		outDir := t.TempDir()
+		if err := render.Write(outDir, nil, meta); err != nil {
+			t.Fatal(err)
+		}
+		data, err := fs.ReadFile(os.DirFS(outDir), "README.md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		qs, err := fs.ReadFile(os.DirFS(outDir), render.QuestionsFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data), string(qs)
+	}
+	report := &alignment.Report{
+		Pairs: []alignment.Pair{
+			{
+				A:        assignment,
+				B:        student,
+				Outcome:  alignment.Converges,
+				Evidence: []string{"fk"},
+			},
+			{
+				A: assignment, B: config, Outcome: alignment.Diverges,
+				Evidence: []string{"a.Assignment → a.Config: call a.go:1-2 → c.go:3-4", "second"},
+			},
+			{A: config, B: student, Outcome: alignment.Absent},
+		},
+		Scattering: []alignment.Spread{
+			{Name: assignment, Rules: 5, Places: 3, Top: "a", TopRules: 3},
+		},
+		Tangling: []alignment.Spread{
+			{Name: "shared", Rules: 4, Places: 2, Top: config, TopRules: 3},
+		},
+		Recovery: alignment.Agreement{
+			Files:       9,
+			Concepts:    3,
+			Communities: 4,
+			ARI:         0.25,
+			Defined:     true,
+		},
+	}
+	meta := &render.Meta{
+		Lang: "en",
+		Concepts: &concept.Report{
+			Conflicts: 3,
+			Sets: []concept.ConflictSet{
+				{Concepts: []string{config, "a.Event"}, Rules: 2, Settles: 2},
+				{Concepts: []string{student, "a.Event"}, Rules: 1, Settles: 1},
+			},
+		},
+		Alignment: report,
+	}
+	got, qs := readme(meta)
+	for _, want := range []string{
+		"These 2 questions, asked in order, settle the 3 conflicts",
+		"1. `a.Config`, `a.Event`: conflicts settled: 2\n",
+		"## Concepts and code",
+		"Pairs: 1 converge (declared and shown), 1 diverge",
+		"1 absent (declared, not shown), 0 unobservable",
+		"- `" + pairSubject + "`: a.Assignment → a.Config: call a.go:1-2 → c.go:3-4 (+1)\n",
+		"- `a.Config ~ a.Student`\n",
+		"adjusted Rand index of 0.25 (1: the same partition, 0: chance) over 9 files (3 concepts, 4 communities",
+		"| `a.Assignment` | 5 | 3 | `a` (3) |\n",
+		"| `shared` | 4 | 2 | `a.Config` (3) |\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("README lacks %q:\n%s", want, got)
+		}
+	}
+	if !strings.Contains(qs, questions.KindConceptDivergence) {
+		t.Errorf("questions.json lacks the divergence:\n%s", qs)
+	}
+
+	meta.Resolutions = map[string]questions.Resolution{
+		questions.ID(questions.KindConceptDivergence, pairSubject, pairSubject, ""): {
+			Disposition: questions.Verified, Reason: "the model lacks it",
+		},
+	}
+	if got, _ = readme(meta); strings.Contains(got, "- `"+pairSubject+"`") {
+		t.Errorf("a resolved divergence is listed:\n%s", got)
+	}
+	report.Recovery.ARI = -0.001
+	if got, _ = readme(meta); !strings.Contains(got, "adjusted Rand index of 0.00 ") {
+		t.Errorf("an index rounding to zero is not 0.00:\n%s", got)
+	}
+	if got, _ = readme(&render.Meta{Lang: "en"}); strings.Contains(got, "## Concepts and code") {
+		t.Error("a Concepts and code section without models")
+	}
+}
+
+// conceptAssignment is a concept of the tests' confirmed model.
+const conceptAssignment = "a.Assignment"
 
 // billingDomain is the id of the domain node the tests' rules belong to.
 const billingDomain = "domain.billing"

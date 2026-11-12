@@ -110,6 +110,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			skipDirs: dirSet(*skipDirs),
 			shared:   shared,
 			cover:    *coverProfile,
+			sqlGlob:  *sqlGlob,
 		}, log)
 		if err != nil {
 			log("%v", err)
@@ -132,6 +133,7 @@ type options struct {
 	skipDirs map[string]bool // directories whose routes are not entry points
 	shared   []SharedRoot    // shared code to emit reach facts for
 	cover    string          // coverage profile path, "" for none
+	sqlGlob  string          // the .sql files read as a schema, "" for all
 }
 
 // moduleFacts extracts the facts of a loaded module, logging their counts.
@@ -183,6 +185,10 @@ func moduleFacts(m *loadedModule, root string, opts *options, log logf) ([]Fact,
 		sharedKinds := SharedKindFacts(pkgs, fset, root, &opts.shared[i])
 		log("%d Datastore kind(s) of %s reached", len(sharedKinds), opts.shared[i].Name)
 		facts = append(facts, sharedKinds...)
+		schema := tableFacts(opts.shared[i].Dir, opts.sqlGlob, log)
+		sharedTables := SharedTableFacts(pkgs, fset, root, &opts.shared[i], schema)
+		log("%d SQL table(s) of %s queried", len(sharedTables), opts.shared[i].Name)
+		facts = append(facts, sharedTables...)
 	}
 	return facts, nil
 }

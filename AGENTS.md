@@ -805,6 +805,16 @@ built from a kind variable (`NameKey(V…)`, `NameKey(V.Value…)`, IDKey,
 IncompleteKey, or a function returning one) refers to that kind, `null`
 (a link, never ownership); key slices are left out (no multiplicity).
 The webapp extractor no longer emits kinds (one producer per kind).
+With a shared root, the Go extractor also replays that root's SQL schema
+and emits, cited under it (`table.@<root>/<name>`), the tables the
+queries the module calls name (`extractors/go/sqltables.go`,
+`SharedTableFacts`): the call closure from every function of the module
+through the shared code (static calls; an interface method call counts
+as the methods of that name on its package's implementing types, which
+is sqlc's Queries for its Querier), the SQL of each called function's
+string literals and package-level string constants (sqlc's generated
+queries, read on purpose: these facts describe no behaviour), names after
+FROM/JOIN/INTO/UPDATE kept only when the schema declares them.
 
 `api_type` (webapp: federated `@key` types, `owned` or extended,
 `deprecated`, `description` from the docstring, `implements`; plus the

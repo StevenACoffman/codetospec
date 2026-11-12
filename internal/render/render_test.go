@@ -536,6 +536,45 @@ func TestReadmeDiagrams(t *testing.T) {
 	}
 }
 
+// TestReadmePackageMapFit: a package map fitted to be drawable says so in
+// its intro: too many imports, then the grouping, then the arrows left
+// out; one only reduced says nothing of groups.
+func TestReadmePackageMapFit(t *testing.T) {
+	readme := func(groupDepth, implied int) string {
+		t.Helper()
+		out := t.TempDir()
+		meta := render.Meta{
+			Lang: "en", PackageMapGroupDepth: groupDepth, PackageMapImplied: implied,
+			PackageMap: &d2.Picture{
+				Name: render.PackageMapName, Source: "a -> b\n", SVG: []byte("<svg/>"),
+			},
+		}
+		if err := render.Write(out, nil, &meta); err != nil {
+			t.Fatal(err)
+		}
+		b, err := fs.ReadFile(os.DirFS(out), "README.md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	grouped := readme(2, 542)
+	want := "Too many imports to lay out (over 300). Packages are grouped by directory, " +
+		"2 levels below the shared prefix; a node \"…/ (n)\" stands for the n packages under it. " +
+		"542 arrows a longer path already says are left out"
+	if !strings.Contains(grouped, want) {
+		t.Errorf("README lacks %q:\n%s", want, grouped)
+	}
+	reduced := readme(0, 226)
+	if !strings.Contains(reduced, "(over 300). 226 arrows") ||
+		strings.Contains(reduced, "grouped") {
+		t.Errorf("reduced map's intro:\n%s", reduced)
+	}
+	if plain := readme(0, 0); strings.Contains(plain, "Too many imports") {
+		t.Errorf("a map drawn as it is says it was fitted:\n%s", plain)
+	}
+}
+
 // TestReadmeTestedLine: the README counts the rules a test reaches, then
 // apart those only an interface call reaches.
 func TestReadmeTestedLine(t *testing.T) {

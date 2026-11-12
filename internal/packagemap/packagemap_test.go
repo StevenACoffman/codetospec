@@ -1,6 +1,7 @@
 package packagemap_test
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 
@@ -62,7 +63,10 @@ func TestBuildFromPackageFacts(t *testing.T) {
 		importFact("pkg/rostering/sync.go", "rostering", shared+"/errors"),
 		importFact("pkg/rostering/sync.go", "rostering", "go.uber.org/zap"),
 	}
-	d := packagemap.Build(facts, none)
+	d, fit := packagemap.Build(facts, none)
+	if fit != (packagemap.Fit{}) {
+		t.Errorf("fit = %+v, want a small map drawn as it is", fit)
+	}
 	want := []string{
 		"roster/cmd -> roster/cmd/pull-topic",
 		"roster/cmd/pull-topic -> pkg/errors",
@@ -105,8 +109,75 @@ func TestBuildFromModuleFacts(t *testing.T) {
 		importFact("app/Http/Controllers/Billing.php", `App\Http\Controllers`,
 			`App\Services\Billing\ProrataCalculator`),
 	}
-	got := edges(packagemap.Build(facts, none))
+	d, _ := packagemap.Build(facts, none)
+	got := edges(d)
 	if want := []string{`Http\Controllers -> Services\Billing`}; !slices.Equal(got, want) {
 		t.Errorf("edges = %q, want %q", got, want)
+	}
+}
+
+// pkgs makes a package and file per name under module, and an import of
+// each target from each source.
+func pkgs(names []string, imports [][2]string) []extract.Fact {
+	var facts []extract.Fact
+	for _, n := range names {
+		facts = append(facts, pkgFact(module+"/"+n, n+"/x.go", ""))
+	}
+	for _, imp := range imports {
+		facts = append(facts, importFact(imp[0]+"/x.go", "", module+"/"+imp[1]))
+	}
+	return facts
+}
+
+// TestBuildLeavesOutImpliedEdges: a map over d2.MaxEdges loses the edges
+// a longer path implies; here every package imports every later one, so
+// only the chain is left, and the README can say how many went.
+func TestBuildLeavesOutImpliedEdges(t *testing.T) {
+	var names []string
+	var imports [][2]string
+	for i := range 30 {
+		names = append(names, fmt.Sprintf("chain/p%02d", i))
+	}
+	for i := range names {
+		for j := i + 1; j < len(names); j++ {
+			imports = append(imports, [2]string{names[i], names[j]})
+		}
+	}
+	d, fit := packagemap.Build(pkgs(names, imports), none)
+	if want := (packagemap.Fit{Implied: 435 - 29}); fit != want {
+		t.Errorf("fit = %+v, want %+v", fit, want)
+	}
+	got := edges(d)
+	if len(got) != 29 || got[0] != "p00 -> p01" || got[28] != "p28 -> p29" {
+		t.Errorf("edges = %q, want the chain p00 -> … -> p29", got)
+	}
+}
+
+// TestBuildGroupsByDirectory: when no edge is implied and there are still
+// too many, packages group at the deepest directory level that fits, a
+// group's label naming how many packages it stands for.
+func TestBuildGroupsByDirectory(t *testing.T) {
+	var sources, targets []string
+	for d := range 4 {
+		for p := range 5 {
+			sources = append(sources, fmt.Sprintf("s/d%d/p%d", d, p))
+			targets = append(targets, fmt.Sprintf("t/e%d/q%d", d, p))
+		}
+	}
+	const solo = "t/solo/z" // the only package of its directory
+	imports := [][2]string{{sources[0], solo}}
+	for _, s := range sources {
+		for _, tgt := range targets {
+			imports = append(imports, [2]string{s, tgt})
+		}
+	}
+	d, fit := packagemap.Build(pkgs(slices.Concat(sources, targets, []string{solo}), imports), none)
+	if want := (packagemap.Fit{GroupDepth: 2}); fit != want {
+		t.Errorf("fit = %+v, want %+v", fit, want)
+	}
+	got := edges(d)
+	if len(got) != 17 || got[0] != "s/d0/… (5) -> t/e0/… (5)" ||
+		!slices.Contains(got, "s/d0/… (5) -> t/solo/z") {
+		t.Errorf("edges = %q, want 4×4 directory groups and the lone package as itself", got)
 	}
 }

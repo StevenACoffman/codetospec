@@ -831,9 +831,9 @@ func (p *pipeline) modelsAndDiagrams(
 		return domainmodel.Enhanced{}, nil, err
 	}
 	text := locale.For(p.cfg.Lang)
-	diagrams := map[string]*d2.Diagram{
-		render.PackageMapName: packagemap.Build(facts, text.PackagesIsolated),
-	}
+	packageMap, fit := packagemap.Build(facts, text.PackagesIsolated)
+	meta.PackageMapGroupDepth, meta.PackageMapImplied = fit.GroupDepth, fit.Implied
+	diagrams := map[string]*d2.Diagram{render.PackageMapName: packageMap}
 	concepts, proposed := p.conceptMap(ctx, models, &enhanced, nodes, text)
 	if concepts != nil {
 		diagrams[render.ConceptMapName] = concepts

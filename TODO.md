@@ -3,7 +3,9 @@
 Outstanding work for codetospec found by comparing it with the
 harness-engineering notes (`~/Documents/git/harness-engineering/docs`), with
 anarch-lint (`~/Documents/git/anarch-lint`) and with the NLP4RE tools catalog
-(`nlp4re-tools.md`), plus what the policy work left open. `IMPROVEMENTS.md`
+(`nlp4re-tools.md`), with Akka's report on porting 65 projects with a
+spec-driven harness (`~/Documents/agent-orange/write/spec_driven_porting.md`),
+plus what the policy work left open. `IMPROVEMENTS.md`
 keeps the survey of neighbouring projects and its measurements; this file
 holds the rest.
 
@@ -824,3 +826,89 @@ examples) land before the remap. Decided 2026-11-02:
     told not to restate `MECHANICAL_RULES`. 35 % name a vocabulary
     variable, mostly struct fields
     (`docs/verification/post-remap-measurements-2026-11-04.md`).
+
+## Ideas From Spec-Driven Porting (`spec_driven_porting.md`)
+
+Akka ported 65 projects with a spec-driven harness. Its finding: the
+spec's discipline (enumerated claims, cited evidence, typed answers) and
+checks that say no decided first-pass correctness, more than the model or
+the effort. Its specification has five sections: scope with reasoned
+exclusions, domain model, numbered rules, open decisions, conformance
+(rule to source and test). codetospec already holds most of that. These
+are the parts it lacks, in the order to take them. Each starts with a
+measurement.
+
+- [ ] Enumerate the code's interface and require every entry to be
+      covered. The Go extractor emits routes and the webapp extractor
+      resolvers and cross-service calls, but not the environment
+      variables (`os.Getenv`, `os.LookupEnv`), flags (`flag.*`), config
+      keys, scheduled jobs or pub/sub topics. Coverage is per domain,
+      never per interface entry.
+  - First measure, on webapp and districts-jobs: how many such entries,
+    and what share no rule cites.
+  - Then: `interface` facts (kind, name, `file:line`); an entry no rule
+    cites raises an `interface_unspecified` question, answered
+    `verified` or `out-of-scope` in `resolutions.yaml`; the README counts
+    coverage per interface kind. Deterministic: no LLM, no cache.
+- [ ] Give each exclusion a reason. `--exclude` patterns are bare; the
+      spec's scope should say why code is out. An optional `reason` per
+      exclusion in `codetospec.yaml`; the README lists each exclusion,
+      its reason and the files it removed (with the out-of-scope
+      interface entries above).
+- [ ] Flag tested behaviour no rule states: the mirror of "rule without a
+      test". The reach machinery (`internal/testreach`) links tests to
+      rules; invert it to list the test functions whose reached code no
+      rule cites, as a `tested_unspecified` question. Measure the count
+      on districts first. Reading the assertions themselves
+      (`assert.Equal`, `t.Errorf` conditions) can follow.
+- [ ] Require a claim about a class to enumerate it ("any claim about a
+      class needs a list": the porting runs' cheapest fix for rework). A
+      rule naming "privileged roles" or "supported types" without the
+      members gets a `vague_claim` question; where its condition or a
+      cited enum holds the list, the exports spell it out. Measure the
+      precision by hand on one service before adding it: the last
+      clause-level check measured about 25 %, and the NLP4RE item above
+      says the same of a vagueness check.
+- [ ] Measure whether a rule's text alone carries its behaviour (the
+      porting report's "build from the specification alone"). An opt-in
+      eval like `CODETOSPEC_EVAL`: a model gets a rule's EARS text only,
+      never the code, and predicts each acceptance example's outcome;
+      agreement with `condition.Evaluate` scores the text. Low scorers
+      are the rules whose prose is plausible and wrong.
+- [ ] Measure each check's sensitivity on real code ("break the
+      specification on purpose"). For a sample of rules of a real graph,
+      mutate the cited code (drop the guard, change a constant) and
+      record which of drift, grounding and the crosscheck flags it:
+      `TestPlantedFaults` does this on fixtures only.
+- [ ] Try lower effort for the LLM phases. The porting runs found low
+      effort as good as high at a fraction of the cost. Run the
+      crosscheck and quality evals at a lower reasoning effort or a
+      cheaper model, under AGENTS.md's adoption criterion (balanced
+      accuracy no lower, no more false alarms, no more flips).
+- [ ] Let a person rank requirements for an MVP. Every rule is an equal
+      "shall" today: neither the Quire nor the Kiro export carries a
+      priority, and Planguage's `must`/`plan` in `targets.yaml` are two
+      levels within one NFR, not a ranking between requirements.
+      Priority is a product decision the code doesn't record, so
+      codetospec never infers it (`/akka:specify` treats such decisions
+      as policy: asked, never guessed). A `priorities.yaml` beside
+      `targets.yaml` and `resolutions.yaml`, keyed by rule id, MoSCoW
+      (`must`, `should`, `could`, `wont`) with the `digest` it was set
+      for, never written by codetospec; a malformed entry stops the run
+      before any LLM call. The exports carry it, and the README counts
+      rules per tier and lists the unranked.
+- [ ] Draft tiers from evidence to speed that ranking. A suggested core
+      from what the graph already holds: exposed by an endpoint
+      (`exposed_by`, journeys), reached by a test (`tests`, `executed`),
+      serving security, safety or compliance (`facets: access`),
+      placed on a core concept, the service's own code rather than
+      `inherited_from`. Labelled evidence, never priority, like the
+      concept proposal's drafts. Before building it, compare the drafts
+      with a person's ranking of one service, as the concept pilot did.
+      A related use: propose a first porting slice (the article ported
+      up to 10 % of each surface first) as the endpoints and rules a
+      chosen set of user tasks reaches.
+
+Not adopted: the differential oracle, adverse-condition observation and
+copy-time provenance need the system running or a port being built;
+codetospec reads code and never runs it.

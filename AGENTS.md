@@ -29,7 +29,9 @@ scripts/remap.sh                               # remap every ~/spec-graphs outpu
   A full remap goes through `scripts/remap.sh`: snapshot, pkg twice
   (run-to-run variance, `scripts/remapcheck.py`), services,
   districts-jobs, then the baselines re-recorded and their diff shown;
-  it refuses a dirty tree and a checkout that moves during the run.
+  it refuses a dirty tree, a checkout not on master or main
+  (`ALLOW_BRANCH=1` overrides), and a checkout that moves during the
+  run (checked before each step).
 - **Rebuild `bin/codetospec` after any code change before running it** —
   a stale binary silently produces a wrong run (it has happened).
 - CGO required (tree-sitter): `CGO_ENABLED=1`, C toolchain required.

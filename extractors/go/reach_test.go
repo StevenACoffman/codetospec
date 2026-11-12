@@ -8,23 +8,35 @@ import (
 )
 
 // sharedName is the shared root's name in the workspace tests, as
-// codetospec's --ref-root names it.
-const sharedName = "pkg"
+// codetospec's --ref-root names it; appMainFile, the analyzed module's
+// main file.
+const (
+	sharedName  = "pkg"
+	appMainFile = "app/main.go"
+)
 
 // writeWorkspace writes a go.work of two modules: shared (example.com/shared,
 // package lib) and app, which requires it the way districts-jobs modules
 // require pkg/ (replace => ../shared). It returns the workspace root.
 func writeWorkspace(t *testing.T) string {
 	t.Helper()
-	ws := t.TempDir()
-	files := map[string]string{
-		"go.work":          "go 1.26\n\nuse (\n\t./app\n\t./shared\n)\n",
-		"shared/go.mod":    "module example.com/shared\n\ngo 1.26\n",
-		"app/go.mod":       "module example.com/app\n\ngo 1.26\n\nrequire example.com/shared v0.0.0\n\nreplace example.com/shared => ../shared\n",
+	return writeTree(t, map[string]string{
 		"shared/lib.go":    sharedLib,
 		"shared/unused.go": "package lib\n\n// Unused is reached by nobody.\nfunc Unused() {}\n",
-		"app/main.go":      appMain,
-	}
+		appMainFile:        appMain,
+	})
+}
+
+// writeTree writes files into a new workspace of the two modules app and
+// shared (example.com/app requiring example.com/shared, replaced by
+// ../shared) and returns its root.
+func writeTree(t *testing.T, files map[string]string) string {
+	t.Helper()
+	ws := t.TempDir()
+	files["go.work"] = "go 1.26\n\nuse (\n\t./app\n\t./shared\n)\n"
+	files["shared/go.mod"] = "module example.com/shared\n\ngo 1.26\n"
+	files["app/go.mod"] = "module example.com/app\n\ngo 1.26\n\nrequire example.com/shared v0.0.0\n\n" +
+		"replace example.com/shared => ../shared\n"
 	for name, content := range files {
 		path := filepath.Join(ws, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {

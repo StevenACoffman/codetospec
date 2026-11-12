@@ -15,10 +15,11 @@
 #   1. build bin/codetospec and bin/webapp-extract (extractors/webapp);
 #   2. run the webapp extractor on $WEBAPP_DIR/services/<service>: mechanical
 #      authorization and rate-limit rules, schema-file domains, GraphQL
-#      endpoints, Datastore entities, schema docs, cross-service calls and
-#      the pkg/ declarations the service reaches; the Go extractor for
-#      net/http routes (pub/sub push handlers, REST endpoints), numeric
-#      constants, precise symbols and call edges (pkg too); and, with SCIP=1,
+#      endpoints, schema docs, cross-service calls and the pkg/
+#      declarations the service reaches; the Go extractor for net/http
+#      routes (pub/sub push handlers, REST endpoints), Datastore kinds,
+#      numeric constants, precise symbols and call edges (pkg too); and,
+#      with SCIP=1,
 #      index the service with scip-go;
 #   3. run codetospec on the service with those facts, against Gemini's
 #      OpenAI-compatible endpoint, with the key from $GEMINI_API_KEY.

@@ -71,6 +71,13 @@ const (
 	// The structural kinds every layer emits.
 	KindModule = "module"
 	KindImport = "import"
+	// KindTable is a stored entity: a SQL table (the Go extractor's
+	// migration replay) or a Datastore kind (the Go extractor's KindFacts:
+	// AttrName the kind, AttrStoredBy its model type when named otherwise,
+	// columns from its datastore tags, AttrReferences "null" for each key
+	// field the code assigns a key of another kind; a shared root's kind a
+	// module reaches is cited under that root). A shared root's SQL table
+	// is cited under it when a query the module calls names it.
 	KindTable  = "table"
 	KindSymbol = "symbol"
 	// KindPackage is one package of a language whose imports name a path

@@ -68,7 +68,6 @@ func Analyze(in *Inputs) ([]Fact, []string, error) {
 	found := policies(sources, known)
 	reach := reached(sources, shared)
 	resolverFacts, resolverWarnings := resolverScan(sources, schema, known, &w)
-	entFacts, entWarnings := entityFacts(sources)
 	depFacts, depWarnings := dependencyFacts(in, sources)
 
 	facts := slices.Concat(
@@ -80,7 +79,6 @@ func Analyze(in *Inputs) ([]Fact, []string, error) {
 		contractFacts(sources, shared, reach, &w),
 		servedFacts(sources, &w),
 		reachFacts(shared, reach),
-		entFacts,
 		depFacts,
 		roleFacts(sources, &w),
 		capabilityFacts(sources),
@@ -88,7 +86,7 @@ func Analyze(in *Inputs) ([]Fact, []string, error) {
 		valueKindFacts(),
 	)
 	warnings = slices.Concat(
-		warnings, sharedWarnings, resolverWarnings, entWarnings, depWarnings)
+		warnings, sharedWarnings, resolverWarnings, depWarnings)
 	facts = append(facts, accessCheckFacts(facts, known, sources, shared.sources)...)
 	sortFacts(facts)
 	return facts, warnings, nil

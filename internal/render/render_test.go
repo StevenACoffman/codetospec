@@ -575,6 +575,34 @@ func TestReadmePackageMapFit(t *testing.T) {
 	}
 }
 
+// TestReadmeConceptMapNone: with nothing to propose concepts from, the
+// README says so under the concept map heading; otherwise it says nothing.
+func TestReadmeConceptMapNone(t *testing.T) {
+	readme := func(none bool) string {
+		t.Helper()
+		out := t.TempDir()
+		if err := render.Write(
+			out,
+			nil,
+			&render.Meta{Lang: "en", ConceptMapNone: none},
+		); err != nil {
+			t.Fatal(err)
+		}
+		b, err := fs.ReadFile(os.DirFS(out), "README.md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	want := "## Concept map\n\nNo map: the code declares no table, Datastore kind or owned API type"
+	if got := readme(true); !strings.Contains(got, want) {
+		t.Errorf("README lacks %q:\n%s", want, got)
+	}
+	if got := readme(false); strings.Contains(got, "## Concept map") {
+		t.Errorf("README without the flag has a concept map section:\n%s", got)
+	}
+}
+
 // TestReadmeTestedLine: the README counts the rules a test reaches, then
 // apart those only an interface call reaches.
 func TestReadmeTestedLine(t *testing.T) {

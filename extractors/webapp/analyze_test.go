@@ -100,7 +100,6 @@ func TestAnalyzeWarnings(t *testing.T) {
 	cases := map[string]string{
 		"unparsable file is skipped":      "skip resolvers/broken.go",
 		"field-less resolver is reported": "Query.Orphan matches no schema field",
-		"kind without its struct":         "kind Orphan: struct Missing not found",
 	}
 	for name, want := range cases {
 		t.Run(name, func(t *testing.T) {

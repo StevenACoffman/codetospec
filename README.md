@@ -289,7 +289,7 @@ each a question.
 `--format anarch` writes `anarch-proposals.json`: architecture rules for
 [anarch-lint](https://github.com/StevenACoffman/anarch-lint) to review,
 in its proposals format (`anarch-lint schema --proposals`). For each
-enumerated field of a stored struct (a Datastore kind the webapp
+enumerated field of a stored struct (a Datastore kind the Go
 extractor names, with `stored_by`) that the code writes, it proposes a
 `fields` rule letting only today's writing packages write it, with the
 writes and the rules citing the writing code as evidence. A method writing its

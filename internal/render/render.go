@@ -67,6 +67,10 @@ type Meta struct {
 	// ConceptMapProposed (no --domain-model); nil for none.
 	ConceptMap         *d2.Picture
 	ConceptMapProposed bool
+	// ConceptMapNone, without a concept map, says there was nothing to
+	// propose concepts from (no --domain-model, no table, kind or owned API
+	// type): the README says so instead of leaving the section out.
+	ConceptMapNone bool
 	// Near-duplicate rule pairs (deterministic consistency check).
 	DuplicatePairs []consistency.DuplicatePair
 	// RuleFactsRejected counts extractor rule facts dropped as malformed.
@@ -681,6 +685,9 @@ func readme(nodes []graph.Node, meta *Meta, ledger *questions.Ledger, text *loca
 	}
 	b.WriteString(diagramSection(meta.ConceptMap, text.ConceptMapHeading, conceptsIntro,
 		text.ConceptMapAlt, text))
+	if meta.ConceptMap == nil && meta.ConceptMapNone {
+		b.WriteString("\n" + text.ConceptMapHeading + "\n\n" + text.ConceptMapNone + "\n")
+	}
 	return b.String()
 }
 

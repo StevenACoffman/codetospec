@@ -7,8 +7,9 @@
 #
 # Steps:
 #   1. preflight: the API key is set, the codetospec tree is clean, the
-#      webapp and districts-jobs checkouts' commits are recorded (the corpus
-#      baselines pin them: do not move them during the remap);
+#      webapp and districts-jobs checkouts are on master or main, and their
+#      commits are recorded (the corpus baselines pin them: do not move
+#      them during the remap; each step checks they have not moved);
 #   2. snapshot ~/spec-graphs to $SNAPSHOT (once: a rerun keeps the first
 #      snapshot), the "before" of every comparison;
 #   3. pkg, as every service inherits from it; then pkg a second time into
@@ -38,6 +39,8 @@
 #                    coaches districts graphql-gateway users)
 #   DISTRICTS_JOBS   1|0                   (default: 1 when ~/Documents/git/districts-jobs exists)
 #   VARIANCE         1|0                   (default: 1)
+#   ALLOW_BRANCH     1 maps a checkout on another branch or a detached
+#                    HEAD (default: refused)
 #   ACCEPTANCE       1|0                   (default: 1; the slowest pass, about
 #                    half of a service's time; only the Quire and Kiro exports
 #                    read it, and it can run later, cached per rule)
@@ -113,6 +116,36 @@ heads() {
 start_heads=$(heads)
 printf '%s\n' "$start_heads" | sed 's/^/    /' >&2
 
+# A checkout left on a feature branch would be mapped without notice
+# (docs/verification/remap-2026-11-12.md): each must be on master or main.
+checkouts=("webapp=$webapp_dir")
+if [ "$DISTRICTS_JOBS" = 1 ]; then checkouts+=("districts-jobs=$districts_dir"); fi
+for pair in "${checkouts[@]}"; do
+    name=${pair%%=*}
+    branch=$(git -C "${pair#*=}" symbolic-ref --short -q HEAD || printf '(detached)')
+    printf '    %s on %s\n' "$name" "$branch" >&2
+    case $branch in
+    master | main) ;;
+    *)
+        if [ "${ALLOW_BRANCH:-}" = 1 ]; then
+            printf '    warning: %s is on %s (ALLOW_BRANCH=1)\n' "$name" "$branch" >&2
+        elif [ -n "${DRY_RUN:-}" ]; then
+            printf '    warning: %s is on %s (a real run stops here)\n' "$name" "$branch" >&2
+        else
+            die "$name is on $branch, not master or main: switch it, or set ALLOW_BRANCH=1"
+        fi
+        ;;
+    esac
+done
+
+# unmoved stops the remap when a checkout has moved since the preflight,
+# before the next step spends its calls on a mix of commits.
+unmoved() {
+    if [ -z "${DRY_RUN:-}" ] && [ "$(heads)" != "$start_heads" ]; then
+        die "a checkout moved during the remap; the outputs mix commits. Was: $start_heads"
+    fi
+}
+
 # --- 2. snapshot ------------------------------------------------------------
 
 step "snapshot $graphs → $snapshot"
@@ -125,9 +158,11 @@ fi
 # --- 3. pkg, twice ------------------------------------------------------------
 
 step "pkg"
+unmoved
 run "$repo_dir/scanwebapp.sh" pkg "${flags[@]}"
 if [ "${VARIANCE:-1}" = 1 ]; then
     step "pkg again into $variance_dir (run-to-run variance; map and reduce only)"
+    unmoved
     run env OUT_DIR="$variance_dir" PKG_GRAPH= "$repo_dir/scanwebapp.sh" pkg
 fi
 
@@ -135,10 +170,12 @@ fi
 
 for svc in $services; do
     step "$svc"
+    unmoved
     run "$repo_dir/scanwebapp.sh" "$svc" "${flags[@]}"
 done
 if [ "$DISTRICTS_JOBS" = 1 ]; then
     step "districts-jobs"
+    unmoved
     run "$repo_dir/scandistricts.sh" all "${flags[@]}"
 fi
 
@@ -160,9 +197,7 @@ fi
 
 # --- 6. corpus ------------------------------------------------------------
 
-if [ -z "${DRY_RUN:-}" ] && [ "$(heads)" != "$start_heads" ]; then
-    die "a checkout moved during the remap; the outputs mix commits. Was: $start_heads"
-fi
+unmoved
 manifest=internal/corpus/testdata/corpus.json
 step "re-record the corpus baselines; old against new in the diff of $manifest"
 if [ -z "${DRY_RUN:-}" ]; then

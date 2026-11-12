@@ -390,7 +390,13 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   edge per import resolved exactly, else to the longest package
   prefixing it; shared-root packages drawn external, only when imported;
   labels without the prefix all share; unconnected packages in one
-  grid, `d2.GridIsolated`: ELK lays them in one row otherwise) and the
+  grid, `d2.GridIsolated`: ELK lays them in one row otherwise; a map
+  over `d2.MaxEdges` is fitted (`packagemap.Fit`, `fit.go`): first
+  without the edges a longer path implies (a reduction, in order, that
+  keeps what each node reaches), then, if still too many, packages
+  grouped by directory at the deepest level whose reduced map fits, a
+  directory of one package staying that package; the README intro says
+  which, `render.Meta.PackageMapGroupDepth` and `PackageMapImplied`) and the
   concept map (`domainmodel.ConceptMap`: a frame per model, entities
   with their placed rules, owns / references / is-a edges, other
   models' entities external; of the confirmed models, else of the
@@ -401,7 +407,10 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   written under `<out>/diagrams/` (`ReplaceDir`: no stale SVG). ELK's
   time grows faster than the edges (182 edges 16 s, 274 47 s, 358 97 s,
   378 two minutes, 1117 over ten): `Draw` sends no diagram of more than
-  `d2.MaxEdges` (300); it keeps its source.
+  `d2.MaxEdges` (300); it keeps its source. On the 2026-11-11 remap the
+  fit drew the three package maps that had none: webapp pkg (424 → 125
+  edges), districts-jobs roster (372 → 146), ai-guide (1,173 → 151 edges
+  between 103 directory groups, 2 levels).
 - `internal/policyview` — `export --format views` (`--lang`): the
   access matrix (`index.html`, `page.html` embedded: markup only, words
   from `locale.Access`) of every persona on every exported operation and

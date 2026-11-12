@@ -57,6 +57,11 @@ type Meta struct {
 	// PackageMap is the package dependency diagram (packagemap.Build) as
 	// the run drew it, named PackageMapName; nil for none.
 	PackageMap *d2.Picture
+	// What made the package map drawable when it had too many edges
+	// (packagemap.Fit): the directory levels its packages are grouped by,
+	// and the edges a longer path implies, left out; zero when drawn as
+	// it is.
+	PackageMapGroupDepth, PackageMapImplied int
 	// ConceptMap is the concept map (domainmodel.ConceptMap), named
 	// ConceptMapName, of the confirmed models, or of the proposal when
 	// ConceptMapProposed (no --domain-model); nil for none.
@@ -668,8 +673,8 @@ func readme(nodes []graph.Node, meta *Meta, ledger *questions.Ledger, text *loca
 	b.WriteString(modelSection(meta.DomainModel, text))
 	b.WriteString(modelFilesSection(meta, ledger, text))
 
-	b.WriteString(diagramSection(meta.PackageMap, text.PackagesHeading, text.PackagesIntro,
-		text.PackagesAlt, text))
+	b.WriteString(diagramSection(meta.PackageMap, text.PackagesHeading,
+		packagesIntro(meta, text), text.PackagesAlt, text))
 	conceptsIntro := text.ConceptMapIntro
 	if meta.ConceptMapProposed {
 		conceptsIntro = text.ConceptMapProposedIntro
@@ -677,6 +682,22 @@ func readme(nodes []graph.Node, meta *Meta, ledger *questions.Ledger, text *loca
 	b.WriteString(diagramSection(meta.ConceptMap, text.ConceptMapHeading, conceptsIntro,
 		text.ConceptMapAlt, text))
 	return b.String()
+}
+
+// packagesIntro is the package map's intro, saying what made a map too
+// big to lay out drawable.
+func packagesIntro(meta *Meta, text *locale.Text) string {
+	if meta.PackageMapGroupDepth == 0 && meta.PackageMapImplied == 0 {
+		return text.PackagesIntro
+	}
+	intro := text.PackagesIntro + " " + fmt.Sprintf(text.PackagesTooManyFmt, d2.MaxEdges)
+	if meta.PackageMapGroupDepth > 0 {
+		intro += " " + fmt.Sprintf(text.PackagesGroupedFmt, meta.PackageMapGroupDepth)
+	}
+	if meta.PackageMapImplied > 0 {
+		intro += " " + fmt.Sprintf(text.PackagesImpliedFmt, meta.PackageMapImplied)
+	}
+	return intro
 }
 
 // diagramSection is one diagram's README section: heading, intro, then

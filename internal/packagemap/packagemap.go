@@ -29,15 +29,17 @@ type pkg struct {
 
 // Build is the package dependency diagram of facts: a node per package,
 // an edge per package importing another (each pair once), the packages
-// no import connects gathered in one grid labelled isolatedLabel.
+// no import connects gathered in one grid labelled isolatedLabel. A map
+// with more edges than d2.MaxEdges is made drawable (see Fit): without the
+// edges a longer path implies, then, if still too many, by directory.
 //
 // Ensures: deterministic; nodes sorted by name, edges by importer then
 // target.
-func Build(facts []extract.Fact, isolatedLabel string) *d2.Diagram {
+func Build(facts []extract.Fact, isolatedLabel string) (*d2.Diagram, Fit) {
 	pkgs, importerOf := packages(facts)
 	targets := slices.Sorted(maps.Keys(pkgs))
 
-	edges := map[[2]string]bool{}
+	pairs := map[[2]string]bool{}
 	for i := range facts {
 		f := &facts[i]
 		if f.Kind != extract.KindImport || f.Source.Root != "" {
@@ -46,29 +48,51 @@ func Build(facts []extract.Fact, isolatedLabel string) *d2.Diagram {
 		from := importerOf(f)
 		to := resolve(targets, f.Attrs[extract.AttrTarget])
 		if from != "" && to != "" && from != to {
-			edges[[2]string{from, to}] = true
+			pairs[[2]string{from, to}] = true
 		}
 	}
-
+	edges := slices.SortedFunc(maps.Keys(pairs), compareEdges)
 	imported := map[string]bool{}
-	d := &d2.Diagram{}
-	for _, e := range slices.SortedFunc(maps.Keys(edges), compareEdges) {
-		d.Edges = append(d.Edges, d2.Edge{From: e[0], To: e[1]})
+	for _, e := range edges {
 		imported[e[1]] = true
 	}
-	prefix := commonPrefix(targets)
+	var drawn []string
 	for _, name := range targets {
-		p := pkgs[name]
-		if p.shared && !imported[name] {
-			continue
+		if !pkgs[name].shared || imported[name] {
+			drawn = append(drawn, name)
 		}
+	}
+	prefix := commonPrefix(targets)
+	f := fitEdges(drawn, edges, prefix)
+
+	d := &d2.Diagram{}
+	for _, e := range f.edges {
+		d.Edges = append(d.Edges, d2.Edge{From: e[0], To: e[1]})
+	}
+	for _, name := range slices.Sorted(maps.Keys(f.names)) {
 		class := d2.ClassStep
-		if p.shared {
+		if allShared(pkgs, drawn, name, prefix, f.fit.GroupDepth) {
 			class = d2.ClassExternal
 		}
-		d.Nodes = append(d.Nodes, d2.Node{ID: name, Label: label(name, prefix), Class: class})
+		d.Nodes = append(d.Nodes, d2.Node{
+			ID: name, Label: groupLabel(name, prefix, f.names[name]), Class: class,
+		})
 	}
-	return d2.GridIsolated(d, isolatedLabel)
+	return d2.GridIsolated(d, isolatedLabel), f.fit
+}
+
+// allShared reports whether node stands only for packages of a shared
+// root: the package itself, or every package drawn in its group.
+func allShared(pkgs map[string]pkg, drawn []string, node, prefix string, depth int) bool {
+	if p, ok := pkgs[node]; ok {
+		return p.shared
+	}
+	for _, name := range drawn {
+		if groupOf(name, prefix, depth) == node && !pkgs[name].shared {
+			return false
+		}
+	}
+	return true
 }
 
 // packages are facts' packages by name, and how to find the package an

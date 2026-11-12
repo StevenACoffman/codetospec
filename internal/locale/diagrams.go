@@ -6,6 +6,11 @@ type Diagrams struct {
 	// The package dependency diagram's section: heading, what it shows,
 	// its alternative text, and the label of its unconnected packages.
 	PackagesHeading, PackagesIntro, PackagesAlt, PackagesIsolated string
+	// What made a map too big to lay out drawable (packagemap.Fit), in
+	// this order: that it was (%d the most edges the renderer lays out),
+	// packages grouped by directory (%d levels), the edges a longer path
+	// implies left out (%d them).
+	PackagesTooManyFmt, PackagesGroupedFmt, PackagesImpliedFmt string
 	// The concept map's section: heading, what it shows (of confirmed
 	// models, or of the proposal), its alternative text, and the words of
 	// its edges and labels.
@@ -28,7 +33,19 @@ func newDiagrams(tr translate) Diagrams {
 			"Paquets du code et leurs imports",
 			"The code's packages and their imports",
 		),
-		PackagesIsolated:  tr("Sans import entre paquets", "No imports between packages"),
+		PackagesIsolated: tr("Sans import entre paquets", "No imports between packages"),
+		PackagesTooManyFmt: tr(
+			"Trop d'imports pour un dessin (plus de %d).",
+			"Too many imports to lay out (over %d).",
+		),
+		PackagesGroupedFmt: tr(
+			"Les paquets sont regroupés par répertoire, sur %d niveaux sous le préfixe commun ; un nœud « …/ (n) » tient pour les n paquets qu'il contient.",
+			"Packages are grouped by directory, %d levels below the shared prefix; a node \"…/ (n)\" stands for the n packages under it.",
+		),
+		PackagesImpliedFmt: tr(
+			"%d flèches qu'un chemin plus long dit déjà sont omises ; chaque dépendance se lit encore, le long d'un chemin.",
+			"%d arrows a longer path already says are left out; every dependency still reads, along a path.",
+		),
 		ConceptMapHeading: tr("## Carte des concepts", "## Concept map"),
 		ConceptMapIntro: tr(
 			"Les concepts des modèles confirmés (`--domain-model`), un cadre par contexte, et leurs relations ; chaque concept dit combien de règles y sont placées.",

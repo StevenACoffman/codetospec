@@ -839,6 +839,7 @@ func (p *pipeline) modelsAndDiagrams(
 		diagrams[render.ConceptMapName] = concepts
 		meta.ConceptMapProposed = proposed
 	}
+	meta.ConceptMapNone = concepts == nil && models == nil
 	if !p.cfg.WriteDomainModel {
 		enhanced = domainmodel.Enhanced{}
 	}

@@ -402,7 +402,8 @@ Pipeline: `extract → chunk → map → reduce → crosscheck(+repair) → qual
   models' entities external; of the confirmed models, else of the
   proposal `domainmodel.Proposal` reads from Enhance's output, which the
   run now builds even without `--write-domain-model`, titled
-  "(proposal)" and introduced as unconfirmed). Built in
+  "(proposal)" and introduced as unconfirmed; with neither, the README
+  says why under the heading, `render.Meta.ConceptMapNone`). Built in
   `pipeline.modelsAndDiagrams`, drawn in one batch in `pipeline.finish`,
   written under `<out>/diagrams/` (`ReplaceDir`: no stale SVG). ELK's
   time grows faster than the edges (182 edges 16 s, 274 47 s, 358 97 s,
@@ -788,14 +789,30 @@ field of the module's structs that holds one of its enumerations and that
 the function writes (assignment, increment, keyed literal), `field`,
 `field_package`, `enum`; a method's writes of its own receiver's type are
 left out, as anarch-lint leaves them out (`internal/anarch` reads them).
+And the Datastore kinds (`extractors/go/kinds.go`, `KindFacts`; for a
+shared root, `SharedKindFacts`, the kinds the module reaches by their
+variable or model type, cited under that root): a package variable whose
+type is a struct named `Kind` holding one string, set by
+`RegisterKind(k, new(T))` (webapp's `datastore.RegisterKind`,
+districts-jobs's `models.RegisterKind`) or `Kind{k}` (districts-jobs:
+the variable `<T>Kind` names the model `T`), k's constant value read by
+the type checker (a named constant too). Each kind is a `table` fact
+(`table.kind.<Kind>`, shared `table.kind.@<root>/<Kind>`): columns from
+the `datastore` tags (skipped, unexported and embedded fields left
+out), doc comments, `stored_by` when the model is named otherwise, and
+`references` (`keyrefs.go`): a single `*Key` field the code assigns a key
+built from a kind variable (`NameKey(V…)`, `NameKey(V.Value…)`, IDKey,
+IncompleteKey, or a function returning one) refers to that kind, `null`
+(a link, never ownership); key slices are left out (no multiplicity).
+The webapp extractor no longer emits kinds (one producer per kind).
 
 `api_type` (webapp: federated `@key` types, `owned` or extended,
 `deprecated`, `description` from the docstring, `implements`; plus the
 interfaces an owned type implements, `interface: true`) and the `table`
 facts' `references` (Go extractor: foreign keys, `not_null` = composition
 evidence), `primary_key`, `description`, `column_descriptions` (SQL
-comments; webapp: Datastore field comments) and `stored_by` (webapp: the
-Go type of a kind named otherwise) are concept seeds (DOMAIN_PLAN.md rec.
+comments; Datastore field comments) and `stored_by` (the Go type of a
+kind named otherwise) are concept seeds (DOMAIN_PLAN.md rec.
 7, 10). The Go extractor reads the `.sql` files in walk (name) order as
 one schema (`extractors/go/sql.go`, regexp-based on purpose: dialects and
 comments): ALTER TABLE (columns added, dropped, renamed, retyped, NOT

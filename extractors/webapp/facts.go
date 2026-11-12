@@ -40,7 +40,6 @@ const (
 	kindDomain     = "domain"
 	kindConstant   = "constant"
 	kindRoute      = "route"
-	kindTable      = "table"
 	kindDoc        = "doc"
 	kindReach      = "reach" // shared code the service reaches (codetospec's extract.KindReach)
 	kindDependency = "dependency"
@@ -63,22 +62,14 @@ const (
 	// links the rules it covers to the endpoint (codetospec's
 	// extract.AttrHandlerLines).
 	attrHandlerLines = "handler_lines"
-	attrColumns      = "columns"
 	attrSymbol       = "symbol" // the reached declaration, package-qualified
-	// attrDescription, on a table fact, is the entity's authored
-	// description: its struct's doc comment (codetospec's
-	// extract.AttrDescription).
+	// attrDescription, on an api_type fact, is the type's authored
+	// description: its docstring (codetospec's extract.AttrDescription).
 	attrDescription = "description"
-	// attrStoredBy, on a table fact, is the Go type a Datastore kind is
-	// registered with when it is named otherwise; attrColumnDescriptions,
-	// its fields' doc comments as a JSON object, column → text
-	// (codetospec's extract.AttrStoredBy, AttrColumnDescriptions).
-	attrStoredBy           = "stored_by"
-	attrColumnDescriptions = "column_descriptions"
-	attrText               = "text"
-	attrService            = "service"
-	attrOperation          = "operation"
-	attrAs                 = "as" // a dependency's authority: asServiceAdmin, asUser
+	attrText        = "text"
+	attrService     = "service"
+	attrOperation   = "operation"
+	attrAs          = "as" // a dependency's authority: asServiceAdmin, asUser
 )
 
 // Values of attrAs (codetospec's extract.AsServiceAdmin, extract.AsUser).

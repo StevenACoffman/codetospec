@@ -15,9 +15,12 @@ type Diagrams struct {
 	// models, or of the proposal), its alternative text, and the words of
 	// its edges and labels.
 	ConceptMapHeading, ConceptMapIntro, ConceptMapProposedIntro, ConceptMapAlt string
-	ConceptOwns, ConceptReferences, ConceptIsA                                 string
-	ConceptProposalFmt                                                         string // %s the model's title
-	ConceptRulesFmt                                                            string // %d rules placed in a concept
+	// ConceptMapNone says why there is no concept map: nothing to propose
+	// concepts from.
+	ConceptMapNone                             string
+	ConceptOwns, ConceptReferences, ConceptIsA string
+	ConceptProposalFmt                         string // %s the model's title
+	ConceptRulesFmt                            string // %d rules placed in a concept
 	// DiagramSource labels the link to a drawn diagram's D2 source.
 	DiagramSource string
 }
@@ -55,7 +58,11 @@ func newDiagrams(tr translate) Diagrams {
 			"**Proposition, non confirmée** : les concepts que codetospec tire du code (tables, types d'API, propriété par clés étrangères). Corrigez-la (`--write-domain-model` l'écrit dans `models/generated/`), puis passez-la avec `--domain-model` : alors seulement elle regroupe les règles.",
 			"**Proposal, not confirmed**: the concepts codetospec draws from the code (tables, API types, ownership from foreign keys). Correct it (`--write-domain-model` writes it under `models/generated/`), then pass it with `--domain-model`: only then does it regroup the rules.",
 		),
-		ConceptMapAlt:      tr("Concepts et leurs relations", "Concepts and their relationships"),
+		ConceptMapAlt: tr("Concepts et leurs relations", "Concepts and their relationships"),
+		ConceptMapNone: tr(
+			"Pas de carte : le code ne déclare ni table, ni kind Datastore, ni type d'API possédé, et n'en atteint aucun dans le code partagé ; aucun concept à proposer.",
+			"No map: the code declares no table, Datastore kind or owned API type, and reaches none in shared code; there is no concept to propose.",
+		),
 		ConceptOwns:        tr("possède", "owns"),
 		ConceptReferences:  tr("référence", "references"),
 		ConceptIsA:         tr("est un", "is a"),

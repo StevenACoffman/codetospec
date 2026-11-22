@@ -325,6 +325,48 @@ holds the rest.
     example to the reference case (validated against the schemas). A
     person's target also wins over a stated threshold.
 
+- [ ] Stop the export turning an aim into a ship-blocker, and take up
+      Planguage's full set of levels. `setMeasurement` fills the Threshold
+      cell with `cmp.Or(measure.Must, measure.Plan)` (`quire.go:306`), so
+      a Plan-only measure ("aim for this, not a ship-blocker") exports as
+      a pass/fail threshold. A Must-only measure has the same confusion in
+      reverse: its Target cell shows the floor as the aim (`quire.go:305`).
+      No test covers either case: every fixture sets both levels.
+  - Decided (2026-11-20): render an explicit none and adopt the levels
+    of Gilb's *Competitive Engineering* (2005); background in
+    `formal_prioritization.md`. Rejected: requiring
+    `must` (forces people to invent a ship-blocker for an aim, breaks the
+    README's "must and/or plan" and stops runs on Plan-only entries
+    already written); a `blocking:` flag (repeats what the presence of a
+    constraint level already says, can contradict it, and overlaps the
+    MoSCoW tier of `priorities.yaml` below); leaving the cell `unknown`
+    (reads as an open question beside `codetospec_threshold: set`).
+  - Levels: constraints `survival` (beyond it the system is useless) and
+    `fail` (beyond it the system fails); targets `goal` (committed),
+    `stretch` and `wish` (not committed). `must` and `plan`, the earlier
+    Planguage names, stay accepted as aliases of `fail` and `goal`;
+    giving both a name and its alias is an error. A measure needs a scale,
+    a meter and at least one level.
+  - Export: the Threshold cell is `fail`, with `survival` beside it, or
+    "None: a target only, not a ship-blocker" when neither is set; the
+    Target cell is `goal`, with `stretch` and `wish` beside it, or "None:
+    a constraint only" when none is set. `Target.Summary()` (the rule's
+    threshold frontmatter) lists the levels set in the order survival,
+    fail, goal, stretch, wish, so a re-run changes `must …; plan …` to
+    `fail …; goal …` once.
+  - Fix the `nfrtarget.go:46` comment: Fail is the level the system must
+    not fall below, not one it must reach. Update README.md:430,
+    AGENTS.md:429 and quire.go's package comment for the new levels.
+  - Say in the README and in `priorities.yaml`'s docs that the MoSCoW
+    `must` tier, a Planguage constraint level and the exports' "shall"
+    are independent: a Could-have rule can still have a Fail level.
+  - Not adopted yet: Planguage's `[qualifier]` levels (`goal [release
+    1]: 300 ms`), which tie a level to a release. Add them when someone
+    asks for per-release or MVP-only targets; `priorities.yaml` covers
+    the common case.
+  - Check the Must ≈ Fail, Plan ≈ Goal mapping against *Competitive
+    Engineering*'s glossary before writing the docs.
+
 ## Acceptance
 
 - [x] Add a journey node that orders endpoints and rules into a path someone

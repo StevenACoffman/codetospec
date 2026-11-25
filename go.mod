@@ -3,9 +3,9 @@ module github.com/StevenACoffman/codetospec
 go 1.27.4
 
 require (
-	github.com/StevenACoffman/indomain v0.3.0
+	github.com/StevenACoffman/indomain v0.5.0
 	github.com/StevenACoffman/toerr v0.3.0
-	github.com/cedar-policy/cedar-go v1.9.0
+	github.com/cedar-policy/cedar-go v1.9.2
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
@@ -18,7 +18,7 @@ require (
 	github.com/tree-sitter/tree-sitter-php v0.25.1
 	github.com/tree-sitter/tree-sitter-rust v0.24.2
 	github.com/tree-sitter/tree-sitter-typescript v0.23.2
-	golang.org/x/text v0.43.0
+	golang.org/x/text v0.44.0
 	gonum.org/v1/gonum v0.17.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -33,7 +33,7 @@ require (
 	github.com/clipperhouse/stringish v0.1.1 // indirect
 	github.com/clipperhouse/uax29/v2 v2.5.0 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
-	github.com/go-json-experiment/json v0.0.0-20260820222146-c27c302e5fc3 // indirect
+	github.com/go-json-experiment/json v1.27.2 // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
@@ -44,7 +44,8 @@ require (
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
 	golang.org/x/sys v0.38.0 // indirect
-	sigs.k8s.io/yaml v1.4.0 // indirect
+	sigs.k8s.io/yaml v1.6.0 // indirect
 )
